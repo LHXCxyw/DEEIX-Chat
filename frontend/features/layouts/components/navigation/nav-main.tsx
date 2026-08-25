@@ -3,7 +3,12 @@
 import * as React from "react";
 import { useTranslations } from "next-intl";
 
-import { SidebarGroup, SidebarMenu, useSidebar } from "@/components/ui/sidebar";
+import {
+  SidebarGroup,
+  SidebarMenu,
+  useSidebar,
+  useSidebarVisualState,
+} from "@/components/ui/sidebar";
 import {
   useLayoutNavigationSearch,
   useLayoutNavigationShortcuts,
@@ -18,7 +23,8 @@ export function NavMain({
   onCreateConversation: () => void;
 }) {
   const t = useTranslations("common.navigation");
-  const { state, isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const state = useSidebarVisualState();
   const isCollapsed = !isMobile && state === "collapsed";
 
   const search = useLayoutNavigationSearch({

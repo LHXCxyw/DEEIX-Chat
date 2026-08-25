@@ -31,6 +31,7 @@ import { ChatScreenshotSelectionBar } from "@/features/chat/components/sections/
 import { useChatMessageFeedback } from "@/features/chat/hooks/use-chat-message-feedback";
 import type { OpenCodeArtifactInput } from "@/features/chat/model/chat-artifacts";
 import { areChatAreaMessagesRenderEqual } from "@/features/chat/model/chat-message-render";
+import { MAX_SCREENSHOT_MESSAGES } from "@/features/chat/model/conversation-screenshot";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import type { ChatAreaMessage, MessageAttachment } from "@/features/chat/types/messages";
 import { cn } from "@/lib/utils";
@@ -146,7 +147,7 @@ type ChatAreaProps = {
   billingDisplayUsdToCnyRate?: number | null;
   splitRightInset?: boolean;
   contentWidthClassName?: string;
-  onScreenshotFull?: () => void;
+  onScreenshotLatest?: () => void;
   onScreenshotSelect?: () => void;
   screenshot?: {
     selectionMode: boolean;
@@ -529,7 +530,7 @@ export function ChatArea({
   billingDisplayUsdToCnyRate = null,
   splitRightInset = false,
   contentWidthClassName = "max-w-[1080px]",
-  onScreenshotFull,
+  onScreenshotLatest,
   onScreenshotSelect,
   screenshot,
 }: ChatAreaProps) {
@@ -598,9 +599,9 @@ export function ChatArea({
             shareActive={shareActive}
             onExport={canOperateConversation ? onExport : undefined}
             onDelete={canOperateConversation ? onDelete : undefined}
-            screenshotFullLabel={tScreenshot("captureFull")}
+            screenshotLatestLabel={tScreenshot("captureLatest")}
             screenshotSelectLabel={tScreenshot("captureSelect")}
-            onScreenshotFull={onScreenshotFull}
+            onScreenshotLatest={onScreenshotLatest}
             onScreenshotSelect={onScreenshotSelect}
           />
           {canOperateConversation ? (
@@ -611,9 +612,9 @@ export function ChatArea({
               active={shareActive}
               onShare={onShare}
               onExport={onExport}
-              screenshotFullLabel={tScreenshot("captureFull")}
+              screenshotLatestLabel={tScreenshot("captureLatest")}
               screenshotSelectLabel={tScreenshot("captureSelect")}
-              onScreenshotFull={onScreenshotFull}
+              onScreenshotLatest={onScreenshotLatest}
               onScreenshotSelect={onScreenshotSelect}
             />
           ) : null}
@@ -626,6 +627,7 @@ export function ChatArea({
             <ChatScreenshotSelectionBar
               selectedCount={screenshot.selectedCount}
               totalCount={selectableMessagePublicIDs.length}
+              maxSelectionCount={MAX_SCREENSHOT_MESSAGES}
               capturing={screenshot.capturing}
               onSelectAll={onSelectAllMessages}
               onClearSelection={screenshot.onClearSelection}
@@ -761,6 +763,7 @@ export function ChatArea({
                       key={item.key}
                       messageId={chatMessageScrollerID(item)}
                       className={spacingClass}
+                      data-screenshot-message-row="true"
                       data-chat-message-id={chatMessageScrollerID(item)}
                       data-chat-message-role={item.role}
                       data-message-public-id={publicID || undefined}

@@ -44,7 +44,7 @@ export function AppSidebar({
       };
 
   return (
-    <Sidebar collapsible="icon" {...props}>
+    <Sidebar collapsible="icon" expandOnHover {...props}>
       <SidebarHeader className="group-data-[collapsible=icon]:bg-background">
         <NavControl />
       </SidebarHeader>

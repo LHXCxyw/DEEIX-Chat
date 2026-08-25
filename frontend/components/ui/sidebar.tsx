@@ -47,6 +47,7 @@ type SidebarContextProps = {
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
+const SidebarVisualStateContext = React.createContext<SidebarContextProps["state"] | null>(null)
 
 function useSidebar() {
   const context = React.useContext(SidebarContext)
@@ -55,6 +56,15 @@ function useSidebar() {
   }
 
   return context
+}
+
+function useSidebarVisualState() {
+  const state = React.useContext(SidebarVisualStateContext)
+  if (!state) {
+    throw new Error("useSidebarVisualState must be used within a Sidebar.")
+  }
+
+  return state
 }
 
 function shouldAutoCollapseSidebar() {
@@ -262,62 +272,113 @@ function Sidebar({
   side = "left",
   variant = "sidebar",
   collapsible = "offcanvas",
+  expandOnHover = false,
   className,
   children,
+  onPointerEnter,
+  onPointerLeave,
   ...props
 }: React.ComponentProps<"div"> & {
   side?: "left" | "right"
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
+  expandOnHover?: boolean
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const {
+    isMobile,
+    open,
+    openMobile,
+    setOpenMobile,
+  } = useSidebar()
+  const [hoverExpanded, setHoverExpanded] = React.useState(false)
+  const visualState = open || hoverExpanded ? "expanded" : "collapsed"
   const t = useTranslations("common.navigation")
+
+  React.useEffect(() => {
+    if (isMobile || open || !expandOnHover || collapsible !== "icon") {
+      setHoverExpanded(false)
+    }
+  }, [collapsible, expandOnHover, isMobile, open])
+
+  const handlePointerEnter = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      onPointerEnter?.(event)
+      if (
+        expandOnHover &&
+        collapsible === "icon" &&
+        event.pointerType === "mouse" &&
+        !open
+      ) {
+        setHoverExpanded(true)
+      }
+    },
+    [collapsible, expandOnHover, onPointerEnter, open, setHoverExpanded]
+  )
+
+  const handlePointerLeave = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      onPointerLeave?.(event)
+      if (expandOnHover && collapsible === "icon" && event.pointerType === "mouse") {
+        setHoverExpanded(false)
+      }
+    },
+    [collapsible, expandOnHover, onPointerLeave, setHoverExpanded]
+  )
 
   if (collapsible === "none") {
     return (
-      <div
-        data-slot="sidebar"
-        className={cn(
-          "flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground",
-          className
-        )}
-        {...props}
-      >
-        {children}
-      </div>
+      <SidebarVisualStateContext.Provider value="expanded">
+        <div
+          data-slot="sidebar"
+          className={cn(
+            "flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground",
+            className
+          )}
+          onPointerEnter={onPointerEnter}
+          onPointerLeave={onPointerLeave}
+          {...props}
+        >
+          {children}
+        </div>
+      </SidebarVisualStateContext.Provider>
     )
   }
 
   if (isMobile) {
     return (
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
-        <SheetContent
-          data-sidebar="sidebar"
-          data-slot="sidebar"
-          data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
-          style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-            } as React.CSSProperties
-          }
-          side={side}
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>{t("sidebarTitle")}</SheetTitle>
-            <SheetDescription>{t("mobileSidebarDescription")}</SheetDescription>
-          </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
-        </SheetContent>
-      </Sheet>
+      <SidebarVisualStateContext.Provider value="expanded">
+        <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+          <SheetContent
+            data-sidebar="sidebar"
+            data-slot="sidebar"
+            data-mobile="true"
+            className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            style={
+              {
+                "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
+              } as React.CSSProperties
+            }
+            side={side}
+            onPointerEnter={onPointerEnter}
+            onPointerLeave={onPointerLeave}
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>{t("sidebarTitle")}</SheetTitle>
+              <SheetDescription>{t("mobileSidebarDescription")}</SheetDescription>
+            </SheetHeader>
+            <div className="flex h-full w-full flex-col">{children}</div>
+          </SheetContent>
+        </Sheet>
+      </SidebarVisualStateContext.Provider>
     )
   }
 
   return (
     <div
       className="group peer hidden text-sidebar-foreground md:block"
-      data-state={state}
-      data-collapsible={state === "collapsed" ? collapsible : ""}
+      data-state={visualState}
+      data-hover-expanded={hoverExpanded && !open ? "true" : "false"}
+      data-collapsible={visualState === "collapsed" ? collapsible : ""}
       data-variant={variant}
       data-side={side}
       data-slot="sidebar"
@@ -329,9 +390,10 @@ function Sidebar({
           "relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear",
           "group-data-[collapsible=offcanvas]:w-0",
           "group-data-[side=right]:rotate-180",
-          variant === "floating" || variant === "inset"
-            ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
-            : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)"
+          collapsible === "icon" && !open &&
+            (variant === "floating" || variant === "inset"
+              ? "w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
+              : "w-(--sidebar-width-icon)")
         )}
       />
       <div
@@ -345,16 +407,27 @@ function Sidebar({
           variant === "floating" || variant === "inset"
             ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r-[0.5px] group-data-[side=right]:border-l-[0.5px]",
+          "group-data-[hover-expanded=true]:z-30",
+          side === "left"
+            ? "group-data-[hover-expanded=true]:shadow-[8px_0_28px_-10px_rgb(0_0_0_/_0.16),1px_0_0_rgb(0_0_0_/_0.05)] dark:group-data-[hover-expanded=true]:shadow-[10px_0_32px_-10px_rgb(0_0_0_/_0.44),1px_0_0_rgb(255_255_255_/_0.06)]"
+            : "group-data-[hover-expanded=true]:shadow-[-8px_0_28px_-10px_rgb(0_0_0_/_0.16),-1px_0_0_rgb(0_0_0_/_0.05)] dark:group-data-[hover-expanded=true]:shadow-[-10px_0_32px_-10px_rgb(0_0_0_/_0.44),-1px_0_0_rgb(255_255_255_/_0.06)]",
           className
         )}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handlePointerLeave}
         {...props}
       >
         <div
           data-sidebar="sidebar"
           data-slot="sidebar-inner"
-          className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm"
+          className={cn(
+            "flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm",
+            expandOnHover && "whitespace-nowrap"
+          )}
         >
-          {children}
+          <SidebarVisualStateContext.Provider value={visualState}>
+            {children}
+          </SidebarVisualStateContext.Provider>
         </div>
       </div>
     </div>
@@ -619,7 +692,8 @@ function SidebarMenuButton({
   tooltip?: string | React.ComponentProps<typeof TooltipContent>
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? Slot.Root : "button"
-  const { isMobile, state } = useSidebar()
+  const { isMobile } = useSidebar()
+  const state = useSidebarVisualState()
 
   const button = (
     <Comp
@@ -829,5 +903,6 @@ export {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebarVisualState,
   useSidebar,
 }

@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { PanelLeft } from "@/components/animate-ui/icons/panel-left";
 import { PanelRight } from "@/components/animate-ui/icons/panel-right";
 import { Button } from "@/components/ui/button";
-import { useSidebar } from "@/components/ui/sidebar";
+import { useSidebar, useSidebarVisualState } from "@/components/ui/sidebar";
 import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
 import {
   Tooltip,
@@ -17,8 +17,10 @@ import { AppLogo } from "@/shared/components/app-logo";
 
 export function NavControl() {
   const t = useTranslations("common.navigation");
-  const { toggleSidebar, state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+  const { toggleSidebar, open } = useSidebar();
+  const state = useSidebarVisualState();
+  const isVisuallyCollapsed = state === "collapsed";
+  const isPersistentlyCollapsed = !open;
 
   return (
     <SidebarMenu>
@@ -27,7 +29,7 @@ export function NavControl() {
           <span
             className={cn(
               "flex min-w-0 items-center overflow-hidden whitespace-nowrap pl-2 transition-[max-width,opacity,transform,padding-left] ease-linear",
-              isCollapsed
+              isVisuallyCollapsed
                 ? "max-w-0 -translate-x-2 pl-0 opacity-0 duration-100"
                 : "max-w-[160px] translate-x-0 pl-2 opacity-100 duration-150",
             )}
@@ -50,17 +52,17 @@ export function NavControl() {
                 onClick={toggleSidebar}
                 className={cn(
                   "shrink-0 text-sidebar-foreground transition-[background-color,color,margin-left] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring/50 [&_svg]:pointer-events-auto",
-                  isCollapsed ? "ml-0" : "ml-auto",
+                  isVisuallyCollapsed ? "ml-0" : "ml-auto",
                 )}
               >
-                {isCollapsed ? (
+                {isPersistentlyCollapsed ? (
                   <PanelRight aria-hidden size={18} animateOnHover strokeWidth={1.4} />
                 ) : (
                   <PanelLeft aria-hidden size={18} animateOnHover strokeWidth={1.4} />
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right" hidden={!isCollapsed}>
+            <TooltipContent side="right" hidden={!isVisuallyCollapsed}>
               {t("toggleSidebar")}
             </TooltipContent>
           </Tooltip>

@@ -254,19 +254,6 @@ export function useChatData(
     }
   }, [conversationID]);
 
-  const loadAllOlderMessages = React.useCallback(async ({ maxPages = 50 }: { maxPages?: number } = {}) => {
-    for (let iteration = 0; iteration < maxPages; iteration += 1) {
-      if (!stateRef.current.hasOlder) {
-        return true;
-      }
-      const loaded = await loadOlderMessages();
-      if (!loaded) {
-        return !stateRef.current.hasOlder;
-      }
-    }
-    return !stateRef.current.hasOlder;
-  }, [loadOlderMessages]);
-
   const cancelResumedGeneration = React.useCallback(async () => {
     const active = activeResumeStreamRef.current;
     if (!active) {
@@ -582,7 +569,6 @@ export function useChatData(
     ...state,
     cancelResumedGeneration,
     loadOlderMessages,
-    loadAllOlderMessages,
     reload,
     replaceMessage,
     resumingActivityLabel,
