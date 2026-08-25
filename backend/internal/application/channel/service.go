@@ -97,6 +97,7 @@ func (s *Service) isModelAccessible(ctx context.Context, platformModelID uint, u
 type Service struct {
 	cfg                 *config.Runtime
 	repo                repository.ChannelRepository
+	userModelRepo       repository.UserModelRepository
 	presentationRepo    repository.ModelPresentationRepository
 	iconAssetRepo       repository.ModelIconAssetRepository
 	cache               repository.ChannelCacheRepository
@@ -137,12 +138,16 @@ func (s *Service) llmAttribution() (string, string) {
 
 // ResolvedRoute 模型请求路由结果。
 type ResolvedRoute struct {
-	RouteID                         uint
-	PlatformModelID                 uint
-	PlatformModelName               string
-	UpstreamModelID                 uint
-	UpstreamID                      uint
-	UpstreamName                    string
+	RouteID           uint
+	PlatformModelID   uint
+	PlatformModelName string
+	UpstreamModelID   uint
+	UpstreamID        uint
+	UpstreamName      string
+	// 用户自有渠道（BYOK）归属信息
+	UpstreamOwnerUserID             *uint
+	UpstreamOwnershipType           string
+	UpstreamBillingMode             string
 	BindingCode                     string
 	Protocol                        string
 	BaseURL                         string
@@ -177,6 +182,8 @@ type ResolvedRoute struct {
 // ResolveRouteInput 路由解析输入。
 type ResolveRouteInput struct {
 	PlatformModelName string
+	ModelScope        string
+	UserModelID       uint
 	TaskType          string
 	Scope             string
 	UserID            uint
@@ -220,9 +227,11 @@ func NewService(cfg config.Config, repo repository.ChannelRepository, presentati
 
 // NewServiceWithRuntime 创建使用运行时配置容器的服务。
 func NewServiceWithRuntime(cfg *config.Runtime, repo repository.ChannelRepository, presentationRepo repository.ModelPresentationRepository, cache repository.ChannelCacheRepository, llmClient *llm.Client) *Service {
+	userModelRepo, _ := repo.(repository.UserModelRepository)
 	return &Service{
 		cfg:              cfg,
 		repo:             repo,
+		userModelRepo:    userModelRepo,
 		presentationRepo: presentationRepo,
 		cache:            cache,
 		llmClient:        llmClient,

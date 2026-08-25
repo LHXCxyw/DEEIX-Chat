@@ -85,12 +85,11 @@ func (r *Repo) CreateUpstream(ctx context.Context, item *domainchannel.Upstream)
 // UpdateUpstream 更新上游。
 func (r *Repo) UpdateUpstream(ctx context.Context, upstreamID uint, input repository.UpdateChannelUpstreamInput) error {
 	updates := upstreamUpdates(input)
-	if len(updates) == 0 {
-		return nil
-	}
+	updates["ownership_type"] = "platform"
 	result := r.db.WithContext(ctx).
 		Model(&model.LLMUpstream{}).
 		Where("id = ?", upstreamID).
+		Where("(ownership_type = ? OR ((ownership_type IS NULL OR ownership_type = ?) AND owner_user_id IS NULL))", "platform", "").
 		Updates(updates)
 	if result.Error != nil {
 		return translateError(result.Error)
@@ -154,7 +153,10 @@ func upstreamUpdates(input repository.UpdateChannelUpstreamInput) map[string]int
 // GetUpstreamByID 按 ID 获取上游。
 func (r *Repo) GetUpstreamByID(ctx context.Context, upstreamID uint) (*domainchannel.Upstream, error) {
 	var item model.LLMUpstream
-	if err := r.db.WithContext(ctx).Where("id = ?", upstreamID).First(&item).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Where("id = ? AND owner_user_id IS NULL", upstreamID).
+		Where("(ownership_type = ? OR ownership_type IS NULL OR ownership_type = ?)", "platform", "").
+		First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUpstreamNotFound
 		}
@@ -198,7 +200,8 @@ func (r *Repo) GetUpstreamListRowByID(ctx context.Context, upstreamID uint) (*Up
 			"u.*, COALESCE(stats.models_count, 0) AS models_count, COALESCE(stats.active_models_count, 0) AS active_models_count",
 		).
 		Joins(upstreamListStatsJoinSQL()).
-		Where("u.id = ?", upstreamID).
+		Where("u.id = ? AND u.owner_user_id IS NULL", upstreamID).
+		Where("(u.ownership_type = ? OR u.ownership_type IS NULL OR u.ownership_type = ?)", "platform", "").
 		Scan(&item)
 	if result.Error != nil {
 		return nil, translateError(result.Error)
@@ -213,7 +216,7 @@ func upstreamListStatsJoinSQL() string {
 	return `LEFT JOIN (
 		SELECT um.upstream_id,
 			COUNT(DISTINCT CASE WHEN r.id IS NOT NULL THEN um.id END) AS models_count,
-			COUNT(DISTINCT CASE WHEN u.status = 'active' AND r.status = 'active' AND um.status = 'active' AND pm.status = 'active' THEN um.id END) AS active_models_count
+			COUNT(DISTINCT CASE WHEN u.status = 'active' AND r.status = 'active' AND um.status = 'active' AND pm.status = 'active' AND (u.ownership_type = 'platform' OR ((u.ownership_type IS NULL OR u.ownership_type = '') AND u.owner_user_id IS NULL)) THEN um.id END) AS active_models_count
 		FROM llm_upstream_models um
 		LEFT JOIN llm_upstreams u ON u.id = um.upstream_id
 		LEFT JOIN llm_model_routes r ON r.upstream_model_id = um.id
@@ -222,7 +225,18 @@ func upstreamListStatsJoinSQL() string {
 	) AS stats ON stats.upstream_id = u.id`
 }
 
+func applyPlatformUpstreamFilter(query *gorm.DB, columnPrefix string) *gorm.DB {
+	ownershipColumn := columnPrefix + "ownership_type"
+	ownerColumn := columnPrefix + "owner_user_id"
+	return query.Where(
+		"("+ownershipColumn+" = ? OR (("+ownershipColumn+" IS NULL OR "+ownershipColumn+" = ?) AND "+ownerColumn+" IS NULL))",
+		"platform",
+		"",
+	)
+}
+
 func applyUpstreamListFilters(query *gorm.DB, input repository.ListChannelUpstreamsInput) *gorm.DB {
+	query = applyPlatformUpstreamFilter(query, "")
 	if keyword := strings.TrimSpace(input.Query); keyword != "" {
 		like := "%" + strings.ToLower(keyword) + "%"
 		query = query.Where("LOWER(name) LIKE ? OR LOWER(base_url) LIKE ?", like, like)
@@ -504,6 +518,8 @@ func (r *Repo) modelListQuery(ctx context.Context) *gorm.DB {
 				FROM llm_model_routes r
 				JOIN llm_upstream_models um ON um.id = r.upstream_model_id
 				JOIN llm_upstreams u ON u.id = um.upstream_id
+				WHERE (u.ownership_type = 'platform' OR u.ownership_type IS NULL OR u.ownership_type = '')
+					AND u.owner_user_id IS NULL
 				GROUP BY r.platform_model_id
 			) AS stats ON stats.platform_model_id = m.id`,
 		)
@@ -614,6 +630,8 @@ func applyModelListFilters(query *gorm.DB, input repository.ListChannelModelsInp
 				JOIN llm_upstream_models um ON um.id = r.upstream_model_id
 				JOIN llm_upstreams u ON u.id = um.upstream_id
 				WHERE r.platform_model_id = m.id
+					AND (u.ownership_type = 'platform' OR u.ownership_type IS NULL OR u.ownership_type = '')
+					AND u.owner_user_id IS NULL
 					AND r.status = 'active'
 					AND um.status = 'active'
 					AND u.status = 'active'
@@ -1693,6 +1711,9 @@ type routeScanRow struct {
 	UpstreamModelID                 uint
 	UpstreamID                      uint
 	UpstreamName                    string
+	UpstreamOwnerUserID             *uint
+	UpstreamOwnershipType           string
+	UpstreamBillingMode             string
 	PlatformModelID                 uint
 	PlatformModelName               string
 	ModelVendor                     string
@@ -1728,11 +1749,31 @@ type routeScanRow struct {
 
 // ListActiveRoutesByModel 按平台模型名查询可用路由。
 func (r *Repo) ListActiveRoutesByModel(ctx context.Context, platformModelName string) ([]UpstreamRouteRow, error) {
+	return r.listActiveRoutes(ctx, platformModelName, listActiveRoutesFilter{})
+}
+
+// ListActiveRoutesByModelWithOwnership 按平台模型名与渠道归属查询可用路由。
+// ownershipType 为 "user" 时必须提供有效的 ownerUserID，避免跨用户读取。
+func (r *Repo) ListActiveRoutesByModelWithOwnership(ctx context.Context, platformModelName string, ownershipType string, ownerUserID *uint) ([]UpstreamRouteRow, error) {
+	return r.listActiveRoutes(ctx, platformModelName, listActiveRoutesFilter{
+		OwnershipType: strings.TrimSpace(ownershipType),
+		OwnerUserID:   ownerUserID,
+	})
+}
+
+// listActiveRoutesFilter 描述活跃路由查询的可选归属过滤条件。
+type listActiveRoutesFilter struct {
+	OwnershipType string
+	OwnerUserID   *uint
+}
+
+func (r *Repo) listActiveRoutes(ctx context.Context, platformModelName string, filter listActiveRoutesFilter) ([]UpstreamRouteRow, error) {
 	scanned := make([]routeScanRow, 0)
-	if err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Table("llm_model_routes AS r").
 		Select(
 			"r.id AS route_id, um.id AS upstream_model_id, u.id AS upstream_id, u.name AS upstream_name, "+
+				"u.owner_user_id AS upstream_owner_user_id, u.ownership_type AS upstream_ownership_type, u.billing_mode AS upstream_billing_mode, "+
 				"pm.id AS platform_model_id, pm.name AS platform_model_name, pm.vendor AS model_vendor, pm.icon AS model_icon, pm.kinds_json AS model_kinds_json, pm.capabilities_json AS model_capabilities_json, pm.system_prompt AS model_system_prompt, "+
 				"r.protocol, u.base_url, u.api_keys_enc, "+
 				"u.connect_timeout_ms, u.read_timeout_ms, u.stream_idle_timeout_ms, "+
@@ -1754,9 +1795,22 @@ func (r *Repo) ListActiveRoutesByModel(ctx context.Context, platformModelName st
 		Joins("JOIN llm_platform_models pm ON pm.id = r.platform_model_id").
 		Joins("JOIN llm_upstream_models um ON um.id = r.upstream_model_id").
 		Joins("JOIN llm_upstreams u ON u.id = um.upstream_id").
-		Where("pm.name = ? AND pm.status = ? AND r.status = ? AND um.status = ? AND u.status = ?", strings.TrimSpace(platformModelName), "active", "active", "active", "active").
-		Order("r.priority ASC, r.id ASC").
-		Scan(&scanned).Error; err != nil {
+		Where("pm.name = ? AND pm.status = ? AND r.status = ? AND um.status = ? AND u.status = ?", strings.TrimSpace(platformModelName), "active", "active", "active", "active")
+
+	// 根据归属类型过滤渠道
+	switch filter.OwnershipType {
+	case "platform":
+		// 平台渠道：历史数据可能为空值，按 NULL 归属兜底
+		query = query.Where("(u.ownership_type = ? OR u.ownership_type IS NULL OR u.ownership_type = ?) AND u.owner_user_id IS NULL", "platform", "")
+	case "user":
+		// 用户渠道：必须提供有效用户 ID，避免跨用户读取
+		if filter.OwnerUserID == nil || *filter.OwnerUserID == 0 {
+			return []UpstreamRouteRow{}, nil
+		}
+		query = query.Where("u.ownership_type = ? AND u.owner_user_id = ?", "user", *filter.OwnerUserID)
+	}
+
+	if err := query.Order("r.priority ASC, r.id ASC").Scan(&scanned).Error; err != nil {
 		return nil, translateError(err)
 	}
 
@@ -1767,6 +1821,9 @@ func (r *Repo) ListActiveRoutesByModel(ctx context.Context, platformModelName st
 			UpstreamModelID:                 s.UpstreamModelID,
 			UpstreamID:                      s.UpstreamID,
 			UpstreamName:                    s.UpstreamName,
+			UpstreamOwnerUserID:             s.UpstreamOwnerUserID,
+			UpstreamOwnershipType:           s.UpstreamOwnershipType,
+			UpstreamBillingMode:             s.UpstreamBillingMode,
 			PlatformModelID:                 s.PlatformModelID,
 			PlatformModelName:               s.PlatformModelName,
 			ModelVendor:                     s.ModelVendor,
@@ -1894,7 +1951,7 @@ func (r *Repo) UpsertLLMSetting(ctx context.Context, item *domainchannel.LLMSett
 func (r *Repo) DeleteUpstreamCascade(ctx context.Context, upstreamID uint) error {
 	return translateError(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var item model.LLMUpstream
-		if err := tx.Where("id = ?", upstreamID).First(&item).Error; err != nil {
+		if err := tx.Where("id = ? AND (ownership_type = ? OR ((ownership_type IS NULL OR ownership_type = ?) AND owner_user_id IS NULL))", upstreamID, "platform", "").First(&item).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrUpstreamNotFound
 			}
@@ -1951,6 +2008,10 @@ func toUpstreamDomain(item model.LLMUpstream) domainchannel.Upstream {
 		Name:                 item.Name,
 		BaseURL:              item.BaseURL,
 		Compatible:           item.Compatible,
+		OwnerUserID:          item.OwnerUserID,
+		OwnershipType:        item.OwnershipType,
+		IsSharedWithPlatform: item.IsSharedWithPlatform,
+		BillingMode:          item.BillingMode,
 		ProtocolDefaultsJSON: item.ProtocolDefaultsJSON,
 		Status:               item.Status,
 		ConnectTimeoutMS:     item.ConnectTimeoutMS,
@@ -1973,7 +2034,16 @@ func toUpstreamModel(item *domainchannel.Upstream) model.LLMUpstream {
 		return model.LLMUpstream{}
 	}
 	return model.LLMUpstream{
+		BaseModel: model.BaseModel{
+			ID:        item.ID,
+			CreatedAt: item.CreatedAt,
+			UpdatedAt: item.UpdatedAt,
+		},
 		Name:                 item.Name,
+		OwnerUserID:          item.OwnerUserID,
+		OwnershipType:        item.OwnershipType,
+		IsSharedWithPlatform: item.IsSharedWithPlatform,
+		BillingMode:          item.BillingMode,
 		BaseURL:              item.BaseURL,
 		Compatible:           item.Compatible,
 		ProtocolDefaultsJSON: item.ProtocolDefaultsJSON,

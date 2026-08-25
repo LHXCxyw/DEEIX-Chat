@@ -156,11 +156,21 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 	case "chat:skills_prompt":
 		cfg.SkillsPrompt = item.Value
 	case "chat:model_option_policy_mode":
-		cfg.ModelOptionPolicyMode = strings.TrimSpace(item.Value)
+		cfg.ModelOptionPolicyMode = item.Value
 	case "chat:model_option_allowed_paths":
 		cfg.ModelOptionAllowedPaths = item.Value
 	case "chat:model_option_denied_paths":
 		cfg.ModelOptionDeniedPaths = item.Value
+	
+	// 用户自有渠道配置（BYOK）
+	case "chat:user_upstream_enabled":
+		cfg.UserUpstreamEnabled = toBool(item.Value, cfg.UserUpstreamEnabled)
+	case "chat:user_upstream_billing_mode":
+		cfg.UserUpstreamBillingMode = item.Value
+	case "chat:user_upstream_quota_limit":
+		cfg.UserUpstreamQuotaLimit = toInt(item.Value, cfg.UserUpstreamQuotaLimit)
+	case "chat:user_upstream_require_approval":
+		cfg.UserUpstreamRequireApproval = toBool(item.Value, cfg.UserUpstreamRequireApproval)
 
 		// 存储配置
 	case "storage:user_storage_quota_bytes":

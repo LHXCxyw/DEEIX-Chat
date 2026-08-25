@@ -168,6 +168,7 @@ func (s *Service) CreateUpstream(ctx context.Context, input CreateUpstreamInput)
 
 	item := &domainchannel.Upstream{
 		Name:                 strings.TrimSpace(input.Name),
+		OwnershipType:        "platform",
 		BaseURL:              strings.TrimSpace(input.BaseURL),
 		Compatible:           compatible,
 		ProtocolDefaultsJSON: protocolDefaults,

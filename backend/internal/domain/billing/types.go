@@ -312,6 +312,10 @@ type UsageLedger struct {
 	BilledNanousd       int64
 	BalanceAfterNanousd *int64
 	PricingSnapshotJSON string
+	// 用户自有渠道（BYOK）归属信息
+	IsUserOwnedUpstream bool
+	UpstreamOwnerUserID *uint
+	UpstreamBillingMode string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }

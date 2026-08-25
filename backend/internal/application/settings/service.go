@@ -629,9 +629,21 @@ func validatePatchItem(item PatchItem) error {
 		return validateStringMax(value, 255, key)
 	case "extract:tencent_ocr_secret_id", "extract:tencent_ocr_secret_key", "extract:aliyun_ocr_access_key_id", "extract:aliyun_ocr_access_key_secret":
 		return validateStringMax(value, 512, key)
-	case "auth:username_login_enabled", "auth:email_login_enabled", "auth:third_party_login_enabled", "auth:email_registration_enabled", "auth:email_verification_enabled", "auth:password_reset_enabled", "auth:email_registration_block_plus_alias", "auth:auto_link_verified_email", "auth:turnstile_registration_enabled", "auth:rate_limit_enabled", "billing:native_tool_billing_enabled", "chat:rag_enabled", "chat:rag_hybrid_enabled", "chat:message_embedding_enabled", "chat:semantic_context_enabled", "file:full_context_limit_enabled", "file:embedding_enabled", "file:embed_trigger_on_upload", "file:embedding_normalize", "extract:image_ocr_enabled", "extract:pdf_ocr_fallback_enabled", "mcp:mcp_enable":
+	case "auth:username_login_enabled", "auth:email_login_enabled", "auth:third_party_login_enabled", "auth:email_registration_enabled", "auth:email_verification_enabled", "auth:password_reset_enabled", "auth:email_registration_block_plus_alias", "auth:auto_link_verified_email", "auth:turnstile_registration_enabled", "auth:rate_limit_enabled", "billing:native_tool_billing_enabled", "chat:rag_enabled", "chat:rag_hybrid_enabled", "chat:message_embedding_enabled", "chat:semantic_context_enabled", "file:full_context_limit_enabled", "file:embedding_enabled", "file:embed_trigger_on_upload", "file:embedding_normalize", "extract:image_ocr_enabled", "extract:pdf_ocr_fallback_enabled", "mcp:mcp_enable", "chat:user_upstream_enabled", "chat:user_upstream_require_approval":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s must be bool", key)
+		}
+	case "chat:user_upstream_billing_mode":
+		switch value {
+		case "disabled", "statistics_only", "platform_pricing":
+			return nil
+		default:
+			return fmt.Errorf("%s must be one of: disabled, statistics_only, platform_pricing", key)
+		}
+	case "chat:user_upstream_quota_limit":
+		v, err := strconv.Atoi(value)
+		if err != nil || v < 0 {
+			return fmt.Errorf("%s must be non-negative integer", key)
 		}
 	case "extract:tika_timeout_seconds":
 		return validateIntMinMax(value, 1, 120, key)

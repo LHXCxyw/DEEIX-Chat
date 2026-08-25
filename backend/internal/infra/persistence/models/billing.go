@@ -234,6 +234,12 @@ type UsageLedger struct {
 	RoutedBindingCode   string    `gorm:"size:64;not null;default:'';index:idx_billing_usage_ledgers_routed_binding_code;comment:实际路由上游模型绑定编码"`
 	UpstreamModelName   string    `gorm:"size:256;not null;default:'';comment:上游真实模型名"`
 	IsFreeModel         bool      `gorm:"not null;default:false;index:idx_billing_usage_ledgers_is_free_model;comment:是否免费模型用量"`
+	
+	// 用户自有渠道标记（BYOK 支持）
+	IsUserOwnedUpstream bool   `gorm:"not null;default:false;index:idx_billing_usage_ownership;comment:是否用户自有渠道"`
+	UpstreamOwnerUserID *uint  `gorm:"index:idx_billing_usage_upstream_owner;comment:渠道归属用户ID"`
+	UpstreamBillingMode string `gorm:"size:16;comment:渠道计费模式快照"`
+	
 	BillingAt           time.Time `gorm:"index:idx_billing_usage_ledgers_billing_at;index:idx_billing_usage_ledgers_user_billing_at,priority:2;comment:计费归属时间"`
 	UsageDate           time.Time `gorm:"type:date;not null;index:idx_billing_usage_ledgers_usage_date;index:idx_billing_usage_ledgers_user_date,priority:2;comment:消费日期"`
 	InputTokens         int64     `gorm:"not null;default:0;comment:输入Token"`

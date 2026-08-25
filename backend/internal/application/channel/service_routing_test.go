@@ -35,6 +35,10 @@ func (r *routeResolutionRepositoryStub) ListActiveRoutesByModel(context.Context,
 	return append([]repository.ChannelUpstreamRouteRow(nil), r.routes...), nil
 }
 
+func (r *routeResolutionRepositoryStub) ListActiveRoutesByModelWithOwnership(context.Context, string, string, *uint) ([]repository.ChannelUpstreamRouteRow, error) {
+	return append([]repository.ChannelUpstreamRouteRow(nil), r.routes...), nil
+}
+
 func (r *routeResolutionRepositoryStub) GetBreakerDefaults(context.Context) (domainchannel.BreakerDefaults, error) {
 	r.breakerLoads++
 	return r.breakerDefaults, r.breakerErr

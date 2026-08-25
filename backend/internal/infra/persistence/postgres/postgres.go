@@ -218,6 +218,15 @@ func applyLLMBaselineIndexes(db *gorm.DB) error {
 		`ALTER TABLE "llm_upstreams"
 		ADD COLUMN IF NOT EXISTS "protocol_defaults_json" text NOT NULL DEFAULT '{}'`,
 		`COMMENT ON COLUMN "llm_upstreams"."protocol_defaults_json" IS '按模型类型配置的默认协议JSON'`,
+		`UPDATE "llm_upstreams"
+		SET "ownership_type" = 'platform', "owner_user_id" = NULL
+		WHERE "ownership_type" = 'platform'
+			OR (("ownership_type" IS NULL OR "ownership_type" = '') AND "owner_user_id" IS NULL)`,
+		`DROP INDEX IF EXISTS idx_llm_user_models_owner_name`,
+		`DROP INDEX IF EXISTS idx_llm_user_models_owner_upstream_name`,
+		`CREATE UNIQUE INDEX idx_llm_user_models_owner_upstream_name
+			ON "llm_user_models" ("owner_user_id", "upstream_id", "name")
+			WHERE "deleted_at" IS NULL`,
 		`ALTER TABLE "llm_platform_models"
 		ADD COLUMN IF NOT EXISTS "system_prompt" text NOT NULL DEFAULT ''`,
 		`COMMENT ON COLUMN "llm_platform_models"."system_prompt" IS '模型级系统提示词'`,

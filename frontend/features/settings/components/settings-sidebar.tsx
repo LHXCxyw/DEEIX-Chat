@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 export const SETTINGS_SIDEBAR_ITEMS = [
   { id: "general", labelKey: "general", href: "/general" },
   { id: "chat", labelKey: "chat", href: "/chat" },
+  { id: "upstreams", labelKey: "upstreams", href: "/upstreams" },
   { id: "subscription", labelKey: "subscription", href: "/subscription" },
   { id: "account", labelKey: "account", href: "/account" },
   { id: "about", labelKey: "about", href: "/about" },

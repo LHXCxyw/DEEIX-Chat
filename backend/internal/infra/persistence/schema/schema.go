@@ -23,6 +23,7 @@ func Models() []interface{} {
 		&model.TrustedDevice{},
 		&model.LLMUpstream{},
 		&model.LLMUpstreamModel{},
+		&model.LLMUserModel{},
 		&model.LLMModelVendor{},
 		&model.LLMModelDisplayGroup{},
 		&model.LLMModelIconAsset{},

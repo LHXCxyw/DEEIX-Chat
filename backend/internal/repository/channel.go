@@ -93,10 +93,14 @@ type ChannelCacheRepository interface {
 
 // ChannelUpstreamRouteRow 定义路由查询结果。
 type ChannelUpstreamRouteRow struct {
-	RouteID                         uint
-	UpstreamModelID                 uint
-	UpstreamID                      uint
-	UpstreamName                    string
+	RouteID         uint
+	UpstreamModelID uint
+	UpstreamID      uint
+	UpstreamName    string
+	// 用户自有渠道（BYOK）归属信息
+	UpstreamOwnerUserID             *uint
+	UpstreamOwnershipType           string
+	UpstreamBillingMode             string
 	PlatformModelID                 uint
 	PlatformModelName               string
 	ModelVendor                     string
@@ -252,6 +256,16 @@ type ListChannelUpstreamModelsInput struct {
 	UpstreamStatus string
 	Protocol       string
 	Sort           string
+}
+
+// ListActiveModelRoutesInput 活跃路由查询条件。
+type ListActiveModelRoutesInput struct {
+	PlatformModelName string
+	TaskType          string
+
+	// 用户自有渠道过滤（BYOK）
+	OwnerUserID   *uint  // 指定用户ID，查询该用户的自有渠道
+	OwnershipType string // "platform" | "user" | ""(不过滤)
 }
 
 // ListChannelUpstreamsInput 定义上游列表查询条件。
@@ -435,6 +449,15 @@ type ModelIconAssetRepository interface {
 	DeleteClaimedModelIconAsset(ctx context.Context, assetID uint) error
 }
 
+// UserModelRepository 定义用户私有模型持久化能力。
+type UserModelRepository interface {
+	ListUserModels(ctx context.Context, userID uint) ([]domainchannel.UserModel, error)
+	GetUserModelByID(ctx context.Context, userID, modelID uint) (*domainchannel.UserModel, error)
+	CreateUserModel(ctx context.Context, item *domainchannel.UserModel) error
+	UpdateUserModel(ctx context.Context, item *domainchannel.UserModel) error
+	DeleteUserModel(ctx context.Context, userID, modelID uint) error
+}
+
 // ChannelRepository 定义渠道管理依赖的仓储能力。
 type ChannelRepository interface {
 	WithinTransaction(ctx context.Context, fn func(ChannelRepository) error) error
@@ -471,6 +494,7 @@ type ChannelRepository interface {
 	ListModelUpstreamSources(ctx context.Context, platformModelName string, offset int, limit int) ([]ChannelModelSourceRow, int64, error)
 	ListModelUpstreamSourcesForUpdate(ctx context.Context, platformModelName string) ([]ChannelModelSourceRow, error)
 	ListActiveRoutesByModel(ctx context.Context, platformModelName string) ([]ChannelUpstreamRouteRow, error)
+	ListActiveRoutesByModelWithOwnership(ctx context.Context, platformModelName string, ownershipType string, ownerUserID *uint) ([]ChannelUpstreamRouteRow, error)
 	ListActiveRouteBindingCodesForUpstream(ctx context.Context, upstreamID uint) ([]string, error)
 	GetLLMSetting(ctx context.Context, key string) (*domainchannel.LLMSetting, error)
 	ListLLMSettings(ctx context.Context) ([]domainchannel.LLMSetting, error)
@@ -483,4 +507,12 @@ type ChannelRepository interface {
 	GetRateLimitDefaults(ctx context.Context) (domainchannel.RateLimitDefaults, error)
 	DeleteUpstreamCascade(ctx context.Context, upstreamID uint) error
 	DeleteModelCascade(ctx context.Context, modelID uint) error
+
+	// 用户自有渠道方法（BYOK）
+	ListUserUpstreams(ctx context.Context, userID uint) ([]domainchannel.Upstream, error)
+	GetUserUpstreamByID(ctx context.Context, userID, upstreamID uint) (*domainchannel.Upstream, error)
+	CreateUserUpstream(ctx context.Context, upstream *domainchannel.Upstream) error
+	UpdateUserUpstream(ctx context.Context, upstream *domainchannel.Upstream) error
+	DeleteUserUpstream(ctx context.Context, userID, upstreamID uint) error
+	CountUserUpstreams(ctx context.Context, userID uint) (int64, error)
 }

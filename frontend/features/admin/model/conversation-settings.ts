@@ -6,7 +6,7 @@ export type ConversationVisibilityRule =
   | { field: string; equals: string }
   | { all: ConversationVisibilityRule[] };
 
-export type ConversationSettingsSection = "conversation" | "contextCompression" | "optionPassthrough";
+export type ConversationSettingsSection = "conversation" | "contextCompression" | "optionPassthrough" | "userUpstream";
 
 export type ConversationSettingsField = {
   section: ConversationSettingsSection;
@@ -33,7 +33,11 @@ export type ConversationSettingsField = {
     | "compact_light_prompt"
     | "model_option_policy_mode"
     | "model_option_allowed_paths"
-    | "model_option_denied_paths";
+    | "model_option_denied_paths"
+    | "user_upstream_enabled"
+    | "user_upstream_billing_mode"
+    | "user_upstream_quota_limit"
+    | "user_upstream_require_approval";
   label: string;
   description: string;
   type: ConversationFieldType;
@@ -56,6 +60,11 @@ export const COMPACT_LLM_ENABLED_RULE: ConversationVisibilityRule = {
     CONTEXT_COMPACT_ENABLED_RULE,
     { field: "chat.compact_llm_enabled", equals: "true" },
   ],
+};
+
+export const USER_UPSTREAM_ENABLED_RULE: ConversationVisibilityRule = {
+  field: "chat.user_upstream_enabled",
+  equals: "true",
 };
 
 export const DEFAULT_MODEL_OPTION_ALLOWED_PATHS = `{
@@ -420,6 +429,47 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       visibleWhen: COMPACT_LLM_ENABLED_RULE,
       subgroupKey: "compact_llm",
     },
+    {
+      section: "userUpstream",
+      namespace: "chat",
+      key: "user_upstream_enabled",
+      label: t("fields.userUpstreamEnabled.label"),
+      description: t("fields.userUpstreamEnabled.description"),
+      type: "bool",
+    },
+    {
+      section: "userUpstream",
+      namespace: "chat",
+      key: "user_upstream_billing_mode",
+      label: t("fields.userUpstreamBillingMode.label"),
+      description: t("fields.userUpstreamBillingMode.description"),
+      type: "select",
+      options: [
+        { label: t("userUpstreamBilling.disabled"), value: "disabled" },
+        { label: t("userUpstreamBilling.statisticsOnly"), value: "statistics_only" },
+        { label: t("userUpstreamBilling.platformPricing"), value: "platform_pricing" },
+      ],
+      visibleWhen: USER_UPSTREAM_ENABLED_RULE,
+    },
+    {
+      section: "userUpstream",
+      namespace: "chat",
+      key: "user_upstream_quota_limit",
+      label: t("fields.userUpstreamQuotaLimit.label"),
+      description: t("fields.userUpstreamQuotaLimit.description"),
+      type: "int",
+      placeholder: t("fields.userUpstreamQuotaLimit.placeholder"),
+      visibleWhen: USER_UPSTREAM_ENABLED_RULE,
+    },
+    {
+      section: "userUpstream",
+      namespace: "chat",
+      key: "user_upstream_require_approval",
+      label: t("fields.userUpstreamRequireApproval.label"),
+      description: t("fields.userUpstreamRequireApproval.description"),
+      type: "bool",
+      visibleWhen: USER_UPSTREAM_ENABLED_RULE,
+    },
   ];
 }
 
@@ -454,6 +504,18 @@ export function applyConversationDefaults(settings: Record<string, string>): Rec
   }
   if (!(result["chat.context_artifact_retention_days"] ?? "").trim()) {
     result["chat.context_artifact_retention_days"] = "90";
+  }
+  if (!(result["chat.user_upstream_enabled"] ?? "").trim()) {
+    result["chat.user_upstream_enabled"] = "false";
+  }
+  if (!(result["chat.user_upstream_billing_mode"] ?? "").trim()) {
+    result["chat.user_upstream_billing_mode"] = "statistics_only";
+  }
+  if (!(result["chat.user_upstream_quota_limit"] ?? "").trim()) {
+    result["chat.user_upstream_quota_limit"] = "3";
+  }
+  if (!(result["chat.user_upstream_require_approval"] ?? "").trim()) {
+    result["chat.user_upstream_require_approval"] = "false";
   }
   result["chat.conversation_title_prompt"] = normalizeConversationPromptValue(result["chat.conversation_title_prompt"] ?? "");
   result["chat.conversation_labels_prompt"] = normalizeConversationPromptValue(result["chat.conversation_labels_prompt"] ?? "");

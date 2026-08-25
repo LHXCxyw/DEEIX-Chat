@@ -292,6 +292,16 @@ export function AdminModelsPage() {
           queryPlaceholder={t("table.searchPlaceholder")}
           filters={[
             {
+              key: "availability",
+              label: t("fields.availability"),
+              value: models.availabilityFilter,
+              onValueChange: (value) => models.setAvailabilityFilter(value as "available" | "all"),
+              options: [
+                { label: t("table.availableModels"), value: "available" },
+                { label: t("table.allModels"), value: "all" },
+              ],
+            },
+            {
               key: "status",
               label: t("fields.status"),
               value: models.statusFilter,

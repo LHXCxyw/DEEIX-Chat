@@ -812,6 +812,10 @@ func (r *modelUpdateRepo) ListActiveRoutesByModel(context.Context, string) ([]re
 	return nil, nil
 }
 
+func (r *modelUpdateRepo) ListActiveRoutesByModelWithOwnership(context.Context, string, string, *uint) ([]repository.ChannelUpstreamRouteRow, error) {
+	return nil, nil
+}
+
 func (r *modelUpdateRepo) ListActiveRouteBindingCodesForUpstream(context.Context, uint) ([]string, error) {
 	return r.activeBindingCodes, nil
 }

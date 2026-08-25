@@ -16,6 +16,7 @@
   "routes": "路由",
   "fields": {
     "status": "状态",
+    "availability": "可用性",
     "protocol": "协议",
     "vendor": "厂商",
     "displayGroup": "展示分组",
@@ -45,6 +46,8 @@
   "table": {
     "searchPlaceholder": "搜索模型、厂商、分组或描述",
     "allStatus": "全部",
+    "availableModels": "仅可用",
+    "allModels": "全部模型",
     "allProtocols": "全部",
     "allVendors": "全部",
     "kind": "类型",

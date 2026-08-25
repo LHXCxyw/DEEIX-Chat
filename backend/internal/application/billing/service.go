@@ -1094,6 +1094,17 @@ func (s *Service) RecordUsageWithAuthorization(ctx context.Context, usage *domai
 	if usage == nil {
 		return nil
 	}
+	
+	// 用户自有渠道（BYOK）计费判定：按账本中的渠道计费模式快照处理
+	if usage.IsUserOwnedUpstream && usage.UpstreamBillingMode != "platform_pricing" {
+		// 非平台定价时仅记录用量，不产生费用与余额变动
+		usage.BilledNanousd = 0
+		usage.IsFreeModel = true
+		usage.BalanceAfterNanousd = nil
+		return s.repo.AddUsage(ctx, usage)
+	}
+
+	// 原有计费逻辑
 	mode := ""
 	var reservation *domainbilling.UsageBalanceReservation
 	if authorization != nil {

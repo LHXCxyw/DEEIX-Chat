@@ -95,4 +95,11 @@ var (
 	ErrNoActiveKey = errors.New("no active api key")
 	// ErrLLMSettingNotFound LLM 全局设置不存在。
 	ErrLLMSettingNotFound = repository.ErrLLMSettingNotFound
+	
+	// 用户自有渠道错误（BYOK）
+	ErrUserUpstreamDisabled      = errors.New("用户自有渠道功能已禁用")
+	ErrUserUpstreamQuotaExceeded = errors.New("已达到渠道创建数量上限")
+	ErrInvalidUpstreamName       = errors.New("渠道名称不能为空")
+	ErrInvalidBaseURL            = errors.New("无效的BaseURL格式")
+	ErrAPIKeysRequired           = errors.New("至少需要一个API Key")
 )

@@ -3,7 +3,13 @@
     "conversation": "Conversation settings",
     "contextCompression": "Context compression",
     "optionPassthrough": "Option passthrough",
+    "userUpstream": "User-owned upstreams",
     "dataExport": "Data export"
+  },
+  "userUpstreamBilling": {
+    "disabled": "Billing disabled",
+    "statisticsOnly": "Statistics only",
+    "platformPricing": "Charge at platform pricing"
   },
   "defaultModel": {
     "systemRecommended": "System recommended"
@@ -112,6 +118,23 @@
     "labelsPrompt": {
       "label": "Label generation prompt",
       "description": "The model must return JSON: '{' \"labels\": [\"label1\", \"label2\"] '}'. Supports the '{{MESSAGES}}' placeholder."
+    },
+    "userUpstreamEnabled": {
+      "label": "User-owned upstreams",
+      "description": "Allow users to add their own upstream endpoints and configure private model routes."
+    },
+    "userUpstreamBillingMode": {
+      "label": "Billing mode",
+      "description": "How model calls through user-owned upstreams are billed."
+    },
+    "userUpstreamQuotaLimit": {
+      "label": "Upstreams per user",
+      "description": "Maximum upstreams a single user can create; 0 means unlimited.",
+      "placeholder": "Upstream limit"
+    },
+    "userUpstreamRequireApproval": {
+      "label": "Require admin approval",
+      "description": "User-created upstreams must be approved by an admin before use."
     },
     "defaultPromptPlaceholder": "Leave empty to use the built-in default prompt"
   },

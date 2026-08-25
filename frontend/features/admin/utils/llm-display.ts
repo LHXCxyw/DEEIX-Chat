@@ -8,6 +8,7 @@ import {
   Video,
 } from "lucide-react";
 import type { AdminLLMAdapter } from "@/features/admin/api/llm.types";
+import { COMPATIBLE_PRESETS, PROTOCOL_PRESETS } from "@/shared/lib/llm-presets";
 
 export const MODEL_KIND_META: Record<
   string,
@@ -21,14 +22,7 @@ export const MODEL_KIND_META: Record<
   video_extension: { label: "Video extension", shortLabel: "Video extension", icon: Clapperboard },
 };
 
-export const COMPATIBLE_OPTIONS = [
-  { label: "OpenAI", value: "openai" },
-  { label: "Anthropic", value: "anthropic" },
-  { label: "Google", value: "google" },
-  { label: "xAI", value: "xai" },
-  { label: "OpenRouter", value: "openrouter" },
-  { label: "Custom", value: "custom" },
-] as const;
+export const COMPATIBLE_OPTIONS = COMPATIBLE_PRESETS;
 
 type ProtocolOption = {
   value: AdminLLMAdapter;
@@ -36,24 +30,7 @@ type ProtocolOption = {
   kinds: readonly string[];
 };
 
-export const PROTOCOL_OPTIONS: ReadonlyArray<ProtocolOption> = [
-  { value: "openai_responses", label: "Responses (OpenAI)", kinds: ["chat"] },
-  { value: "openai_chat_completions", label: "Chat Completions (OpenAI)", kinds: ["chat"] },
-  { value: "openai_image_generations", label: "Images Generations (OpenAI)", kinds: ["image_gen"] },
-  { value: "openai_image_edits", label: "Images Edits (OpenAI)", kinds: ["image_edit"] },
-  { value: "openai_video_generations", label: "Video Generations (OpenAI)", kinds: ["video_gen"] },
-  { value: "anthropic_messages", label: "Messages (Anthropic)", kinds: ["chat"] },
-  { value: "google_generate_content", label: "Generate Content (Google)", kinds: ["chat"] },
-  { value: "google_image_generation", label: "Image Generation (Google)", kinds: ["image_gen", "image_edit"] },
-  { value: "gemini_interactions", label: "Interactions (Google)", kinds: ["chat", "image_gen", "image_edit", "video_gen"] },
-  { value: "xai_responses", label: "Responses (xAI)", kinds: ["chat"] },
-  { value: "xai_image", label: "Images Generations (xAI)", kinds: ["image_gen"] },
-  { value: "xai_image_edits", label: "Images Edits (xAI)", kinds: ["image_edit"] },
-  { value: "xai_video", label: "Video Generations (xAI)", kinds: ["video_gen"] },
-  { value: "xai_video_extensions", label: "Video Extensions (xAI)", kinds: ["video_extension"] },
-  { value: "openrouter_chat_completions", label: "Chat Completions (OpenRouter)", kinds: ["chat"] },
-  { value: "openrouter_responses", label: "Responses (OpenRouter)", kinds: ["chat"] },
-] as const;
+export const PROTOCOL_OPTIONS: ReadonlyArray<ProtocolOption> = PROTOCOL_PRESETS as ReadonlyArray<ProtocolOption>;
 
 const PROTOCOL_LABELS: Record<string, string> = {
   ...Object.fromEntries(PROTOCOL_OPTIONS.map((item) => [item.value, item.label])),

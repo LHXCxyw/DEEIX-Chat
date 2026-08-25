@@ -3,7 +3,13 @@
     "conversation": "会话配置",
     "contextCompression": "上下文压缩",
     "optionPassthrough": "参数透传",
+    "userUpstream": "用户自有渠道",
     "dataExport": "数据导出"
+  },
+  "userUpstreamBilling": {
+    "disabled": "禁用计费",
+    "statisticsOnly": "仅统计不扣费",
+    "platformPricing": "按平台价格扣费"
   },
   "defaultModel": {
     "systemRecommended": "系统推荐"
@@ -112,6 +118,23 @@
     "labelsPrompt": {
       "label": "生成标签提示词",
       "description": "模型需返回 JSON：'{' \"labels\": [\"标签1\", \"标签2\"] '}'。支持 '{{MESSAGES}}' 占位符。"
+    },
+    "userUpstreamEnabled": {
+      "label": "用户自有渠道",
+      "description": "开启后用户可以在个人设置中添加自己的上游接口，并配置私有模型路由。"
+    },
+    "userUpstreamBillingMode": {
+      "label": "计费策略",
+      "description": "控制用户通过自有渠道调用模型时的计费方式。"
+    },
+    "userUpstreamQuotaLimit": {
+      "label": "单用户渠道上限",
+      "description": "单个用户最多可创建的自有上游数量；0 表示不限制。",
+      "placeholder": "渠道数量上限"
+    },
+    "userUpstreamRequireApproval": {
+      "label": "需要管理员审批",
+      "description": "开启后用户创建的自有渠道需管理员审批通过才能使用。"
     },
     "defaultPromptPlaceholder": "留空使用内置默认提示词"
   },

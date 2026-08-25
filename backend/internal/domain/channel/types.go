@@ -35,6 +35,13 @@ type Upstream struct {
 	Name                 string
 	BaseURL              string
 	Compatible           string
+	
+	// 用户归属字段（BYOK 支持）
+	OwnerUserID          *uint  // NULL=平台渠道, 非NULL=用户自有渠道
+	OwnershipType        string // "platform" | "user"
+	IsSharedWithPlatform bool   // 用户是否同意将用量纳入平台统计
+	BillingMode          string // "self"=不计费 | "platform_pricing"=按平台价格计费
+	
 	ProtocolDefaultsJSON string
 	Status               string
 	ConnectTimeoutMS     int

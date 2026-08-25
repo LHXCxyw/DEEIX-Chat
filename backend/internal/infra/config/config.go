@@ -424,6 +424,13 @@ type Config struct {
 	ModelOptionPolicyMode    string
 	ModelOptionAllowedPaths  string
 	ModelOptionDeniedPaths   string
+	
+	// 用户自有渠道配置（BYOK）
+	UserUpstreamEnabled         bool
+	UserUpstreamBillingMode     string
+	UserUpstreamQuotaLimit      int
+	UserUpstreamRequireApproval bool
+	
 	// 存储配置
 	UserStorageQuotaBytes int64
 	MaxUploadFileBytes    int64

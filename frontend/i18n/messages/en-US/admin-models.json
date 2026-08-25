@@ -16,6 +16,7 @@
   "routes": "Routes",
   "fields": {
     "status": "Status",
+    "availability": "Availability",
     "protocol": "Protocol",
     "vendor": "Vendor",
     "displayGroup": "Display group",
@@ -45,6 +46,8 @@
   "table": {
     "searchPlaceholder": "Search model, vendor, group, or description",
     "allStatus": "All",
+    "availableModels": "Available only",
+    "allModels": "All models",
     "allProtocols": "All",
     "allVendors": "All",
     "kind": "Type",

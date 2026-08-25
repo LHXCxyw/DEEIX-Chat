@@ -42,6 +42,8 @@ type UseAdminModelsState = {
   setQuery: (value: string) => void;
   statusFilter: string;
   setStatusFilter: (value: string) => void;
+  availabilityFilter: "available" | "all";
+  setAvailabilityFilter: (value: "available" | "all") => void;
   vendorFilter: string;
   setVendorFilter: (value: string) => void;
   protocolFilter: string;
@@ -96,6 +98,7 @@ export function useAdminModels(): UseAdminModelsState {
 
   const [query, setQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("");
+  const [availabilityFilter, setAvailabilityFilter] = React.useState<"available" | "all">("available");
   const [vendorFilter, setVendorFilter] = React.useState("");
   const [protocolFilter, setProtocolFilter] = React.useState("");
   const [sortValue, setSortValue] = React.useState<ModelSortValue>("sortOrder_asc");
@@ -134,6 +137,7 @@ export function useAdminModels(): UseAdminModelsState {
           page: nextPage,
           pageSize: nextPageSize,
           onlyActive: false,
+          onlyAvailable: availabilityFilter === "available",
           query: query.trim(),
           status: statusFilter,
           vendor: vendorFilter,
@@ -158,7 +162,7 @@ export function useAdminModels(): UseAdminModelsState {
         }
       }
     },
-    [protocolFilter, query, sortValue, startTableTransition, statusFilter, t, vendorFilter],
+    [availabilityFilter, protocolFilter, query, sortValue, startTableTransition, statusFilter, t, vendorFilter],
   );
 
   React.useEffect(() => {
@@ -544,6 +548,8 @@ export function useAdminModels(): UseAdminModelsState {
     setQuery,
     statusFilter,
     setStatusFilter,
+    availabilityFilter,
+    setAvailabilityFilter,
     vendorFilter,
     setVendorFilter,
     protocolFilter,

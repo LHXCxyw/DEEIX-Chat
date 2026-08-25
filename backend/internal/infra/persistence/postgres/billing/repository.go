@@ -2111,6 +2111,9 @@ func toModelUsageLedger(usage *domainbilling.UsageLedger) model.UsageLedger {
 		BilledNanousd:       usage.BilledNanousd,
 		BalanceAfterNanousd: usage.BalanceAfterNanousd,
 		PricingSnapshotJSON: usage.PricingSnapshotJSON,
+		IsUserOwnedUpstream: usage.IsUserOwnedUpstream,
+		UpstreamOwnerUserID: usage.UpstreamOwnerUserID,
+		UpstreamBillingMode: usage.UpstreamBillingMode,
 	}
 }
 
@@ -2143,6 +2146,9 @@ func toDomainUsageLedger(item model.UsageLedger) domainbilling.UsageLedger {
 		BilledNanousd:       item.BilledNanousd,
 		BalanceAfterNanousd: item.BalanceAfterNanousd,
 		PricingSnapshotJSON: item.PricingSnapshotJSON,
+		IsUserOwnedUpstream: item.IsUserOwnedUpstream,
+		UpstreamOwnerUserID: item.UpstreamOwnerUserID,
+		UpstreamBillingMode: item.UpstreamBillingMode,
 		CreatedAt:           item.CreatedAt,
 		UpdatedAt:           item.UpdatedAt,
 	}
