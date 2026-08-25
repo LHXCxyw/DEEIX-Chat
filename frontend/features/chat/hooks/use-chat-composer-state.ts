@@ -6,6 +6,7 @@ import type { PendingAttachment } from "@/features/chat/types/chat-runtime";
 
 const CHAT_COMPOSER_STORAGE_KEY = "deeix-chat:chat-composer:v1";
 const NEW_CONVERSATION_COMPOSER_KEY = "__new__";
+const TRANSIENT_COMPOSER_KEY = "__transient__";
 
 type PersistedAttachment = Pick<
   PendingAttachment,
@@ -221,9 +222,21 @@ export function resolveConversationComposerKey(conversationID: string | null): s
 
 export function useChatComposerState(
   conversationID: string | null,
-  { preserveDrafts = true, resetToken = 0 }: { preserveDrafts?: boolean; resetToken?: number } = {},
+  {
+    preserveDrafts = true,
+    resetToken = 0,
+    transient = false,
+  }: {
+    preserveDrafts?: boolean;
+    resetToken?: number;
+    transient?: boolean;
+  } = {},
 ) {
-  const conversationKey = React.useMemo(() => resolveConversationComposerKey(conversationID), [conversationID]);
+  const conversationKey = React.useMemo(
+    () => transient ? TRANSIENT_COMPOSER_KEY : resolveConversationComposerKey(conversationID),
+    [conversationID, transient],
+  );
+  const persistenceEnabled = preserveDrafts && !transient;
   const [state, setState] = React.useState<ComposerState>(() => createEmptyComposerState(conversationKey));
   const [hydratedConversationKey, setHydratedConversationKey] = React.useState<string | null>(null);
 
@@ -231,14 +244,18 @@ export function useChatComposerState(
     if (resetToken <= 0 || conversationID) {
       return;
     }
-    ComposerStorageOps.removeEntry(conversationKey);
+    if (!transient) {
+      ComposerStorageOps.removeEntry(conversationKey);
+    }
     setHydratedConversationKey(conversationKey);
     setState(createEmptyComposerState(conversationKey));
-  }, [conversationID, conversationKey, resetToken]);
+  }, [conversationID, conversationKey, resetToken, transient]);
 
   useIsomorphicLayoutEffect(() => {
-    if (!preserveDrafts) {
-      ComposerStorageOps.removeEntry(conversationKey);
+    if (!persistenceEnabled) {
+      if (!transient) {
+        ComposerStorageOps.removeEntry(conversationKey);
+      }
       setState((prev) => (prev.conversationKey === conversationKey ? prev : createEmptyComposerState(conversationKey)));
       setHydratedConversationKey(conversationKey);
       return;
@@ -274,18 +291,20 @@ export function useChatComposerState(
       return nextHasContent ? nextState : createEmptyComposerState(conversationKey);
     });
     setHydratedConversationKey(conversationKey);
-  }, [conversationKey, preserveDrafts]);
+  }, [conversationKey, persistenceEnabled, transient]);
 
   React.useEffect(() => {
-    if (hydratedConversationKey !== state.conversationKey) {
+    if (hydratedConversationKey !== state.conversationKey || state.conversationKey !== conversationKey) {
       return;
     }
-    if (!preserveDrafts) {
-      ComposerStorageOps.removeEntry(state.conversationKey);
+    if (!persistenceEnabled) {
+      if (!transient) {
+        ComposerStorageOps.removeEntry(state.conversationKey);
+      }
       return;
     }
     ComposerStorageOps.writeEntry(state.conversationKey, state.draft, state.attachments);
-  }, [hydratedConversationKey, preserveDrafts, state]);
+  }, [conversationKey, hydratedConversationKey, persistenceEnabled, state, transient]);
 
   const visibleState = state.conversationKey === conversationKey ? state : createEmptyComposerState(conversationKey);
 
@@ -328,12 +347,12 @@ export function useChatComposerState(
       return;
     }
 
-    if (!preserveDrafts) {
+    if (!persistenceEnabled) {
       return;
     }
 
     ComposerStorageOps.appendAttachments(targetConversationKey, items);
-  }, [conversationKey, preserveDrafts]);
+  }, [conversationKey, persistenceEnabled]);
 
   return {
     conversationKey: visibleState.conversationKey,

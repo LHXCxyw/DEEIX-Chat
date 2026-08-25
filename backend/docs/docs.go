@@ -827,7 +827,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "从 storage 缓存读取 OpenRouter 模型定价；缓存不存在、过期或 refresh=true 时由后端刷新。",
+                "description": "从 storage 缓存读取 OpenRouter 模型标识、定价和上下文限制；缓存不存在、过期或 refresh=true 时由后端刷新。",
                 "consumes": [
                     "application/json"
                 ],
@@ -837,7 +837,7 @@ const docTemplate = `{
                 "tags": [
                     "admin-billing"
                 ],
-                "summary": "管理员获取 OpenRouter 官方模型定价",
+                "summary": "管理员获取 OpenRouter 官方模型目录",
                 "parameters": [
                     {
                         "type": "boolean",
@@ -9616,6 +9616,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/conversation-runs/stream": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends an authoritative snapshot followed by live user-scoped run state events",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Stream active conversation generations",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/ActiveMessageGenerationEventResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/conversation-runs/{run_id}/cancel": {
             "post": {
                 "security": [
@@ -10684,7 +10715,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "将会话从开头到指定消息（含）的祖先链复制为一个新会话；不携带原会话的运行记录与计费，附件以引用方式复用",
+                "description": "仅允许从助手消息 fork；将会话从开头到指定助手消息（含）的祖先链复制为一个新会话，保留历史展示轨迹；不携带原会话的运行记录与计费，附件以引用方式复用",
                 "consumes": [
                     "application/json"
                 ],
@@ -13643,6 +13674,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/temporary-chat/messages/stream": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "由浏览器提交完整纯文本上下文；服务端不创建会话、消息、运行或断线续传记录",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/x-ndjson"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "流式发送临时对话消息",
+                "parameters": [
+                    {
+                        "description": "临时对话参数",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/TemporaryChatMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "NDJSON stream",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/user/settings": {
             "get": {
                 "security": [
@@ -13725,6 +13807,44 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "ActiveMessageGenerationEventResponse": {
+            "type": "object",
+            "required": [
+                "type"
+            ],
+            "properties": {
+                "conversationPublicID": {
+                    "type": "string"
+                },
+                "runID": {
+                    "type": "string"
+                },
+                "runs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ActiveMessageGenerationResponse"
+                    }
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "ActiveMessageGenerationResponse": {
+            "type": "object",
+            "required": [
+                "conversationPublicID",
+                "runID"
+            ],
+            "properties": {
+                "conversationPublicID": {
+                    "type": "string"
+                },
+                "runID": {
+                    "type": "string"
+                }
+            }
+        },
         "ActiveSessionListResponse": {
             "type": "object",
             "required": [
@@ -20612,6 +20732,7 @@ const docTemplate = `{
                 "cbFailureThreshold",
                 "cbPolicyMode",
                 "cbWindowMin",
+                "contextWindow",
                 "createdAt",
                 "description",
                 "displayGroupID",
@@ -20652,6 +20773,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "cbWindowMin": {
+                    "type": "integer"
+                },
+                "contextWindow": {
                     "type": "integer"
                 },
                 "createdAt": {
@@ -21120,7 +21244,9 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "canonicalSlug",
+                "contextLength",
                 "id",
+                "maxCompletionTokens",
                 "name",
                 "pricing"
             ],
@@ -21128,8 +21254,14 @@ const docTemplate = `{
                 "canonicalSlug": {
                     "type": "string"
                 },
+                "contextLength": {
+                    "type": "integer"
+                },
                 "id": {
                     "type": "string"
+                },
+                "maxCompletionTokens": {
+                    "type": "integer"
                 },
                 "name": {
                     "type": "string"
@@ -24209,6 +24341,85 @@ const docTemplate = `{
                 },
                 "updatedAt": {
                     "type": "string"
+                }
+            }
+        },
+        "TemporaryChatHistoryMessage": {
+            "type": "object",
+            "required": [
+                "content",
+                "role"
+            ],
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "maxLength": 200000
+                },
+                "role": {
+                    "type": "string",
+                    "enum": [
+                        "user",
+                        "assistant"
+                    ]
+                }
+            }
+        },
+        "TemporaryChatMessageRequest": {
+            "type": "object",
+            "required": [
+                "clientRunID",
+                "messages",
+                "model",
+                "sessionID"
+            ],
+            "properties": {
+                "clientRunID": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "htmlVisualPrompt": {
+                    "type": "boolean"
+                },
+                "knowledgeBaseIDs": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "messages": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/TemporaryChatHistoryMessage"
+                    }
+                },
+                "model": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "options": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "selectedToolIDs": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "sessionID": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "skillIDs": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "integer"
+                    }
                 }
             }
         },

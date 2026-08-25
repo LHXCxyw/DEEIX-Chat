@@ -47,6 +47,7 @@ export type ChatTraceBlock = {
   roundID?: string;
   parentEventID?: string;
   startedAt?: string;
+  endedAt?: string;
   updatedAt?: string;
   payloadJson?: string;
 };

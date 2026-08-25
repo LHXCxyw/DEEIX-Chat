@@ -4,7 +4,10 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { useMessageScrollerVisibility } from "@/components/ui/message-scroller";
+import {
+  useMessageScroller,
+  useMessageScrollerVisibility,
+} from "@/components/ui/message-scroller";
 import { cn } from "@/lib/utils";
 
 const MIN_OUTLINE_HEADINGS = 2;
@@ -67,12 +70,9 @@ function keepItemVisible(viewport: HTMLElement, item: HTMLElement) {
 
 function resolveActiveAssistantMessage(
   viewport: HTMLElement,
-  currentAnchorID: string,
   visibleMessageIDs: Iterable<string>,
 ): HTMLElement | null {
-  const candidateIDs = Array.from(
-    new Set([currentAnchorID, ...visibleMessageIDs].filter(Boolean)),
-  );
+  const candidateIDs = Array.from(new Set(visibleMessageIDs));
   if (candidateIDs.length === 0) {
     return null;
   }
@@ -101,13 +101,6 @@ function resolveActiveAssistantMessage(
     return guideCandidate.element;
   }
 
-  const anchorCandidate = candidates.find(
-    (candidate) => candidate.element.dataset.chatMessageId === currentAnchorID,
-  );
-  if (anchorCandidate) {
-    return anchorCandidate.element;
-  }
-
   return candidates.reduce((closest, candidate) =>
     distanceToGuide(candidate.rect, guideY) < distanceToGuide(closest.rect, guideY)
       ? candidate
@@ -123,7 +116,8 @@ function ChatResponseOutlineRailComponent({
   disabled?: boolean;
 }) {
   const t = useTranslations("chat.messages");
-  const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
+  const { scrollToMessage } = useMessageScroller();
+  const { visibleMessageIds } = useMessageScrollerVisibility();
   const [headings, setHeadings] = React.useState<ResponseOutlineHeading[]>([]);
   const [activeHeadingIndex, setActiveHeadingIndex] = React.useState(0);
   const [hoveredHeadingIndex, setHoveredHeadingIndex] = React.useState<number | null>(null);
@@ -137,11 +131,11 @@ function ChatResponseOutlineRailComponent({
   const railItemRefs = React.useRef(new Map<number, HTMLButtonElement>());
   const menuViewportRef = React.useRef<HTMLDivElement | null>(null);
   const menuItemRefs = React.useRef(new Map<number, HTMLButtonElement>());
-  const visibilityRef = React.useRef({ currentAnchorId, visibleMessageIds });
+  const visibleMessageIDsRef = React.useRef(visibleMessageIds);
 
   React.useLayoutEffect(() => {
-    visibilityRef.current = { currentAnchorId, visibleMessageIds };
-  }, [currentAnchorId, visibleMessageIds]);
+    visibleMessageIDsRef.current = visibleMessageIds;
+  }, [visibleMessageIds]);
 
   const clearOutline = React.useCallback(() => {
     headingElementsRef.current = [];
@@ -183,12 +177,7 @@ function ChatResponseOutlineRailComponent({
       return;
     }
 
-    const visibility = visibilityRef.current;
-    const message = resolveActiveAssistantMessage(
-      viewport,
-      visibility.currentAnchorId,
-      visibility.visibleMessageIds,
-    );
+    const message = resolveActiveAssistantMessage(viewport, visibleMessageIDsRef.current);
     if (!message) {
       clearOutline();
       return;
@@ -297,23 +286,27 @@ function ChatResponseOutlineRailComponent({
 
   const scrollToHeading = React.useCallback(
     (index: number) => {
-      const viewport = boundaryRef.current;
       const heading = headingElementsRef.current[index];
-      if (!viewport || !heading) {
+      const message = heading?.closest<HTMLElement>(ASSISTANT_MESSAGE_SELECTOR);
+      const messageID = message?.dataset.chatMessageId?.trim() ?? "";
+      if (!heading || !message || !messageID) {
         return;
       }
-      const viewportRect = viewport.getBoundingClientRect();
+
       const headingRect = heading.getBoundingClientRect();
-      const top =
-        viewport.scrollTop + headingRect.top - viewportRect.top - OUTLINE_SCROLL_MARGIN_PX;
+      const messageRect = message.getBoundingClientRect();
+      const headingOffset = headingRect.top - messageRect.top;
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      viewport.scrollTo({
-        top: Math.max(0, top),
+      const scrolled = scrollToMessage(messageID, {
+        align: "start",
         behavior: reducedMotion ? "auto" : "smooth",
+        scrollMargin: OUTLINE_SCROLL_MARGIN_PX - headingOffset,
       });
-      setActiveHeadingIndex(index);
+      if (scrolled) {
+        setActiveHeadingIndex(index);
+      }
     },
-    [boundaryRef],
+    [scrollToMessage],
   );
 
   if (disabled || headings.length < MIN_OUTLINE_HEADINGS) {

@@ -34,6 +34,12 @@ function mergeUpstreamThinkBlock(current: ChatTraceBlock | undefined, event: Ups
   const roundID = event.roundID || current?.roundID;
   const roundChanged = Boolean(roundID && current?.roundID && roundID !== current.roundID);
   const contentMarkdown = mergeContent(roundChanged ? "" : (current?.contentMarkdown ?? ""), event);
+  const eventStartedAt = typeof event.startedAt === "string"
+    ? event.startedAt.trim() || undefined
+    : undefined;
+  const eventEndedAt = typeof event.endedAt === "string"
+    ? event.endedAt.trim() || undefined
+    : undefined;
   return {
     title: event.title?.trim() || current?.title || "",
     summary: event.summary?.trim() || current?.summary || "",
@@ -42,7 +48,8 @@ function mergeUpstreamThinkBlock(current: ChatTraceBlock | undefined, event: Ups
     stage: event.stage || current?.stage || "think",
     roundID,
     parentEventID: current?.parentEventID,
-    startedAt: !current || roundChanged ? nowISO() : current?.startedAt ?? nowISO(),
+    startedAt: eventStartedAt ?? (roundChanged ? undefined : current?.startedAt) ?? nowISO(),
+    endedAt: eventEndedAt ?? (roundChanged ? undefined : current?.endedAt),
     updatedAt: nowISO(),
     payloadJson: current?.payloadJson,
   };

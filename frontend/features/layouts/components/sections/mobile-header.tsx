@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
+import { MobileHeaderActionSlot } from "@/features/layouts/context/mobile-header-action-context";
 import { AppLogo } from "@/shared/components/app-logo";
 
 export function MobileHeader({
@@ -16,7 +17,7 @@ export function MobileHeader({
   const { toggleSidebar } = useSidebar();
 
   return (
-    <header className="grid h-12 shrink-0 grid-cols-[2rem_minmax(0,1fr)_2rem] items-center px-3 md:hidden">
+    <header className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-3 md:hidden">
       <div className="flex justify-start">
         <Button
           type="button"
@@ -39,7 +40,8 @@ export function MobileHeader({
         />
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-1">
+        <MobileHeaderActionSlot />
         <Button
           type="button"
           variant="ghost"

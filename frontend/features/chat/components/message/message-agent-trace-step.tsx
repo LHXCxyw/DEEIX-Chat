@@ -21,6 +21,7 @@ export function AgentTraceStep({
   open,
   expandable,
   failed,
+  loading,
   children,
   onOpenChange,
 }: {
@@ -31,6 +32,7 @@ export function AgentTraceStep({
   open: boolean;
   expandable: boolean;
   failed?: boolean;
+  loading?: boolean;
   children?: ReactNode;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -58,6 +60,7 @@ export function AgentTraceStep({
               className={cn(
                 "shrink-0 font-medium text-muted-foreground/82 transition-colors group-hover/agent-trace-step:text-foreground",
                 failed && "text-destructive/85 group-hover/agent-trace-step:text-destructive",
+                loading && "shimmer",
               )}
             >
               {title}

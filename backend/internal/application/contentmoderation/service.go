@@ -295,8 +295,10 @@ func (s *Service) BeginRun(ctx context.Context, meta RunMeta) *RunCoordinator {
 	s.coordMu.Lock()
 	s.coordinators[meta.RunID] = coord
 	s.coordMu.Unlock()
-	if err := s.repo.UpdateRunModeration(ctx, meta.RunID, domaincm.ModerationStatePending, "", "[]"); err != nil {
-		s.logWarn("content_moderation_mark_pending_failed", zap.String("run_id", meta.RunID), zap.Error(err))
+	if !meta.Ephemeral {
+		if err := s.repo.UpdateRunModeration(ctx, meta.RunID, domaincm.ModerationStatePending, "", "[]"); err != nil {
+			s.logWarn("content_moderation_mark_pending_failed", zap.String("run_id", meta.RunID), zap.Error(err))
+		}
 	}
 	return coord
 }

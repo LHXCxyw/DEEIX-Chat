@@ -91,6 +91,7 @@ func buildMessageProcessTraceDTO(rows []model.MessageTrace, eventRows []model.Me
 	if len(rows) == 0 && len(eventRows) == 0 {
 		return nil
 	}
+	eventRows = normalizeLegacyThinkReplayEvents(eventRows)
 	result := &model.MessageProcessTrace{Enabled: true}
 	for _, row := range rows {
 		block := &model.MessageTraceBlock{

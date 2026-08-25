@@ -129,6 +129,8 @@ export type ProcessTraceLabels = {
     detail: string;
     range: (fromTurn: number, toTurn: number) => string;
     tokens: (sourceTokens: number, summaryTokens: number) => string;
+    pending: string;
+    failed: string;
   };
 };
 
@@ -264,6 +266,8 @@ export function useProcessTraceLabels(): ProcessTraceLabels {
         detail: t("compaction.detail"),
         range: (fromTurn: number, toTurn: number) => t("compaction.range", { fromTurn, toTurn }),
         tokens: (sourceTokens: number, summaryTokens: number) => t("compaction.tokens", { sourceTokens, summaryTokens }),
+        pending: t("compaction.pending"),
+        failed: t("compaction.failed"),
       },
     }),
     [t],

@@ -213,7 +213,7 @@ func (s *Service) sendMessageInternal(
 	if input.Cancelable {
 		cancelCtx, cancel := context.WithCancel(ctx)
 		ctx = cancelCtx
-		s.generationStreams.register(ctx, runID, input.UserID, cancel)
+		s.generationStreams.register(ctx, runID, input.UserID, conversation.PublicID, cancel)
 	}
 
 	currentPlatformModelName := strings.TrimSpace(conversation.Model)
@@ -406,8 +406,6 @@ func (s *Service) sendMessageInternal(
 		run.Provider = inferProvider(conversation.Model)
 	}
 
-	// 构建完整活跃分支路径；压缩裁剪先于模型预算截断，避免摘要和全量历史重复发送。
-	contextMessages := filterBlockedMessages(buildBranchMessagePath(branchState, userMessage))
 	cfg := s.cfg.Snapshot()
 	compactPolicy := s.resolveContextCompactionPolicy(ctx, cfg, input.UserID)
 
@@ -437,11 +435,74 @@ func (s *Service) sendMessageInternal(
 
 	// 收集并行预取结果，再规划本轮可发送的 PromptScope。
 	prefetch := <-prefetchCh
-	contextMessages = s.expandContextMessagesToSnapshotBoundary(ctx, input.ConversationID, userMessage.ID, contextMessages, prefetch.snapshot, compactPolicy)
-	// 快照扩展可能重新加载数据库中的原始 error 状态；在最终分支路径上统一恢复可用的重试上下文。
+	if err = s.loadMessageBranchContext(
+		ctx,
+		input.ConversationID,
+		branchState,
+		prefetch.snapshot,
+		normalizedBranchReason,
+	); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("conversation_context_load_failed",
+				zap.String("trace_id", traceid.FromContext(ctx)),
+				zap.Uint("conversation_id", input.ConversationID),
+				zap.String("request_id", strings.TrimSpace(input.RequestID)),
+				zap.Error(err),
+			)
+		}
+		retErr = err
+		return nil, err
+	}
+
+	// 构建完整活跃分支路径。完整消息仅在模型路由与滚动快照已解析后按需加载，
+	// 避免默认分支定位和 Prompt 规划分别水合同一批附件与引用。
+	contextMessages := filterBlockedMessages(buildBranchMessagePath(branchState, userMessage))
 	contextMessages = recoverAssistantRetryUserStates(contextMessages)
+
+	// 软阈值压缩仍可按配置在响应后异步执行；只有当前请求已经越过所选模型的
+	// 有效输入预算时，才同步生成滚动快照，避免本轮先被静默截断、下一轮才补摘要。
+	preflightCompactInput := appcompact.MaybeCompactConversationInput{
+		ConversationID:   input.ConversationID,
+		UserID:           input.UserID,
+		RunID:            runID,
+		Messages:         contextMessages,
+		ExistingSnapshot: prefetch.snapshot,
+		PromptTokenEstimate: estimatePromptScopeTokens(
+			contextMessages,
+			prefetch.snapshot,
+			compactPolicy,
+			reasoningContentPassback,
+		),
+		ContextModelName:  route.UpstreamModel,
+		CapabilitiesJSON:  route.ModelCapabilitiesJSON,
+		PlatformModelName: s.resolveTextTaskModel(ctx, cfg.CompactTaskModel, conversation.Model, input.UserID, input.ConversationID, strings.TrimSpace(input.RequestID)),
+		Force:             true,
+	}
+	if compactPolicy.EffectiveEnabled() && s.compactSvc.ContextBudgetExceeded(preflightCompactInput) {
+		preflightSnapshot, compactErr := s.compactSvc.MaybeCompactConversation(ctx, preflightCompactInput)
+		if compactErr != nil {
+			retErr = compactErr
+			return nil, compactErr
+		}
+		if preflightSnapshot != nil {
+			prefetch.snapshot = preflightSnapshot
+			s.invalidateSnapshotCache(input.ConversationID)
+			_ = s.repo.UpdateConversationLastResponseID(ctx, input.ConversationID, "")
+			s.persistSnapshotContextArtifact(ctx, snapshotContextArtifactInput{
+				ConversationID: input.ConversationID,
+				UserID:         input.UserID,
+				MessageID:      assistantMessage.ID,
+				RunID:          runID,
+				Snapshot:       preflightSnapshot,
+			})
+			if traceRecorder != nil {
+				summary, markdown, payload := buildCompactionProcessTrace(preflightSnapshot)
+				traceRecorder.appendProcessSection(summary, markdown, payload, messageTraceStatusStreaming)
+			}
+		}
+	}
 	promptScope := buildPromptScope(contextMessages, prefetch.snapshot, compactPolicy)
-	promptMessages := s.applyContextTokenBudget(promptScope.activeMessages(), route.UpstreamModel, route.ModelCapabilitiesJSON, reasoningContentPassback)
+	promptMessages := promptScope.activeMessages()
 	ragQuery := buildRAGQuery(promptMessages, input.Content, cfg.RAGQueryHistoryTurns)
 	historicalScope := promptScope.historicalMessageScope(input.ConversationID, input.UserID, userMessage.ID)
 
@@ -517,7 +578,7 @@ func (s *Service) sendMessageInternal(
 		return nil, err
 	}
 
-	contextAssembler := NewContextAssembler(int64(cfg.ContextMaxInputTokens))
+	contextAssembler := NewContextAssembler(0)
 	userCtx := userContextInput{ImageAnalyses: imageProcessing.Analyses}
 	var prefixMemories []domainmemory.UserMemory
 	preferencePrompt := ""
@@ -720,24 +781,7 @@ func (s *Service) sendMessageInternal(
 		retErr = err
 		return nil, err
 	}
-	if traceRecorder != nil && skillPrompts != nil {
-		skillTitles := skillPromptTitles(skillPrompts.Skills)
-		traceRecorder.appendProcessSection(
-			fmt.Sprintf("已提供 %d 个 Skill 上下文", len(skillPrompts.Skills)),
-			formatTraceStep("Skill", fmt.Sprintf("本轮已加载 Skill：%s。包含 SKILL.md 内容，相关时使用。", strings.Join(skillTitles, "、"))),
-			map[string]interface{}{
-				processTracePayloadStage: map[string]interface{}{
-					"kind":   "skill_context",
-					"status": messageTraceStatusStreaming,
-				},
-				"skill_count":    len(skillPrompts.Skills),
-				"skill_ids":      skillPromptIDs(skillPrompts.Skills),
-				"skill_titles":   skillTitles,
-				"skill_triggers": skillPromptTriggers(skillPrompts.Skills),
-			},
-			messageTraceStatusStreaming,
-		)
-	}
+	recordSkillPromptTrace(traceRecorder, skillPrompts)
 	routePromptInput := messageRoutePromptInput{
 		UserContent:             input.Content,
 		ProjectSystemPrompt:     conversation.ProjectSystemPrompt,
@@ -808,13 +852,28 @@ func (s *Service) sendMessageInternal(
 		Tools:                  toolRuntime.definitions,
 		Options:                filteredOptions,
 	}
+	generateInput, initialBudgetFit := fitGenerateInputToModelBudget(
+		generateInput,
+		route.UpstreamModel,
+		route.ModelCapabilitiesJSON,
+		cfg.ContextWindowFallbackTokens,
+		cfg.ContextTokenBudgetEnabled,
+	)
+	if initialBudgetFit.Trimmed {
+		llmMessages = cloneLLMMessages(generateInput.Messages)
+		promptPlan.applyMessages(llmMessages)
+	}
+	s.logPromptBudgetFit(ctx, route.UpstreamModel, initialBudgetFit)
 	if supportsOpenAIResponsesBackgroundMode(route) {
 		generateInput.ResponsesBackground = true
 		sendSpan.SetAttributes(attribute.Bool("conversation.responses_background", true))
 	}
-	fullLLMMessages := llmMessages
+	fullLLMMessages := cloneLLMMessages(llmMessages)
 	applyOpenAIResponsesInstructions(route, routeConfig.Endpoint, &generateInput)
 	estimatedPromptTokens = estimateGenerateInputTokens(generateInput)
+	// 有状态 Responses 续传只发送本轮增量，但压缩决策必须继续观察完整上下文；
+	// 同时保留预算裁剪前的规模，让被裁掉的历史在回复后及时进入滚动摘要。
+	fullContextPromptTokens := maxPromptTokenEstimate(initialBudgetFit.TokensBefore, estimatedPromptTokens)
 	statefulContextConfig := buildPromptContextConfigSignature(cfg)
 	statefulContextState := buildPromptContextStateSignature(stableFullContextAttachments, prefixMemories)
 	statefulPrefixFingerprint := buildPromptStateFingerprint(promptStateFingerprintInput{
@@ -1214,7 +1273,6 @@ func (s *Service) sendMessageInternal(
 			filteredOptions,
 			llmMessages,
 		)
-		fullLLMMessages = llmMessages
 		generateInput = llm.GenerateInput{
 			RequestID:              strings.TrimSpace(input.RequestID),
 			ConversationID:         input.ConversationID,
@@ -1225,11 +1283,25 @@ func (s *Service) sendMessageInternal(
 			Tools:                  toolRuntime.definitions,
 			Options:                filteredOptions,
 		}
+		generateInput, failoverBudgetFit := fitGenerateInputToModelBudget(
+			generateInput,
+			route.UpstreamModel,
+			route.ModelCapabilitiesJSON,
+			cfg.ContextWindowFallbackTokens,
+			cfg.ContextTokenBudgetEnabled,
+		)
+		llmMessages = cloneLLMMessages(generateInput.Messages)
+		if failoverBudgetFit.Trimmed {
+			promptPlan.applyMessages(llmMessages)
+		}
+		s.logPromptBudgetFit(ctx, route.UpstreamModel, failoverBudgetFit)
 		if supportsOpenAIResponsesBackgroundMode(route) {
 			generateInput.ResponsesBackground = true
 		}
+		fullLLMMessages = cloneLLMMessages(llmMessages)
 		applyOpenAIResponsesInstructions(route, routeConfig.Endpoint, &generateInput)
 		estimatedPromptTokens = estimateGenerateInputTokens(generateInput)
+		fullContextPromptTokens = maxPromptTokenEstimate(failoverBudgetFit.TokensBefore, estimatedPromptTokens)
 		statefulPrefixFingerprint = buildPromptStateFingerprint(promptStateFingerprintInput{
 			Protocol:          route.Protocol,
 			Endpoint:          routeConfig.Endpoint,
@@ -1321,6 +1393,7 @@ func (s *Service) sendMessageInternal(
 			assistantToolMessage,
 			route.UpstreamModel,
 			route.ModelCapabilitiesJSON,
+			cfg.ContextWindowFallbackTokens,
 		)
 		toolCtx, toolSpan := platformtracing.Start(ctx, "conversation.tool.execute",
 			trace.WithAttributes(
@@ -1378,6 +1451,7 @@ func (s *Service) sendMessageInternal(
 			llmMessages,
 			route.UpstreamModel,
 			route.ModelCapabilitiesJSON,
+			cfg.ContextWindowFallbackTokens,
 		)
 		if toolHistoryTrimmed {
 			toolHistoryTrimmedForRun = true
@@ -1389,6 +1463,7 @@ func (s *Service) sendMessageInternal(
 			llmMessages,
 			route.UpstreamModel,
 			route.ModelCapabilitiesJSON,
+			cfg.ContextWindowFallbackTokens,
 		)
 		if toolResultsRebalanced {
 			sendSpan.SetAttributes(attribute.Bool("conversation.tool.results_rebalanced", true))
@@ -1586,10 +1661,13 @@ func (s *Service) sendMessageInternal(
 		UserID:              input.UserID,
 		RunID:               runID,
 		Messages:            compactMessages,
-		PromptTokenEstimate: estimatedPromptTokens,
+		ExistingSnapshot:    prefetch.snapshot,
+		PromptTokenEstimate: fullContextPromptTokens + effectiveOutputTokens,
+		ContextModelName:    route.UpstreamModel,
+		CapabilitiesJSON:    route.ModelCapabilitiesJSON,
 	}
 	var postBillingCompaction *postBillingCompactionTask
-	if !compactPolicy.EffectiveEnabled() {
+	if !compactPolicy.EffectiveEnabled() || !s.compactSvc.ShouldCompactConversation(compactInput) {
 		// 用户已关闭自动压缩，仅完成 trace 记录
 		if traceRecorder != nil {
 			traceRecorder.complete()
@@ -1610,9 +1688,10 @@ func (s *Service) sendMessageInternal(
 			TraceRecorder:  traceRecorder,
 		}
 		if compactCfg.CompactAsyncEnabled && traceRecorder != nil {
-			traceRecorder.complete()
+			summary, payload := buildPendingCompactionProcessTrace()
+			traceRecorder.setCompactionProcessStage(summary, "", payload)
+			traceRecorder.completeForBackgroundContinuation()
 			traceRecorder.attachToMessage(assistantMessage)
-			postBillingCompaction.TraceRecorder = nil
 			postBillingCompaction.OnEvent = nil
 		}
 	}

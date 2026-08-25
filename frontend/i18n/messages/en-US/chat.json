@@ -15,6 +15,19 @@
   "time": "Time",
   "tokens": "Tokens",
   "details": "Details",
+  "temporary": {
+    "title": "Temporary chat",
+    "historyChat": "Normal chat",
+    "notice": "This chat won't appear in your history. Its data will be cleared when you leave the page.",
+    "exitTitle": "Exit temporary chat",
+    "exitDescription": "All messages and generated content in this temporary chat will be cleared and cannot be recovered.",
+    "continue": "Cancel",
+    "exitAction": "Exit",
+    "stopped": "Generation stopped",
+    "blocked": "Content withdrawn by the safety policy",
+    "failed": "Temporary message generation failed. Please try again.",
+    "sessionExpired": "Your session has expired. Please sign in again."
+  },
   "greeting": {
     "morning": "Good morning",
     "afternoon": "Good afternoon",
@@ -684,7 +697,9 @@
       "summary": "Compacted turns {fromTurn}-{toTurn}",
       "detail": "Conversation context was compacted into a rolling summary.",
       "range": "Compacted range: turns {fromTurn}-{toTurn}.",
-      "tokens": "Token reduction: {sourceTokens} -> {summaryTokens}."
+      "tokens": "Token reduction: {sourceTokens} -> {summaryTokens}.",
+      "pending": "Generating a rolling summary in the background.",
+      "failed": "Context compaction did not complete and will be retried on a later request."
     }
   },
   "optionLabels": {

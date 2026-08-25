@@ -155,6 +155,10 @@ type GenerateInput struct {
 	// ResponsesBackground 表示官方 OpenAI Responses 请求使用 background mode。
 	// 这是服务端能力开关，不从用户 Options 透传，避免改变未显式启用模型的数据保留语义。
 	ResponsesBackground bool
+	// Ephemeral 表示调用方要求无状态推理。支持该语义的 adapter 必须显式关闭
+	// provider 侧响应存储，并忽略 background、previous response 与提示缓存状态。
+	// 该字段只约束上游请求，不替代调用方自身的持久化边界。
+	Ephemeral bool
 	// ImageEditMask 仅供图片编辑 adapter 使用，表示透明区域掩码。
 	ImageEditMask *ContentPart
 	// VideoExtensionSource 仅供视频扩展 adapter 使用，表示待扩展的源视频。

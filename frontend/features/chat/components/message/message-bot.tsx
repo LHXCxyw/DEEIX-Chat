@@ -147,6 +147,8 @@ type ChatMessageBotProps = {
   onCopy: () => void;
   copySucceeded?: boolean;
   markdownRender?: boolean;
+  autoExpandThinking?: boolean;
+  autoExpandToolCalls?: boolean;
   showModelInfo?: boolean;
   showLatency?: boolean;
   showTokenUsage?: boolean;
@@ -176,6 +178,8 @@ export function ChatMessageBot({
   onCopy,
   copySucceeded = false,
   markdownRender = true,
+  autoExpandThinking = true,
+  autoExpandToolCalls = true,
   showModelInfo = true,
   showLatency = true,
   showTokenUsage = true,
@@ -368,7 +372,8 @@ export function ChatMessageBot({
         activeThinkBlock={upstreamThink}
         messageStreaming={messageStreaming}
         autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
-        runDurationMS={item.latencyMS}
+        autoExpandThinking={autoExpandThinking}
+        autoExpandToolCalls={autoExpandToolCalls}
       />
 
       <div
@@ -391,6 +396,7 @@ export function ChatMessageBot({
               <StreamdownRender
                 content={streamdownContent}
                 streaming={Boolean(item.isStreaming)}
+                autoExpandThinking={autoExpandThinking}
                 imageActions={markdownImageActions}
                 artifactActions={artifactActions}
               />
@@ -402,6 +408,7 @@ export function ChatMessageBot({
           <StreamdownRender
             content={streamdownContent}
             streaming={Boolean(item.isStreaming)}
+            autoExpandThinking={autoExpandThinking}
             imageActions={markdownImageActions}
             artifactActions={artifactActions}
           />

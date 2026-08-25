@@ -1,5 +1,30 @@
 basePath: /api/v1
 definitions:
+  ActiveMessageGenerationEventResponse:
+    properties:
+      conversationPublicID:
+        type: string
+      runID:
+        type: string
+      runs:
+        items:
+          $ref: '#/definitions/ActiveMessageGenerationResponse'
+        type: array
+      type:
+        type: string
+    required:
+    - type
+    type: object
+  ActiveMessageGenerationResponse:
+    properties:
+      conversationPublicID:
+        type: string
+      runID:
+        type: string
+    required:
+    - conversationPublicID
+    - runID
+    type: object
   ActiveSessionListResponse:
     properties:
       results:
@@ -4856,6 +4881,8 @@ definitions:
         type: string
       cbWindowMin:
         type: integer
+      contextWindow:
+        type: integer
       createdAt:
         type: string
       description:
@@ -4904,6 +4931,7 @@ definitions:
     - cbFailureThreshold
     - cbPolicyMode
     - cbWindowMin
+    - contextWindow
     - createdAt
     - description
     - displayGroupID
@@ -5209,15 +5237,21 @@ definitions:
     properties:
       canonicalSlug:
         type: string
+      contextLength:
+        type: integer
       id:
         type: string
+      maxCompletionTokens:
+        type: integer
       name:
         type: string
       pricing:
         $ref: '#/definitions/OpenRouterOfficialPricingUnitPricingResponse'
     required:
     - canonicalSlug
+    - contextLength
     - id
+    - maxCompletionTokens
     - name
     - pricing
     type: object
@@ -7373,6 +7407,63 @@ definitions:
     - source
     - traceID
     - updatedAt
+    type: object
+  TemporaryChatHistoryMessage:
+    properties:
+      content:
+        maxLength: 200000
+        type: string
+      role:
+        enum:
+        - user
+        - assistant
+        type: string
+    required:
+    - content
+    - role
+    type: object
+  TemporaryChatMessageRequest:
+    properties:
+      clientRunID:
+        maxLength: 64
+        type: string
+      htmlVisualPrompt:
+        type: boolean
+      knowledgeBaseIDs:
+        items:
+          type: string
+        maxItems: 8
+        type: array
+      messages:
+        items:
+          $ref: '#/definitions/TemporaryChatHistoryMessage'
+        maxItems: 100
+        minItems: 1
+        type: array
+      model:
+        maxLength: 128
+        type: string
+      options:
+        additionalProperties: true
+        type: object
+      selectedToolIDs:
+        items:
+          type: integer
+        maxItems: 128
+        type: array
+      sessionID:
+        maxLength: 64
+        type: string
+      skillIDs:
+        items:
+          type: integer
+        maxItems: 128
+        type: array
+    required:
+    - clientRunID
+    - messages
+    - model
+    - sessionID
     type: object
   ToolListResponse:
     properties:
@@ -9763,7 +9854,8 @@ paths:
     get:
       consumes:
       - application/json
-      description: 从 storage 缓存读取 OpenRouter 模型定价；缓存不存在、过期或 refresh=true 时由后端刷新。
+      description: 从 storage 缓存读取 OpenRouter 模型标识、定价和上下文限制；缓存不存在、过期或 refresh=true
+        时由后端刷新。
       parameters:
       - description: 强制刷新缓存
         in: query
@@ -9786,7 +9878,7 @@ paths:
             $ref: '#/definitions/BillingErrorDoc'
       security:
       - BearerAuth: []
-      summary: 管理员获取 OpenRouter 官方模型定价
+      summary: 管理员获取 OpenRouter 官方模型目录
       tags:
       - admin-billing
   /admin/billing/plans/{id}:
@@ -15395,6 +15487,26 @@ paths:
       summary: 恢复流式生成订阅
       tags:
       - chat
+  /conversation-runs/stream:
+    get:
+      description: Sends an authoritative snapshot followed by live user-scoped run
+        state events
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ActiveMessageGenerationEventResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: Stream active conversation generations
+      tags:
+      - chat
   /conversations:
     get:
       consumes:
@@ -15791,7 +15903,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: 将会话从开头到指定消息（含）的祖先链复制为一个新会话；不携带原会话的运行记录与计费，附件以引用方式复用
+      description: 仅允许从助手消息 fork；将会话从开头到指定助手消息（含）的祖先链复制为一个新会话，保留历史展示轨迹；不携带原会话的运行记录与计费，附件以引用方式复用
       parameters:
       - description: 会话 public_id
         in: path
@@ -17893,6 +18005,38 @@ paths:
       summary: 更新我的自定义技能
       tags:
       - skills
+  /temporary-chat/messages/stream:
+    post:
+      consumes:
+      - application/json
+      description: 由浏览器提交完整纯文本上下文；服务端不创建会话、消息、运行或断线续传记录
+      parameters:
+      - description: 临时对话参数
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/TemporaryChatMessageRequest'
+      produces:
+      - application/x-ndjson
+      responses:
+        "200":
+          description: NDJSON stream
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 流式发送临时对话消息
+      tags:
+      - chat
   /user/settings:
     get:
       description: 返回当前用户全部个人偏好配置，缺失项以默认值填充

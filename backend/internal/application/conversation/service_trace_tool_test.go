@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
@@ -732,6 +733,13 @@ func TestUpstreamThinkingDeltaIsCoalescedBetweenFlushes(t *testing.T) {
 	if len(events) != 1 || events[0]["delta"] != "a" {
 		t.Fatalf("expected first live event to carry only first delta, got %#v", events)
 	}
+	startedAt, ok := events[0]["startedAt"].(time.Time)
+	if !ok || recorder.upstreamThink == nil || !startedAt.Equal(recorder.upstreamThink.startedAt) {
+		t.Fatalf("expected live event to carry the authoritative thinking start, got %#v", events[0]["startedAt"])
+	}
+	if _, ok := events[0]["endedAt"]; ok {
+		t.Fatalf("streaming thinking event must not carry endedAt, got %#v", events[0]["endedAt"])
+	}
 	if _, ok := events[0]["trace"]; ok {
 		t.Fatalf("live thinking delta must not carry full trace: %#v", events[0])
 	}
@@ -748,6 +756,15 @@ func TestUpstreamThinkingDeltaIsCoalescedBetweenFlushes(t *testing.T) {
 	}
 	if events[1]["delta"] != "bc" || events[1]["status"] != messageTraceStatusCompleted {
 		t.Fatalf("expected completion to flush coalesced delta with completed status, got %#v", events[1])
+	}
+	completedStartedAt, ok := events[1]["startedAt"].(time.Time)
+	if !ok || !completedStartedAt.Equal(startedAt) {
+		t.Fatalf("expected all deltas in one thinking round to retain startedAt, got %v then %v",
+			events[0]["startedAt"], events[1]["startedAt"])
+	}
+	endedAt, ok := events[1]["endedAt"].(time.Time)
+	if !ok || recorder.upstreamThink == nil || recorder.upstreamThink.endedAt == nil || !endedAt.Equal(*recorder.upstreamThink.endedAt) {
+		t.Fatalf("expected completed thinking event to carry the authoritative end, got %#v", events[1]["endedAt"])
 	}
 }
 
@@ -1003,6 +1020,101 @@ func TestBuildCompactionProcessTraceUsesReadableLines(t *testing.T) {
 	}
 	if stage["kind"] != processTraceKindCompaction || stage["status"] != processTraceStatusCompleted {
 		t.Fatalf("unexpected compaction trace stage: %#v", stage)
+	}
+}
+
+func TestTraceRecorderContinuesProcessTraceAfterRequestCompletion(t *testing.T) {
+	recorder := &messageTraceRecorder{
+		cfg: config.Config{
+			ProcessTraceEnabled:       true,
+			ProcessTraceVisibleToUser: true,
+		},
+		assistant: &model.Message{},
+		onEvent:   func(string, map[string]interface{}) error { return nil },
+	}
+	recorder.appendProcessSection("准备完成", "**准备**：请求已完成。", nil, messageTraceStatusStreaming)
+
+	recorder.completeForBackgroundContinuation()
+	if recorder.process == nil || recorder.process.status != messageTraceStatusCompleted {
+		t.Fatalf("expected request trace to be completed before background work, got %#v", recorder.process)
+	}
+	if recorder.onEvent != nil {
+		t.Fatal("background continuation must not emit into the closed request stream")
+	}
+
+	recorder.appendProcessSection(
+		"上下文已压缩",
+		"**上下文压缩**：后台压缩完成。",
+		map[string]interface{}{processTracePayloadStage: map[string]interface{}{
+			"kind":   processTraceKindCompaction,
+			"status": processTraceStatusCompleted,
+		}},
+		messageTraceStatusStreaming,
+	)
+	if recorder.process.status != messageTraceStatusStreaming || recorder.process.endedAt != nil {
+		t.Fatalf("expected background append to reopen the process trace, got %#v", recorder.process)
+	}
+
+	recorder.complete()
+	if recorder.process.status != messageTraceStatusCompleted || recorder.process.endedAt == nil {
+		t.Fatalf("expected background trace to complete, got %#v", recorder.process)
+	}
+	if !strings.Contains(recorder.process.contentMarkdown, "后台压缩完成") {
+		t.Fatalf("expected persisted process content to include background compaction, got %q", recorder.process.contentMarkdown)
+	}
+}
+
+func TestTraceRecorderKeepsAndReplacesPendingCompactionStage(t *testing.T) {
+	recorder := &messageTraceRecorder{
+		cfg: config.Config{
+			ProcessTraceEnabled:       true,
+			ProcessTraceVisibleToUser: true,
+		},
+		assistant: &model.Message{},
+		onEvent:   func(string, map[string]interface{}) error { return nil },
+	}
+	recorder.appendProcessSection("准备完成", "**准备**：请求已完成。", nil, messageTraceStatusStreaming)
+	pendingSummary, pendingPayload := buildPendingCompactionProcessTrace()
+	recorder.setCompactionProcessStage(pendingSummary, "", pendingPayload)
+
+	recorder.completeForBackgroundContinuation()
+	if recorder.process == nil || recorder.process.status != messageTraceStatusStreaming || recorder.process.endedAt != nil {
+		t.Fatalf("expected pending compaction to keep the process trace open, got %#v", recorder.process)
+	}
+	if recorder.onEvent != nil {
+		t.Fatal("background continuation must not emit into the closed request stream")
+	}
+	stages := normalizeProcessTraceStagePayloads(recorder.process.payload[processTracePayloadStages])
+	if len(stages) != 1 || stages[0]["kind"] != processTraceKindCompaction || stages[0]["status"] != processTraceStatusPending {
+		t.Fatalf("expected one pending compaction stage, got %#v", stages)
+	}
+
+	completedSummary, completedMarkdown, completedPayload := buildCompactionProcessTrace(&model.ContextSnapshot{
+		FromTurn:      1,
+		ToTurn:        4,
+		SourceTokens:  2000,
+		SummaryTokens: 300,
+	})
+	recorder.setCompactionProcessStage(completedSummary, completedMarkdown, completedPayload)
+	recorder.complete()
+
+	stages = normalizeProcessTraceStagePayloads(recorder.process.payload[processTracePayloadStages])
+	if len(stages) != 1 || stages[0]["status"] != processTraceStatusCompleted {
+		t.Fatalf("expected pending stage to be replaced in place, got %#v", stages)
+	}
+	if recorder.process.status != messageTraceStatusCompleted || recorder.process.endedAt == nil {
+		t.Fatalf("expected completed process trace, got %#v", recorder.process)
+	}
+	if !strings.Contains(recorder.process.contentMarkdown, "Tokens 缩减：2000 → 300") {
+		t.Fatalf("expected completed compaction detail, got %q", recorder.process.contentMarkdown)
+	}
+}
+
+func TestBuildFailedCompactionProcessTraceUsesStructuredStatus(t *testing.T) {
+	_, payload := buildFailedCompactionProcessTrace()
+	stage, ok := payload[processTracePayloadStage].(map[string]interface{})
+	if !ok || stage["kind"] != processTraceKindCompaction || stage["status"] != processTraceStatusFailed {
+		t.Fatalf("unexpected failed compaction stage: %#v", payload)
 	}
 }
 

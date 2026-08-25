@@ -28,6 +28,7 @@ type executeAssistantToolCallsInput struct {
 	ToolSchemas       map[string]json.RawMessage
 	Ledger            *toolExecutionLedger
 	ResultTokenBudget int64
+	Ephemeral         bool
 }
 
 type executeAssistantToolCallsResult struct {
@@ -126,7 +127,10 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		if input.Ledger != nil {
 			if previous, ok := input.Ledger.lookup(row.ToolName, row.InputJSON); ok {
 				slot := buildRepeatedToolSlot(row, modelToolName, previous)
-				persisted := s.persistToolCallResult(ctx, &slot.row)
+				persisted := false
+				if !input.Ephemeral {
+					persisted = s.persistToolCallResult(ctx, &slot.row)
+				}
 				slot.result = buildToolResultForModel(slot.row, modelToolName)
 				slot.persisted = persisted
 				slots[i] = slot
@@ -157,7 +161,10 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 				row.OutputJSON = "{}"
 			}
 		}
-		persisted := s.persistToolCallResult(ctx, &row)
+		persisted := false
+		if !input.Ephemeral {
+			persisted = s.persistToolCallResult(ctx, &row)
+		}
 		result := buildToolResultForModel(row, modelToolName)
 		slots[i] = toolExecutionSlot{
 			row:       row,

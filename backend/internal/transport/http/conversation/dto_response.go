@@ -1200,6 +1200,18 @@ type CancelMessageGenerationResponse struct {
 	Canceled bool `json:"canceled"`
 }
 
+type ActiveMessageGenerationResponse struct {
+	RunID                string `json:"runID"`
+	ConversationPublicID string `json:"conversationPublicID"`
+}
+
+type ActiveMessageGenerationEventResponse struct {
+	Type                 string                            `json:"type"`
+	Runs                 []ActiveMessageGenerationResponse `json:"runs,omitempty"`
+	RunID                string                            `json:"runID,omitempty"`
+	ConversationPublicID string                            `json:"conversationPublicID,omitempty"`
+}
+
 func toSendMessageResponse(r *appconversation.SendMessageResult) SendMessageResponse {
 	run := model.Run{
 		PlatformModelName: r.PlatformModelName,

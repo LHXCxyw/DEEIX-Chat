@@ -15,6 +15,19 @@
   "time": "时间",
   "tokens": "Token",
   "details": "详情",
+  "temporary": {
+    "title": "临时对话",
+    "historyChat": "正常对话",
+    "notice": "此对话不会出现在你的历史记录中，离开页面后数据将被清除。",
+    "exitTitle": "退出临时对话",
+    "exitDescription": "离开后，此临时对话中的所有消息和生成内容都将被清除，且无法恢复。",
+    "continue": "取消",
+    "exitAction": "退出",
+    "stopped": "生成已停止",
+    "blocked": "内容因安全策略已撤回",
+    "failed": "临时消息生成失败，请重试",
+    "sessionExpired": "登录状态已失效，请重新登录"
+  },
   "greeting": {
     "morning": "上午好",
     "afternoon": "下午好",
@@ -684,7 +697,9 @@
       "summary": "已压缩第 {fromTurn}-{toTurn} 轮上下文",
       "detail": "对话已压缩并生成滚动摘要。",
       "range": "压缩区间：第 {fromTurn}-{toTurn} 轮。",
-      "tokens": "Tokens 缩减：{sourceTokens} -> {summaryTokens}。"
+      "tokens": "Tokens 缩减：{sourceTokens} -> {summaryTokens}。",
+      "pending": "正在后台生成滚动摘要。",
+      "failed": "上下文压缩未完成，系统将在后续请求中重试。"
     }
   },
   "optionLabels": {

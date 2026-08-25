@@ -10,6 +10,8 @@ import type {
   ReorderConversationProjectsRequest as ContractReorderConversationProjectsRequest,
   RevokeConversationSharesRequest as ContractRevokeConversationSharesRequest,
   SendMessageRequest as ContractSendMessageRequest,
+  TemporaryChatHistoryMessage as ContractTemporaryChatHistoryMessage,
+  TemporaryChatMessageRequest as ContractTemporaryChatMessageRequest,
   SetConversationArchiveRequest as ContractSetConversationArchiveRequest,
   SetConversationProjectRequest as ContractSetConversationProjectRequest,
   SetConversationStarRequest as ContractSetConversationStarRequest,
@@ -47,6 +49,15 @@ import type { UserStorageQuotaDTO } from "@/shared/api/file.types";
 export type ConversationDTO = ConversationResponse;
 
 export type ConversationSearchResultDTO = ConversationSearchResultResponse;
+
+export type ActiveConversationRunSnapshot = {
+  runID: string;
+  conversationPublicID: string;
+};
+
+export type ActiveConversationRunEvent =
+  | { type: "snapshot"; runs: ActiveConversationRunSnapshot[] }
+  | { type: "started" | "finished"; runID: string; conversationPublicID?: string };
 
 export type ConversationSearchPageDTO = Omit<ConversationSearchPageResponse, "results"> & {
   results: ConversationSearchResultDTO[];
@@ -233,6 +244,15 @@ export type SendMessageResult = Omit<SendMessageResponse, "assistantMessage" | "
   metadataRefreshHint?: "pending" | "not_needed" | "skipped_no_titleable_content" | string;
 };
 
+export type TemporaryChatHistoryMessage = Omit<ContractTemporaryChatHistoryMessage, "role"> & {
+  role: "user" | "assistant";
+};
+
+export type TemporaryChatMessageRequest = Omit<ContractTemporaryChatMessageRequest, "messages" | "options"> & {
+  options?: ConversationOptions;
+  messages: TemporaryChatHistoryMessage[];
+};
+
 export type StreamMessageEvent =
   | {
       type: "file_proc";
@@ -260,6 +280,8 @@ export type StreamMessageEvent =
       stage?: string;
       roundID?: string;
       eventID?: string;
+      startedAt?: string;
+      endedAt?: string;
       kind?: ReasoningDeltaDTO["kind"] | string;
       delta?: string;
       contentMarkdown?: string;

@@ -21,16 +21,20 @@ import {
 import {
   AgentToolStepRow,
   buildToolGroupSteps,
+  isToolChainStepActive,
   type ToolChainStep,
 } from "@/features/chat/components/message/message-agent-tool-step";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import { useAutoExpandDisclosure } from "@/shared/hooks/use-auto-expand-disclosure";
 import { cn } from "@/lib/utils";
 import { TRACE_ROOT_CLASS } from "@/features/chat/components/shared/message-process-trace-shared";
+import { useElapsedDurationMS } from "@/features/chat/hooks/use-elapsed-duration";
 import {
-  formatTraceRunDuration,
-  formatTraceStepDuration,
-  type TraceDisplayEvent,
-} from "@/features/chat/model/message-process-trace";
+  durationBetweenMS,
+  formatDurationMS,
+  sumDurationsMS,
+} from "@/features/chat/model/duration";
+import type { TraceDisplayEvent } from "@/features/chat/model/message-process-trace";
 
 function traceEventToBlock(event: ChatTraceEvent): ChatTraceBlock {
   return {
@@ -42,6 +46,7 @@ function traceEventToBlock(event: ChatTraceEvent): ChatTraceBlock {
     roundID: event.roundID,
     parentEventID: event.parentEventID,
     startedAt: event.startedAt,
+    endedAt: event.endedAt,
     updatedAt: event.updatedAt,
     payloadJson: event.payloadJson,
   };
@@ -198,14 +203,28 @@ function groupTraceDisplayEvents(
     ensureGroup(key, item.event.seq).toolEvents.push(item);
   }
 
-  // Live streaming blocks join their own round; unmatched blocks are appended last.
+  // Snapshot blocks enrich their matching event round; unmatched live fallbacks are appended last.
   const attachActiveBlock = (block: ChatTraceBlock | undefined, kind: "think" | "tool") => {
     if (!block) {
       return;
     }
     const roundID = block.roundID?.trim() || "";
     const parentID = block.parentEventID?.trim() || "";
-    const matchedKey = (roundID && thinkRoundIDToKey.get(roundID)) || (parentID && thinkEventIDToKey.get(parentID));
+    let matchedKey = (roundID && thinkRoundIDToKey.get(roundID)) || (parentID && thinkEventIDToKey.get(parentID));
+    if (!matchedKey && kind === "think") {
+      const blockText = traceBlockDisplayText(block);
+      if (blockText) {
+        for (const [key, group] of groups) {
+          if (
+            group.thinkEvents.some(
+              (item) => traceBlockDisplayText(item.event) === blockText,
+            )
+          ) {
+            matchedKey = key;
+          }
+        }
+      }
+    }
     if (matchedKey) {
       const matched = groups.get(matchedKey);
       if (matched) {
@@ -236,41 +255,9 @@ function groupTraceDisplayEvents(
 }
 
 function thinkEventDurationMS(thinkEvents: TraceDisplayEvent[]): number | undefined {
-  let total = 0;
-  for (const item of thinkEvents) {
-    const { startedAt, endedAt, updatedAt } = item.event;
-    if (!startedAt) {
-      continue;
-    }
-    const startMS = new Date(startedAt).getTime();
-    if (!Number.isFinite(startMS)) {
-      continue;
-    }
-    // 部分历史事件只有 startedAt（未走到 complete 落盘），用快照更新时间兜底。
-    const rawEnd = endedAt?.trim() ? endedAt : updatedAt;
-    if (!rawEnd) {
-      continue;
-    }
-    const endMS = new Date(rawEnd).getTime();
-    if (!Number.isFinite(endMS) || endMS <= startMS) {
-      continue;
-    }
-    total += endMS - startMS;
-  }
-  return total > 0 ? total : undefined;
-}
-
-function thinkBlockDurationMS(block: ChatTraceBlock): number | undefined {
-  const { startedAt, updatedAt } = block;
-  if (!startedAt || !updatedAt) {
-    return undefined;
-  }
-  const startMS = new Date(startedAt).getTime();
-  const endMS = new Date(updatedAt).getTime();
-  if (!Number.isFinite(startMS) || !Number.isFinite(endMS) || endMS <= startMS) {
-    return undefined;
-  }
-  return endMS - startMS;
+  return sumDurationsMS(
+    thinkEvents.map(({ event }) => durationBetweenMS(event.startedAt, event.endedAt)),
+  );
 }
 
 type TraceTimelineItem =
@@ -281,33 +268,22 @@ function TraceThinkRow({
   block,
   streaming,
   durationMS,
-  autoCollapseReady,
+  autoExpand,
   labels,
 }: {
   block: ChatTraceBlock;
   streaming: boolean;
   durationMS?: number;
-  autoCollapseReady?: boolean;
+  autoExpand: boolean;
   labels: ProcessTraceLabels;
 }) {
-  const [open, setOpen] = React.useState(streaming);
-  const wasStreamingRef = React.useRef(streaming);
+  const { open, onOpenChange } = useAutoExpandDisclosure({
+    active: streaming,
+    autoExpand,
+  });
 
-  React.useEffect(() => {
-    if (streaming) {
-      setOpen(true);
-      wasStreamingRef.current = true;
-      return;
-    }
-    if (wasStreamingRef.current && autoCollapseReady) {
-      setOpen(false);
-    }
-    if (autoCollapseReady) {
-      wasStreamingRef.current = false;
-    }
-  }, [autoCollapseReady, streaming]);
-
-  const durationText = formatTraceStepDuration(durationMS);
+  const liveDurationMS = useElapsedDurationMS(streaming, block.startedAt);
+  const durationText = formatDurationMS(streaming ? liveDurationMS : durationMS);
 
   return (
     <li className="group/agent-trace-step">
@@ -324,7 +300,8 @@ function TraceThinkRow({
         duration={durationText ? labels.think.duration(durationText) : undefined}
         open={open}
         expandable
-        onOpenChange={setOpen}
+        loading={streaming}
+        onOpenChange={onOpenChange}
       >
         <StreamdownRender content={block.contentMarkdown} streaming={streaming} variant="thinking" />
       </AgentTraceStep>
@@ -335,11 +312,13 @@ function TraceThinkRow({
 function AgentTraceTimeline({
   items,
   labels,
-  autoCollapseReady,
+  autoExpandThinking,
+  autoExpandToolCalls,
 }: {
   items: TraceTimelineItem[];
   labels: ProcessTraceLabels;
-  autoCollapseReady?: boolean;
+  autoExpandThinking: boolean;
+  autoExpandToolCalls: boolean;
 }) {
   return (
     <div className="relative">
@@ -352,11 +331,16 @@ function AgentTraceTimeline({
               block={item.block}
               streaming={item.streaming}
               durationMS={item.durationMS}
-              autoCollapseReady={autoCollapseReady}
+              autoExpand={autoExpandThinking}
               labels={labels}
             />
           ) : (
-            <AgentToolStepRow key={item.key} step={item.step} labels={labels} />
+            <AgentToolStepRow
+              key={item.key}
+              step={item.step}
+              labels={labels}
+              autoExpand={autoExpandToolCalls}
+            />
           ),
         )}
       </ol>
@@ -370,14 +354,16 @@ export function MessageAgentTrace({
   activeThinkBlock,
   messageStreaming,
   autoCollapseReady,
-  runDurationMS,
+  autoExpandThinking = true,
+  autoExpandToolCalls = true,
 }: {
   events: ChatTraceEvent[];
   activeToolBlock?: ChatTraceBlock;
   activeThinkBlock?: ChatTraceBlock;
-  messageStreaming?: boolean;
-  autoCollapseReady?: boolean;
-  runDurationMS?: number;
+  messageStreaming: boolean;
+  autoCollapseReady: boolean;
+  autoExpandThinking?: boolean;
+  autoExpandToolCalls?: boolean;
 }) {
   const labels = useProcessTraceLabels();
   const displayEvents = React.useMemo(() => buildTraceDisplayEvents(traceEvents), [traceEvents]);
@@ -396,6 +382,8 @@ export function MessageAgentTrace({
       const thinkBlock = mergeThinkTraceBlock(group.thinkEvents, group.thinkBlock);
       if (thinkBlock) {
         const streaming = Boolean(messageStreaming && thinkBlock.status === "streaming");
+        const completedDurationMS = thinkEventDurationMS(group.thinkEvents)
+          ?? durationBetweenMS(thinkBlock.startedAt, thinkBlock.endedAt);
         list.push({
           kind: "think",
           key: `${group.key}:think`,
@@ -403,7 +391,7 @@ export function MessageAgentTrace({
           streaming,
           durationMS: streaming
             ? undefined
-            : thinkEventDurationMS(group.thinkEvents) ?? thinkBlockDurationMS(thinkBlock),
+            : completedDurationMS,
         });
       }
       groupToolSteps[index].forEach((step) => {
@@ -415,22 +403,15 @@ export function MessageAgentTrace({
     return list;
   }, [groupToolSteps, groups, messageStreaming]);
 
-  const [accordionValue, setAccordionValue] = React.useState(() => (messageStreaming ? "message-trace-timeline" : ""));
-  const wasStreamingRef = React.useRef(Boolean(messageStreaming));
-
-  React.useEffect(() => {
-    if (messageStreaming) {
-      setAccordionValue("message-trace-timeline");
-      wasStreamingRef.current = true;
-      return;
-    }
-    if (wasStreamingRef.current && autoCollapseReady) {
-      setAccordionValue("");
-    }
-    if (autoCollapseReady) {
-      wasStreamingRef.current = false;
-    }
-  }, [autoCollapseReady, messageStreaming]);
+  const hasActiveStep = items.some((item) =>
+    item.kind === "think" ? item.streaming : isToolChainStepActive(item.step),
+  );
+  const traceRunActive = messageStreaming && (hasActiveStep || !autoCollapseReady);
+  const { open, onOpenChange } = useAutoExpandDisclosure({
+    active: traceRunActive,
+    autoExpand: true,
+    collapseReady: autoCollapseReady || !messageStreaming,
+  });
 
   if (items.length === 0) {
     return null;
@@ -438,30 +419,31 @@ export function MessageAgentTrace({
 
   const renderedToolSteps = items.flatMap((item) => (item.kind === "tool" ? [item.step] : []));
   const thinkRounds = items.filter((item) => item.kind === "think").length;
-  const durationText = formatTraceRunDuration(runDurationMS);
+  const traceDurationMS = sumDurationsMS(
+    items.map((item) => (item.kind === "think" ? item.durationMS : item.step.latencyMS)),
+  );
+  const durationText = traceRunActive ? undefined : formatDurationMS(traceDurationMS);
 
   const subtitleParts: string[] = [];
-  if (renderedToolSteps.length > 0) {
-    subtitleParts.push(labels.run.toolCalls(renderedToolSteps.length));
-  }
   if (thinkRounds > 0) {
     subtitleParts.push(labels.run.thinkRounds(thinkRounds));
+  }
+  if (renderedToolSteps.length > 0) {
+    subtitleParts.push(labels.run.toolCalls(renderedToolSteps.length));
   }
   if (durationText) {
     subtitleParts.push(labels.run.duration(durationText));
   }
   const subtitle = subtitleParts.join(labels.run.labelSeparator);
 
-  const title = messageStreaming ? labels.run.titleActive : labels.run.titleDone;
-  const open = accordionValue === "message-trace-timeline";
-
+  const title = traceRunActive ? labels.run.titleActive : labels.run.titleDone;
   return (
     <div className={TRACE_ROOT_CLASS}>
       <Accordion
         type="single"
         collapsible
-        value={accordionValue}
-        onValueChange={(value) => setAccordionValue(value || "")}
+        value={open ? "message-trace-timeline" : ""}
+        onValueChange={(value) => onOpenChange(value === "message-trace-timeline")}
         className="w-full"
       >
         <AccordionItem value="message-trace-timeline" className="border-b-0">
@@ -475,10 +457,10 @@ export function MessageAgentTrace({
                   render={<span />}
                   className={cn(
                     "inline-flex min-h-0 w-auto text-[13px] font-medium transition-colors",
-                    !messageStreaming && "text-muted-foreground group-hover/trace:text-foreground",
+                    !traceRunActive && "text-muted-foreground group-hover/trace:text-foreground",
                   )}
                 >
-                  <MarkerContent className="min-w-0">{title}</MarkerContent>
+                  <MarkerContent className={cn("min-w-0", traceRunActive && "shimmer")}>{title}</MarkerContent>
                 </Marker>
               </div>
               {subtitle ? (
@@ -493,7 +475,12 @@ export function MessageAgentTrace({
             />
           </AccordionTrigger>
           <AccordionContent className="px-0 pb-0 pt-1.5 duration-[350ms] ease-in-out">
-            <AgentTraceTimeline items={items} labels={labels} autoCollapseReady={autoCollapseReady} />
+            <AgentTraceTimeline
+              items={items}
+              labels={labels}
+              autoExpandThinking={autoExpandThinking}
+              autoExpandToolCalls={autoExpandToolCalls}
+            />
           </AccordionContent>
         </AccordionItem>
       </Accordion>

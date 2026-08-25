@@ -106,6 +106,7 @@ type ChatAreaProps = {
   starred: boolean;
   canOperateConversation: boolean;
   messages: ChatAreaMessage[];
+  messagesReadOnly?: boolean;
   busy: boolean;
   messageContentRef: React.RefObject<HTMLDivElement | null>;
   onScroll: (event: React.UIEvent<HTMLDivElement>) => void;
@@ -135,6 +136,8 @@ type ChatAreaProps = {
   onExport?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
   markdownRender?: boolean;
+  autoExpandThinking?: boolean;
+  autoExpandToolCalls?: boolean;
   showModelInfo?: boolean;
   showLatency?: boolean;
   showTokenUsage?: boolean;
@@ -273,6 +276,7 @@ function useStableEvent<Args extends unknown[], Return>(callback: (...args: Args
 const ChatMessageRow = React.memo(function ChatMessageRow({
   item,
   busy,
+  readOnly,
   reaction,
   onRetryUserMessage,
   onRetryAssistantMessage,
@@ -291,6 +295,8 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onReactAssistantMessage,
   onOpenCodeArtifact,
   markdownRender,
+  autoExpandThinking,
+  autoExpandToolCalls,
   showModelInfo,
   showLatency,
   showTokenUsage,
@@ -304,6 +310,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
 }: {
   item: ChatAreaMessage;
   busy: boolean;
+  readOnly: boolean;
   reaction: AssistantReaction;
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onRetryAssistantMessage: (message: ChatAreaMessage) => Promise<void> | void;
@@ -322,6 +329,8 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   markdownRender: boolean;
+  autoExpandThinking: boolean;
+  autoExpandToolCalls: boolean;
   showModelInfo: boolean;
   showLatency: boolean;
   showTokenUsage: boolean;
@@ -384,7 +393,6 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         item={item}
         onRetryUserMessage={onRetryUserMessage}
         onEditUserMessage={onEditUserMessage}
-        onForkMessage={onForkMessage}
         modelOptions={modelOptions}
         selectedPlatformModelName={selectedPlatformModelName}
         onModelChange={onModelChange}
@@ -393,6 +401,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onCopy={() => void onCopy()}
         copySucceeded={isCopied(copyKey)}
         attachmentContentLoader={attachmentContentLoader}
+        readOnly={readOnly}
         screenshotMeta={screenshotMeta}
       />
     );
@@ -419,12 +428,15 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         }
         artifactActions={artifactActions}
         markdownRender={markdownRender}
+        autoExpandThinking={autoExpandThinking}
+        autoExpandToolCalls={autoExpandToolCalls}
         showModelInfo={showModelInfo}
         showLatency={showLatency}
         showTokenUsage={showTokenUsage}
         showBillingCost={showBillingCost}
         billingDisplayCurrency={billingDisplayCurrency}
         billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
+        readOnly={readOnly}
         contentWidthClassName={contentWidthClassName}
         screenshotMeta={screenshotMeta}
       />
@@ -446,8 +458,11 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   );
 }, (previous, next) => (
   previous.busy === next.busy &&
+  previous.readOnly === next.readOnly &&
   previous.reaction === next.reaction &&
   previous.markdownRender === next.markdownRender &&
+  previous.autoExpandThinking === next.autoExpandThinking &&
+  previous.autoExpandToolCalls === next.autoExpandToolCalls &&
   previous.showModelInfo === next.showModelInfo &&
   previous.showLatency === next.showLatency &&
   previous.showTokenUsage === next.showTokenUsage &&
@@ -474,6 +489,7 @@ export function ChatArea({
   starred,
   canOperateConversation,
   messages,
+  messagesReadOnly = false,
   busy,
   messageContentRef,
   onScroll,
@@ -503,6 +519,8 @@ export function ChatArea({
   onExport,
   onDelete,
   markdownRender = true,
+  autoExpandThinking = true,
+  autoExpandToolCalls = true,
   showModelInfo = true,
   showLatency = true,
   showTokenUsage = true,
@@ -653,6 +671,7 @@ export function ChatArea({
                     <ChatMessageRow
                       item={item}
                       busy={busy}
+                      readOnly={messagesReadOnly}
                       reaction={getReaction(item)}
                       onRetryUserMessage={stableOnRetryUserMessage}
                       onRetryAssistantMessage={stableOnRetryAssistantMessage}
@@ -671,6 +690,8 @@ export function ChatArea({
                       onReactAssistantMessage={stableOnReactAssistantMessage}
                       onOpenCodeArtifact={onOpenCodeArtifact}
                       markdownRender={markdownRender}
+                      autoExpandThinking={autoExpandThinking}
+                      autoExpandToolCalls={autoExpandToolCalls}
                       showModelInfo={showModelInfo}
                       showLatency={showLatency}
                       showTokenUsage={showTokenUsage}

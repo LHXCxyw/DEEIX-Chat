@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 
 import {
   useMessageScroller,
+  useMessageScrollerScrollable,
   useMessageScrollerVisibility,
 } from "@/components/ui/message-scroller";
 import type { ChatAreaMessage } from "@/features/chat/types/messages";
@@ -142,7 +143,8 @@ function ChatMessagePositionRailComponent({
   messages: ChatAreaMessage[];
 }) {
   const { scrollToMessage } = useMessageScroller();
-  const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
+  const { end: canScrollToEnd } = useMessageScrollerScrollable();
+  const { visibleMessageIds } = useMessageScrollerVisibility();
   const [hoveredID, setHoveredID] = React.useState<string | null>(null);
   const [previewPosition, setPreviewPosition] = React.useState<PreviewPosition | null>(null);
   const [previewHeight, setPreviewHeight] = React.useState(PREVIEW_ESTIMATED_HEIGHT_PX);
@@ -203,8 +205,8 @@ function ChatMessagePositionRailComponent({
   const visibleIDs = React.useMemo(() => new Set(visibleMessageIds), [visibleMessageIds]);
   const turnIsActive = React.useCallback(
     (item: TurnPreviewItem) =>
-      item.messageIDs.some((messageID) => messageID === currentAnchorId || visibleIDs.has(messageID)),
-    [currentAnchorId, visibleIDs],
+      item.messageIDs.some((messageID) => visibleIDs.has(messageID)),
+    [visibleIDs],
   );
   const activatePreview = React.useCallback((id: string, target: HTMLElement) => {
     const targetRect = target.getBoundingClientRect();
@@ -226,7 +228,8 @@ function ChatMessagePositionRailComponent({
     setPreviewPosition(null);
   }, []);
 
-  const currentIndex = items.findIndex(turnIsActive);
+  const visibleIndex = items.findIndex(turnIsActive);
+  const currentIndex = !canScrollToEnd && items.length > 0 ? items.length - 1 : visibleIndex;
   const hoveredIndex = hoveredID ? items.findIndex((item) => item.id === hoveredID) : -1;
   const activeIndex = hoveredIndex >= 0 ? hoveredIndex : currentIndex >= 0 ? currentIndex : items.length - 1;
   const railLineDistributionActive = hoveredIndex >= 0;

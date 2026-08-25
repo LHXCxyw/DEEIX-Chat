@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, CornerDownRight, Eye, EyeOff, Film, Image, ImageOff, ImagePlus, LoaderCircle, PencilLine, Trash2 } from "lucide-react";
+import { Box, CornerDownRight, Eye, EyeOff, Film, HatGlasses, Image, ImageOff, ImagePlus, LoaderCircle, PencilLine, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import dynamic from "next/dynamic";
 import { useLocale, useTranslations } from "next-intl";
@@ -83,6 +83,12 @@ const FilePreviewDialog = dynamic(
   { ssr: false },
 );
 
+const TEMPORARY_NOTICE_TRANSITION = {
+  duration: 0.22,
+  ease: [0.16, 1, 0.3, 1] as const,
+};
+const TEMPORARY_MENTION_KINDS = ["model", "tool", "skill", "prompt"] as const;
+
 type QueuedComposerMessage = {
   id: string;
   content: string;
@@ -95,7 +101,6 @@ type ChatInputProps = {
   sending: boolean;
   uploading: boolean;
   isConversationMode: boolean;
-  maxFilesPerMessage: number;
   fileMode?: "auto" | "full_context" | "rag";
   ragAvailable: boolean | null;
   ragAvailabilityReason: string;
@@ -123,6 +128,7 @@ type ChatInputProps = {
   modelLoading: boolean;
   modelDisabled?: boolean;
   dropActive?: boolean;
+  temporaryMode?: boolean;
   onDraftChange: (value: string) => void;
   onModelChange: (platformModelName: string) => void;
   onModelCatalogRefresh?: () => void | Promise<void>;
@@ -278,6 +284,7 @@ function ChatInputComponent({
   modelLoading,
   modelDisabled = false,
   dropActive = false,
+  temporaryMode = false,
   onDraftChange,
   onModelChange,
   onModelCatalogRefresh,
@@ -474,6 +481,7 @@ function ChatInputComponent({
     anchorRef: inputGroupRef,
     textareaRef,
     toolsDisabled: isMediaMode,
+    enabledKinds: temporaryMode ? TEMPORARY_MENTION_KINDS : undefined,
     onDraftChange,
     onFileSelect: onAttachExistingFile,
     onModelCatalogRefresh,
@@ -687,6 +695,7 @@ function ChatInputComponent({
         className={cn(
           "relative z-10 flex-col items-stretch overflow-hidden rounded-3xl border-[0.5px] border-border/70 bg-pure shadow-xs transition-[height,border-color,background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none has-[[data-slot=input-group-control]:focus-visible]:border-border has-[[data-slot=input-group-control]:focus-visible]:ring-0",
           inputGroupHeight === null && "h-auto",
+          temporaryMode && "border-foreground/15 bg-muted/45 shadow-none",
           dropActive && "border-dashed border-foreground/30 bg-muted/20 shadow-none",
         )}
         style={inputGroupHeight === null ? undefined : { height: inputGroupHeight }}
@@ -873,7 +882,7 @@ function ChatInputComponent({
                 });
               }
 
-              if (files.length > 0) {
+              if (!temporaryMode && files.length > 0) {
                 if (!event.clipboardData.getData("text/plain")) {
                   event.preventDefault();
                 }
@@ -907,67 +916,69 @@ function ChatInputComponent({
 
           <InputGroupAddon align="block-end" className="items-center justify-between pt-2">
             <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
-              <DropdownMenu
-                modal={false}
-                open={toolsMenuOpen}
-                onOpenChange={(open) => {
-                  setToolsMenuOpen(open);
-                  if (!open) {
-                    setToolsMenuHovered(false);
-                  }
-                }}
-              >
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DropdownMenuTrigger asChild>
-                      <InputGroupButton
-                        id="chat-tools-menu-trigger"
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
-                        disabled={loading || uploading}
-                        aria-label={tComposer("openTools")}
-                        onMouseEnter={() => setToolsMenuHovered(true)}
-                        onMouseLeave={() => setToolsMenuHovered(false)}
-                      >
-                        <PlusIcon
-                          size={20}
-                          strokeWidth={1.4}
-                          animate={toolsMenuHovered || toolsMenuOpen ? "default" : undefined}
-                        />
-                      </InputGroupButton>
-                    </DropdownMenuTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">
-                    {tComposer("openTools")}
-                  </TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent side="bottom" align="start" sideOffset={8} className="w-36">
-                  <DropdownMenuItem
-                    onMouseEnter={() => setHoveredTool("upload")}
-                    onMouseLeave={() => setHoveredTool((prev) => (prev === "upload" ? null : prev))}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      onSelectUploadTool();
-                    }}
-                  >
-                    <LinkIcon size={12} strokeWidth={1.5} animate={hoveredTool === "upload" ? "default" : undefined} />
-                    {tComposer("uploadFile")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onMouseEnter={() => setHoveredTool("screenshot")}
-                    onMouseLeave={() => setHoveredTool((prev) => (prev === "screenshot" ? null : prev))}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      onSelectScreenshotTool();
-                    }}
-                  >
-                    <Crop size={12} strokeWidth={1.5} animate={hoveredTool === "screenshot" ? "default" : undefined} />
-                    {tComposer("screenshot")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {!temporaryMode ? (
+                <DropdownMenu
+                  modal={false}
+                  open={toolsMenuOpen}
+                  onOpenChange={(open) => {
+                    setToolsMenuOpen(open);
+                    if (!open) {
+                      setToolsMenuHovered(false);
+                    }
+                  }}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <InputGroupButton
+                          id="chat-tools-menu-trigger"
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
+                          disabled={loading || uploading}
+                          aria-label={tComposer("openTools")}
+                          onMouseEnter={() => setToolsMenuHovered(true)}
+                          onMouseLeave={() => setToolsMenuHovered(false)}
+                        >
+                          <PlusIcon
+                            size={20}
+                            strokeWidth={1.4}
+                            animate={toolsMenuHovered || toolsMenuOpen ? "default" : undefined}
+                          />
+                        </InputGroupButton>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      {tComposer("openTools")}
+                    </TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent side="bottom" align="start" sideOffset={8} className="w-36">
+                    <DropdownMenuItem
+                      onMouseEnter={() => setHoveredTool("upload")}
+                      onMouseLeave={() => setHoveredTool((prev) => (prev === "upload" ? null : prev))}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onSelectUploadTool();
+                      }}
+                    >
+                      <LinkIcon size={12} strokeWidth={1.5} animate={hoveredTool === "upload" ? "default" : undefined} />
+                      {tComposer("uploadFile")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onMouseEnter={() => setHoveredTool("screenshot")}
+                      onMouseLeave={() => setHoveredTool((prev) => (prev === "screenshot" ? null : prev))}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onSelectScreenshotTool();
+                      }}
+                    >
+                      <Crop size={12} strokeWidth={1.5} animate={hoveredTool === "screenshot" ? "default" : undefined} />
+                      {tComposer("screenshot")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
 
               {!modelOptionPolicyDisabled ? (
                 <ChatModelConfig
@@ -1152,6 +1163,23 @@ function ChatInputComponent({
           </InputGroupAddon>
         </div>
       </InputGroup>
+
+      <AnimatePresence initial={false}>
+        {temporaryMode ? (
+          <motion.div
+            key="temporary-chat-notice"
+            role="status"
+            className="mx-auto flex w-fit max-w-[calc(100%-1rem)] items-center gap-2 overflow-hidden px-2 text-xs leading-5 text-muted-foreground"
+            initial={{ height: 0, marginTop: 0, opacity: 0 }}
+            animate={{ height: "auto", marginTop: 8, opacity: 1 }}
+            exit={{ height: 0, marginTop: 0, opacity: 0 }}
+            transition={TEMPORARY_NOTICE_TRANSITION}
+          >
+            <HatGlasses aria-hidden className="size-4 shrink-0" strokeWidth={1.7} />
+            <span>{tChat("temporary.notice")}</span>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
     </div>
   );

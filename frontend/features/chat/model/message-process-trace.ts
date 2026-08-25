@@ -58,27 +58,6 @@ export type TraceDisplayEvent = {
   kind: "think" | "tool";
 };
 
-export function formatTraceStepDuration(durationMS: number | undefined): string | undefined {
-  if (!durationMS || !Number.isFinite(durationMS) || durationMS <= 0) {
-    return undefined;
-  }
-  const seconds = durationMS / 1000;
-  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
-}
-
-export function formatTraceRunDuration(durationMS: number | undefined): string | undefined {
-  if (!durationMS || !Number.isFinite(durationMS) || durationMS <= 0) {
-    return undefined;
-  }
-  const wholeSeconds = Math.max(1, Math.round(durationMS / 1000));
-  if (wholeSeconds < 60) {
-    return `${wholeSeconds}s`;
-  }
-  const minutes = Math.floor(wholeSeconds / 60);
-  const seconds = wholeSeconds % 60;
-  return `${minutes}m ${seconds}s`;
-}
-
 export function parseRAGCitations(payloadJson: string | undefined): RAGCitation[] {
   if (!payloadJson) return [];
   try {
@@ -318,6 +297,9 @@ function structuredRAGDetail(stage: Record<string, unknown>, labels: ProcessTrac
 }
 
 function structuredCompactionDetails(stage: Record<string, unknown>, labels: ProcessTraceLabels): string[] {
+	const status = readString(stage.status);
+	if (status === "pending") return [labels.compaction.pending];
+	if (status === "failed") return [labels.compaction.failed];
   const fromTurn = readNumber(stage.from_turn) ?? 0;
   const toTurn = readNumber(stage.to_turn) ?? 0;
   const sourceTokens = readNumber(stage.source_tokens) ?? 0;
@@ -396,6 +378,9 @@ function structuredProcessSummaryFromPayload(payloadJson: string | undefined, la
     return hasFullText ? labels.rag.incompleteWithFullText : labels.rag.incompleteNoFullText;
   }
   if (kind === TRACE_KIND_CONTEXT_COMPACTION) {
+	const status = readString(last.status);
+	if (status === "pending") return labels.compaction.pending;
+	if (status === "failed") return labels.compaction.failed;
     const fromTurn = readNumber(last.from_turn);
     const toTurn = readNumber(last.to_turn);
     if (fromTurn !== null && toTurn !== null) {

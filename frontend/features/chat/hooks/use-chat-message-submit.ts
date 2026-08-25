@@ -63,6 +63,7 @@ import { ApiError } from "@/shared/api/http-client";
 import type { SkillSummaryDTO } from "@/shared/api/skills.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { notifyResponseCompletion } from "@/shared/lib/browser-notifications";
+import { createSecureUUID } from "@/shared/lib/secure-id";
 
 const CONVERSATION_METADATA_REFRESH_MAX_WAIT_MS = 45_000;
 const CONVERSATION_METADATA_REFRESH_INITIAL_DELAY_MS = 800;
@@ -339,10 +340,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function createClientRunID(): string {
-  const randomID =
-    typeof window.crypto?.randomUUID === "function"
-      ? window.crypto.randomUUID().replaceAll("-", "")
-      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const randomID = createSecureUUID().replaceAll("-", "");
   return `run_${randomID}`.slice(0, 64);
 }
 
@@ -498,6 +496,9 @@ export function useChatMessageSubmit({
   activeGenerationRunsRef,
   activeGenerationRunsRevision,
   onActiveGenerationRunsChange,
+  onConversationRunDetached,
+  onConversationRunFinished,
+  onConversationRunStarted,
   resumeGenerationActive = false,
 }: {
   conversationID: string | null;
@@ -545,6 +546,9 @@ export function useChatMessageSubmit({
   activeGenerationRunsRef?: React.RefObject<Set<string>>;
   activeGenerationRunsRevision: number;
   onActiveGenerationRunsChange?: () => void;
+  onConversationRunDetached?: (runID: string) => void;
+  onConversationRunFinished?: (runID: string) => void;
+  onConversationRunStarted?: (runID: string, conversationPublicID: string) => void;
   resumeGenerationActive?: boolean;
 }) {
   const t = useTranslations("chat.submit");
@@ -871,6 +875,9 @@ export function useChatMessageSubmit({
         cancelRequested: false,
         cancelSettlementTimer: null,
       });
+      if (targetConversationID) {
+        onConversationRunStarted?.(clientRunID, targetConversationID);
+      }
       syncActiveRuns();
       if (resetComposer) {
         setDraft("");
@@ -973,6 +980,7 @@ export function useChatMessageSubmit({
           };
           targetConversationID = created.publicID;
           targetConversation = created;
+          onConversationRunStarted?.(clientRunID, created.publicID);
           const createdActiveStream = activeStreamsRef.current.get(clientRunID);
           if (createdActiveStream) {
             createdActiveStream.conversationScopeKey = targetConversationScopeKey;
@@ -1061,6 +1069,9 @@ export function useChatMessageSubmit({
         let terminalStreamError: Extract<StreamMessageEvent, { type: "error" }> | null = null;
         const streamOptions: ConversationStreamOptions = {
           signal: streamAbortController.signal,
+          onTerminal: () => {
+            onConversationRunFinished?.(clientRunID);
+          },
           onInterrupted: (event) => {
             terminalStreamError = event;
           },
@@ -1514,6 +1525,7 @@ export function useChatMessageSubmit({
           activeStreamsRef.current.delete(clientRunID);
         }
         activeGenerationRunsRef?.current.delete(clientRunID);
+        onConversationRunDetached?.(clientRunID);
         if (
           branchRunIsVisible(
             targetBranchScope,
@@ -1541,6 +1553,9 @@ export function useChatMessageSubmit({
       flushUpstreamThinkNow,
       options,
       onConversationCreated,
+      onConversationRunDetached,
+      onConversationRunFinished,
+      onConversationRunStarted,
       prependNewConversation,
       releaseAttachments,
       reload,

@@ -11,6 +11,18 @@
  * ---------------------------------------------------------------
  */
 
+export interface ActiveMessageGenerationEventResponse {
+  conversationPublicID?: string;
+  runID?: string;
+  runs?: ActiveMessageGenerationResponse[];
+  type: string;
+}
+
+export interface ActiveMessageGenerationResponse {
+  conversationPublicID: string;
+  runID: string;
+}
+
 export interface ActiveSessionListResponse {
   results: ActiveSessionResponse[];
   total: number;
@@ -2125,6 +2137,7 @@ export interface ModelResponse {
   cbFailureThreshold: number;
   cbPolicyMode: string;
   cbWindowMin: number;
+  contextWindow: number;
   createdAt: string;
   description: string;
   displayGroupID: number | null;
@@ -2263,7 +2276,9 @@ export interface OpenRouterOfficialPricingDataResponse {
 
 export interface OpenRouterOfficialPricingItemResponse {
   canonicalSlug: string;
+  contextLength: number;
   id: string;
+  maxCompletionTokens: number;
   name: string;
   pricing: OpenRouterOfficialPricingUnitPricingResponse;
 }
@@ -3270,6 +3285,34 @@ export interface SystemEventResponse {
   source: string;
   traceID: string;
   updatedAt: string;
+}
+
+export interface TemporaryChatHistoryMessage {
+  /** @maxLength 200000 */
+  content: string;
+  role: "user" | "assistant";
+}
+
+export interface TemporaryChatMessageRequest {
+  /** @maxLength 64 */
+  clientRunID: string;
+  htmlVisualPrompt?: boolean;
+  /** @maxItems 8 */
+  knowledgeBaseIDs?: string[];
+  /**
+   * @maxItems 100
+   * @minItems 1
+   */
+  messages: TemporaryChatHistoryMessage[];
+  /** @maxLength 128 */
+  model: string;
+  options?: Record<string, any>;
+  /** @maxItems 128 */
+  selectedToolIDs?: number[];
+  /** @maxLength 64 */
+  sessionID: string;
+  /** @maxItems 128 */
+  skillIDs?: number[];
 }
 
 export interface ToolListResponse {
@@ -4412,10 +4455,10 @@ export namespace Admin {
   }
 
   /**
-   * @description 从 storage 缓存读取 OpenRouter 模型定价；缓存不存在、过期或 refresh=true 时由后端刷新。
+   * @description 从 storage 缓存读取 OpenRouter 模型标识、定价和上下文限制；缓存不存在、过期或 refresh=true 时由后端刷新。
    * @tags admin-billing
    * @name BillingOfficialPricingOpenrouterList
-   * @summary 管理员获取 OpenRouter 官方模型定价
+   * @summary 管理员获取 OpenRouter 官方模型目录
    * @request GET:/admin/billing/official-pricing/openrouter
    * @secure
    */
@@ -7743,6 +7786,22 @@ export namespace ConversationProjects {
 
 export namespace ConversationRuns {
   /**
+   * @description Sends an authoritative snapshot followed by live user-scoped run state events
+   * @tags chat
+   * @name StreamList
+   * @summary Stream active conversation generations
+   * @request GET:/conversation-runs/stream
+   * @secure
+   */
+  export namespace StreamList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = ActiveMessageGenerationEventResponse;
+  }
+
+  /**
    * @description 仅在用户显式点击暂停时取消对应 run；浏览器刷新或断开连接不会调用此接口
    * @tags chat
    * @name CancelCreate
@@ -7764,12 +7823,14 @@ export namespace ConversationRuns {
   /**
    * @description 页面刷新后按 run_id 重新订阅仍在运行的生成流，返回 NDJSON 事件
    * @tags chat
-   * @name StreamList
+   * @name StreamList2
    * @summary 恢复流式生成订阅
    * @request GET:/conversation-runs/{run_id}/stream
+   * @originalName streamList
+   * @duplicate
    * @secure
    */
-  export namespace StreamList {
+  export namespace StreamList2 {
     export type RequestParams = {
       /** 运行 ID */
       runId: string;
@@ -8121,7 +8182,7 @@ export namespace Conversations {
   }
 
   /**
-   * @description 将会话从开头到指定消息（含）的祖先链复制为一个新会话；不携带原会话的运行记录与计费，附件以引用方式复用
+   * @description 仅允许从助手消息 fork；将会话从开头到指定助手消息（含）的祖先链复制为一个新会话，保留历史展示轨迹；不携带原会话的运行记录与计费，附件以引用方式复用
    * @tags chat
    * @name MessagesForkCreate
    * @summary 从指定消息 fork 新会话
@@ -9262,6 +9323,24 @@ export namespace Skills {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = SkillResponseDoc;
+  }
+}
+
+export namespace TemporaryChat {
+  /**
+   * @description 由浏览器提交完整纯文本上下文；服务端不创建会话、消息、运行或断线续传记录
+   * @tags chat
+   * @name MessagesStreamCreate
+   * @summary 流式发送临时对话消息
+   * @request POST:/temporary-chat/messages/stream
+   * @secure
+   */
+  export namespace MessagesStreamCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = TemporaryChatMessageRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = string;
   }
 }
 

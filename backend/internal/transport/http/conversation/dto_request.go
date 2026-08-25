@@ -110,6 +110,26 @@ type SendMessageRequest struct {
 	BranchReason            string                 `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit"`
 }
 
+// TemporaryChatMessageRequest 是仅在当前页面内维护的临时对话请求。
+// 历史正文由浏览器逐轮提交，服务端不创建会话或消息记录。
+type TemporaryChatMessageRequest struct {
+	SessionID        string                        `json:"sessionID" binding:"required,max=64"`
+	ClientRunID      string                        `json:"clientRunID" binding:"required,max=64"`
+	Model            string                        `json:"model" binding:"required,max=128"`
+	Options          map[string]interface{}        `json:"options,omitempty"`
+	SelectedToolIDs  []uint                        `json:"selectedToolIDs,omitempty" binding:"max=128"`
+	SkillIDs         []uint                        `json:"skillIDs,omitempty" binding:"max=128"`
+	KnowledgeBaseIDs []string                      `json:"knowledgeBaseIDs,omitempty" binding:"omitempty,max=8,dive,max=32"`
+	HTMLVisualPrompt bool                          `json:"htmlVisualPrompt,omitempty"`
+	Messages         []TemporaryChatHistoryMessage `json:"messages" binding:"required,min=1,max=100,dive"`
+}
+
+// TemporaryChatHistoryMessage 是临时对话可提交的纯文本消息。
+type TemporaryChatHistoryMessage struct {
+	Role    string `json:"role" binding:"required,oneof=user assistant"`
+	Content string `json:"content" binding:"required,max=200000"`
+}
+
 // MediaImageRequest 图片生成/编辑请求。
 type MediaImageRequest struct {
 	Prompt                string                 `json:"prompt" binding:"required"`

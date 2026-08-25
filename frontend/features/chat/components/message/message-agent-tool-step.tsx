@@ -6,13 +6,13 @@ import { ArrowUpRight, Check, Copy, Wrench } from "lucide-react";
 
 import { AgentTraceStep } from "@/features/chat/components/message/message-agent-trace-step";
 import { useCopyAction } from "@/shared/components/copy-action";
+import { useAutoExpandDisclosure } from "@/shared/hooks/use-auto-expand-disclosure";
+import { useElapsedDurationMS } from "@/features/chat/hooks/use-elapsed-duration";
 import type { ChatTraceBlock } from "@/features/chat/types/messages";
 import type { ProcessTraceLabels } from "@/features/chat/hooks/use-process-trace-labels";
 import { cn } from "@/lib/utils";
-import {
-  formatTraceStepDuration,
-  type TraceDisplayEvent,
-} from "@/features/chat/model/message-process-trace";
+import { formatDurationMS } from "@/features/chat/model/duration";
+import type { TraceDisplayEvent } from "@/features/chat/model/message-process-trace";
 import {
   collectToolImageSources,
   collectToolNarrativeText,
@@ -92,8 +92,18 @@ function parseToolTraceCalls(payloadJson: string | undefined): ToolTraceCall[] {
   }
 }
 
+function normalizeToolTraceStatus(status: string | undefined): string {
+  return status?.trim().toLowerCase() || "";
+}
+
 function isToolTraceStatusActive(status: string | undefined): boolean {
-  return ["requested", "streaming", "queued", "in_progress", "searching"].includes(status?.trim() || "");
+  return ["requested", "streaming", "queued", "in_progress", "searching"].includes(
+    normalizeToolTraceStatus(status),
+  );
+}
+
+function isToolTraceStatusFailed(status: string | undefined): boolean {
+  return ["error", "failed"].includes(normalizeToolTraceStatus(status));
 }
 
 function toolResultCategory(call: ToolTraceCall) {
@@ -106,7 +116,7 @@ function toolResultCategory(call: ToolTraceCall) {
 }
 
 function toolStatusLabel(status: string | undefined, labels: ProcessTraceLabels): string {
-  switch (status?.trim()) {
+  switch (normalizeToolTraceStatus(status)) {
     case "requested":
     case "streaming":
     case "queued":
@@ -142,13 +152,12 @@ function toolTraceCallLabel(call: ToolTraceCall, category: ToolResultCategory, l
 }
 
 function toolTraceCallDetail(call: ToolTraceCall, labels: ProcessTraceLabels): { detail: string; failed: boolean } {
-  const status = call.status?.trim();
-  const failed = status === "error" || status === "failed";
+  const failed = isToolTraceStatusFailed(call.status);
   const input = formatToolPayload(call.input_detail) || formatToolPayload(call.input_preview) || formatToolPayload(call.input);
   const output = failed
     ? formatToolPayload(call.error)
     : formatToolPayload(call.output_detail) || formatToolPayload(call.output) || formatToolPayload(call.output_text) || formatToolPayload(call.output_preview);
-  const parts = [toolStatusLabel(status, labels)].filter(Boolean);
+  const parts = [toolStatusLabel(call.status, labels)].filter(Boolean);
 
   if (input) {
     parts.push(`${labels.tool.detail.request}\n${input}`);
@@ -403,6 +412,7 @@ export type ToolChainStep = {
   label: string;
   detail: string;
   failed: boolean;
+  startedAt?: string;
   latencyMS?: number;
   toolCallID?: string;
   toolType?: string;
@@ -445,7 +455,7 @@ function toolTraceFallbackKey(
 }
 
 function toolTraceStatusRank(status: string | undefined): number {
-  switch (status?.trim()) {
+  switch (normalizeToolTraceStatus(status)) {
     case "error":
     case "failed":
       return 4;
@@ -525,7 +535,8 @@ export function buildToolChainSteps(events: TraceDisplayEvent[], labels: Process
           key: toolTraceFallbackKey(event),
           label: labels.tool.names.generic,
           detail: event.contentMarkdown?.trim() || event.summary?.trim() || event.title?.trim() || "",
-          failed: event.status === "error",
+          failed: isToolTraceStatusFailed(event.status),
+          startedAt: event.startedAt,
           toolStatus: event.status?.trim(),
         },
       ];
@@ -540,12 +551,13 @@ export function buildToolChainSteps(events: TraceDisplayEvent[], labels: Process
         label,
         detail,
         failed,
+        startedAt: event.startedAt,
         latencyMS: call.latency_ms,
         toolCallID: toolTraceCallID(call),
         toolType: call.type?.trim(),
         toolName: call.name?.trim(),
         toolInput: toolInputValue(call),
-        toolStatus: call.status?.trim(),
+        toolStatus: call.status?.trim() || event.status?.trim(),
         toolCategory: category,
         toolCall: call,
       };
@@ -566,7 +578,9 @@ function buildToolChainStepsFromBlock(block: ChatTraceBlock | undefined, labels:
         key: toolTraceFallbackKey(block),
         label: labels.tool.names.generic,
         detail,
-        failed: block.status === "error",
+        failed: isToolTraceStatusFailed(block.status),
+        startedAt: block.startedAt,
+        toolStatus: block.status?.trim(),
       },
     ];
   }
@@ -579,24 +593,25 @@ function buildToolChainStepsFromBlock(block: ChatTraceBlock | undefined, labels:
       label,
       detail,
       failed,
+      startedAt: block.startedAt,
       latencyMS: call.latency_ms,
       toolCallID: toolTraceCallID(call),
       toolType: call.type?.trim(),
       toolName: call.name?.trim(),
       toolInput: toolInputValue(call),
-      toolStatus: call.status?.trim(),
+      toolStatus: call.status?.trim() || block.status?.trim(),
       toolCategory: category,
       toolCall: call,
     };
   });
 }
 
-function isToolStepActive(step: ToolChainStep): boolean {
+export function isToolChainStepActive(step: ToolChainStep): boolean {
   return isToolTraceStatusActive(step.toolCall?.status) || isToolTraceStatusActive(step.toolStatus);
 }
 
 function isToolStepDone(step: ToolChainStep): boolean {
-  const status = step.toolCall?.status?.trim() || step.toolStatus?.trim() || "";
+  const status = normalizeToolTraceStatus(step.toolCall?.status || step.toolStatus);
   return status === "success" || status === "completed" || status === "reused";
 }
 
@@ -605,7 +620,7 @@ function ToolStepStatusIcon({ step }: { step: ToolChainStep }) {
     <Wrench
       className={cn(
         "size-3 text-muted-foreground/68",
-        isToolStepActive(step) && "text-foreground/78",
+        isToolChainStepActive(step) && "text-foreground/78",
         step.failed && "text-destructive",
       )}
     />
@@ -712,7 +727,7 @@ function ToolResultCard({
   labels: ProcessTraceLabels;
   divided: boolean;
 }) {
-  const failedStatus = call.status === "error" || call.status === "failed";
+  const failedStatus = isToolTraceStatusFailed(call.status);
   const output = toolOutputPayload(call);
   let content: React.ReactNode = null;
   let meta = "";
@@ -833,12 +848,22 @@ function ToolCallDetailCard({ step, labels }: { step: ToolChainStep; labels: Pro
   );
 }
 
-export function AgentToolStepRow({ step, labels }: { step: ToolChainStep; labels: ProcessTraceLabels }) {
-  const [open, setOpen] = React.useState(false);
+export function AgentToolStepRow({
+  step,
+  labels,
+  autoExpand,
+}: {
+  step: ToolChainStep;
+  labels: ProcessTraceLabels;
+  autoExpand: boolean;
+}) {
+  const active = isToolChainStepActive(step);
+  const { open, onOpenChange } = useAutoExpandDisclosure({ active, autoExpand });
   const failed = step.failed;
   const statusText = isToolStepDone(step) ? "" : toolStatusLabel(step.toolCall?.status ?? step.toolStatus, labels);
   const expandable = Boolean(step.toolCall || step.detail);
-  const durationText = formatTraceStepDuration(step.latencyMS);
+  const liveDurationMS = useElapsedDurationMS(active, step.startedAt);
+  const durationText = formatDurationMS(active ? liveDurationMS : step.latencyMS);
 
   return (
     <li className="group/agent-trace-step">
@@ -850,7 +875,8 @@ export function AgentToolStepRow({ step, labels }: { step: ToolChainStep; labels
         open={open}
         expandable={expandable}
         failed={failed}
-        onOpenChange={setOpen}
+        loading={active}
+        onOpenChange={onOpenChange}
       >
         <ToolCallDetailCard step={step} labels={labels} />
       </AgentTraceStep>

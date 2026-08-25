@@ -27,9 +27,10 @@ type Service struct {
 
 // RetrieveInput 定义 RAG 检索输入。
 type RetrieveInput struct {
-	UserID   uint
-	Query    string
-	FileObjs []domainconversation.FileObject
+	UserID    uint
+	Query     string
+	FileObjs  []domainconversation.FileObject
+	Ephemeral bool
 }
 
 // RetrieveStatus 表示一次文件 RAG 检索的稳定结果状态。
@@ -91,16 +92,18 @@ func (s *Service) RetrieveWithStatus(ctx context.Context, input RetrieveInput) (
 	if len(input.FileObjs) == 0 || strings.TrimSpace(input.Query) == "" {
 		return RetrieveResult{Status: RetrieveStatusEmpty, Reason: "empty_query_or_files"}, nil
 	}
-	if cached, ok := s.loadRAGCache(ctx, input.UserID, input.Query, input.FileObjs, cfg); ok {
-		return RetrieveResult{
-			Chunks:         cached,
-			Status:         RetrieveStatusHit,
-			Reason:         "cache_hit",
-			CandidateCount: len(cached),
-			FilteredCount:  len(cached),
-			MaxScore:       maxRAGChunkScore(cached),
-			Cached:         true,
-		}, nil
+	if !input.Ephemeral {
+		if cached, ok := s.loadRAGCache(ctx, input.UserID, input.Query, input.FileObjs, cfg); ok {
+			return RetrieveResult{
+				Chunks:         cached,
+				Status:         RetrieveStatusHit,
+				Reason:         "cache_hit",
+				CandidateCount: len(cached),
+				FilteredCount:  len(cached),
+				MaxScore:       maxRAGChunkScore(cached),
+				Cached:         true,
+			}, nil
+		}
 	}
 
 	fileObjIDs := make([]uint, 0, len(input.FileObjs))
@@ -198,7 +201,9 @@ func (s *Service) RetrieveWithStatus(ctx context.Context, input RetrieveInput) (
 			Score:      retrievalScore(c, cfg.RAGHybridEnabled),
 		})
 	}
-	s.storeRAGCache(ctx, input.UserID, input.Query, input.FileObjs, cfg, results)
+	if !input.Ephemeral {
+		s.storeRAGCache(ctx, input.UserID, input.Query, input.FileObjs, cfg, results)
+	}
 	return RetrieveResult{
 		Chunks:         results,
 		Status:         RetrieveStatusHit,
