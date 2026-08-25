@@ -17,6 +17,7 @@ export function SettingsAbout() {
         official: t("official"),
         website: t("website"),
         repository: t("repository"),
+        forkRepository: t("forkRepository"),
         social: t("social"),
         blog: t("blog"),
         contact: t("contact"),

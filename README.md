@@ -30,6 +30,21 @@ DEEIX Chat is an open-source, deployable AI platform for individuals, teams, and
 
 The system is designed around simple deployment, efficient static delivery, and a low runtime resource footprint: lightweight without feeling limited, restrained without losing capability, and open without becoming disorderly.
 
+## Personal Fork Notice
+
+This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat). It is maintained independently from the upstream project and is not an official DEEIX Chat distribution. This fork currently includes user-owned upstream channels and user model routing (BYOK), together with related backend, frontend, configuration, and database migration changes. Please refer to the commit history for the detailed modification record.
+
+### Secondary Development Capabilities
+
+- **User-owned upstream channels**: Add, edit, enable, disable, and delete personal model-provider channels without changing the platform's shared upstream configuration.
+- **User model management**: Define models under personal channels with model names, protocols, display names, and capability metadata.
+- **User model routing**: Expose personal models alongside platform models and route requests through the selected user's own upstream channel.
+- **User-priority routing**: Keep personal upstream routes isolated from platform routes and prefer the user's own route when a personal model is selected.
+- **Encrypted credential storage**: Protect personal upstream API credentials through the existing encrypted sensitive-data storage path.
+- **Administrator controls**: Allow administrators to enable or disable the feature, set per-user channel quotas, choose approval requirements, and configure billing behavior.
+- **Usage and billing modes**: Support disabled billing, usage statistics only, or platform-pricing billing for user-owned upstream calls.
+- **Data isolation and migrations**: Scope personal channels and models to their owners and include the related ownership fields and database migrations.
+
 ![DEEIX Chat workspace](./frontend/public/DEEIX-Chat.jpg)
 
 ## Features
@@ -446,3 +461,5 @@ DEEIX Chat is built on the open-source ecosystem. Thanks to all maintainers and 
 ## License
 
 DEEIX Chat is licensed under the [Apache License 2.0](./LICENSE).
+
+This fork preserves the original copyright notices and license terms. Modifications and additions in this repository are distributed under the Apache License 2.0, and this repository is not an official DEEIX Chat distribution. When redistributing this fork or derivative works, retain the applicable copyright, license, and NOTICE information as required by the license.

@@ -20,6 +20,7 @@ type AboutLabels = {
   official: string;
   website: string;
   repository: string;
+  forkRepository: string;
   social: string;
   blog: string;
   contact: string;
@@ -117,7 +118,13 @@ export function AboutSettingsContent({
       providerIcon: { name: "GitHub", slug: "github" },
     },
     {
-      label: labels.blog,
+      label: labels.forkRepository,
+      value: "LHXCxyw/DEEIX-Chat",
+      href: "https://github.com/LHXCxyw/DEEIX-Chat",
+      providerIcon: { name: "GitHub", slug: "github" },
+    },
+    {
+      label: labels.social,
       value: "blog.cheny.me",
       href: "https://blog.cheny.me/",
       icon: Newspaper,
