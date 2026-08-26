@@ -538,6 +538,9 @@ func (s *Service) sendMessageInternal(
 		retErr = err
 		return nil, err
 	}
+	if strings.TrimSpace(conversation.ProjectPublicID) == "" {
+		toolRuntime = toolRuntime.withoutProjectTools()
+	}
 	imageAttachmentRoutingActive := toolRuntime.attachmentProcessor != nil
 	imageProcessing, err := s.processImageAttachments(ctx, imageAttachmentProcessingInput{
 		UserID:         input.UserID,
@@ -1134,7 +1137,7 @@ func (s *Service) sendMessageInternal(
 					generateErr = tailErr
 				}
 			}
-			if output != nil {
+			if output != nil && (callVisibleText.Len() > 0 || strings.TrimSpace(output.Text) == "") {
 				output.Text = callVisibleText.String()
 			}
 		}
@@ -1371,6 +1374,9 @@ func (s *Service) sendMessageInternal(
 	llmCallCount := llmRequestCount
 	toolLedger := newToolExecutionLedger()
 	toolHistoryTrimmedForRun := false
+	// finalSynthesisAttempted 栘记本轮是否已执行过"停止调用工具并给出最终回答"的收尾合成，
+	// 防止循环内预算分支与循环外收尾分支重复合成。
+	finalSynthesisAttempted := false
 
 	for len(upstreamOutput.ToolCalls) > 0 && llmCallCount < maxLLMCalls && remainingToolCalls > 0 {
 		pendingToolCalls := upstreamOutput.ToolCalls
@@ -1407,6 +1413,7 @@ func (s *Service) sendMessageInternal(
 		toolResult := s.executeAssistantToolCalls(toolCtx, executeAssistantToolCallsInput{
 			UserID:            input.UserID,
 			ConversationID:    input.ConversationID,
+			ProjectPublicID:   conversation.ProjectPublicID,
 			MessageID:         assistantMessage.ID,
 			RequestID:         input.RequestID,
 			RunID:             runID,
@@ -1471,6 +1478,7 @@ func (s *Service) sendMessageInternal(
 
 		followUpInput := generateInput
 		if llmCallCount+1 >= maxLLMCalls {
+			finalSynthesisAttempted = true
 			followUpInput.Messages = buildFinalToolSynthesisMessages(llmMessages, "The maximum number of LLM calls for this run has been reached. Stop calling tools and produce the final answer based on the tool results already available. If the information is insufficient, state the missing information directly.")
 			followUpInput.Tools = nil
 			followUpInput.DisableTools = true
@@ -1508,7 +1516,10 @@ func (s *Service) sendMessageInternal(
 		nextNativeToolRows := upstreamServerToolCallRows(upstreamOutput, runID)
 		toolCallRows = append(toolCallRows, nextNativeToolRows...)
 	}
-	if len(upstreamOutput.ToolCalls) > 0 && remainingToolCalls <= 0 && llmCallCount < maxLLMCalls {
+	// 收尾合成：模型仍想调用工具但预算耗尽时，强制一次"仅输出最终回答"的生成。
+	// 不再依赖 llmCallCount < maxLLMCalls——循环内 runGenerate 的流式恢复重试会让计数跳变，
+	// 可能跳过循环内的合成窗口；用 finalSynthesisAttempted 防止重复合成即可。
+	if len(upstreamOutput.ToolCalls) > 0 && !finalSynthesisAttempted {
 		finalInput := generateInput
 		finalInput.Messages = buildFinalToolSynthesisMessages(llmMessages, "The maximum number of tool calls for this run has been reached. Stop calling tools and produce the final answer based on the tool results already available. If the information is insufficient, state the missing information directly.")
 		finalInput.Tools = nil
@@ -1537,12 +1548,15 @@ func (s *Service) sendMessageInternal(
 		assistantText = upstreamOutput.Text
 		nextNativeToolRows := upstreamServerToolCallRows(upstreamOutput, runID)
 		toolCallRows = append(toolCallRows, nextNativeToolRows...)
+		finalSynthesisAttempted = true
 	}
 
 	effectiveInputTokens := usageAccumulator.effectiveInputTokens(estimatedPromptTokens)
 	effectiveOutputTokens := resolveObservedOrEstimatedOutputTokens(totalUsage.OutputTokens, assistantText)
 
-	if toolRunFinalAnswerMissing(upstreamOutput, len(toolCallRows) > 0, llmCallCount, maxLLMCalls, remainingToolCalls) {
+	// 模型在预算边缘输出"文本+剩余工具调用"时，已有可见文本即视为最终回答，
+	// 仅在既无文本又仍要工具时才判定为缺少最终回答。
+	if toolRunFinalAnswerMissing(upstreamOutput, len(toolCallRows) > 0, llmCallCount, maxLLMCalls, remainingToolCalls) && strings.TrimSpace(assistantText) == "" {
 		retErr = ErrToolRunFinalAnswerMissing
 		return nil, retErr
 	}

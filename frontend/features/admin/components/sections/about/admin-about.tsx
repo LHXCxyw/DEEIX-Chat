@@ -216,6 +216,7 @@ export function AdminAboutPage() {
         official: t("official"),
         website: t("website"),
         repository: t("repository"),
+        forkRepository: t("repository"),
         social: t("social"),
         blog: t("blog"),
         contact: t("contact"),

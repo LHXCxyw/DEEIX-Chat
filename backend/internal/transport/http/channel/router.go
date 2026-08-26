@@ -27,6 +27,13 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.POST("/user/models/:id/test", m.Handler.TestUserModel)
 	authRequired.PATCH("/user/models/:id", m.Handler.UpdateUserModel)
 	authRequired.DELETE("/user/models/:id", m.Handler.DeleteUserModel)
+	authRequired.GET("/user/embedding-profiles", m.Handler.ListUserEmbeddingProfiles)
+	authRequired.PUT("/user/embedding-profiles", m.Handler.SaveUserEmbeddingProfile)
+	authRequired.DELETE("/user/embedding-profiles/:id", m.Handler.DeleteUserEmbeddingProfile)
+	authRequired.GET("/user/rag-settings", m.Handler.GetUserRAGSettings)
+	authRequired.PUT("/user/rag-settings", m.Handler.SaveUserRAGSettings)
+	authRequired.GET("/user/conversation-projects/:project_id/rag-settings", m.Handler.GetProjectRAGSettings)
+	authRequired.PUT("/user/conversation-projects/:project_id/rag-settings", m.Handler.SaveProjectRAGSettings)
 }
 
 // RegisterAdminRoutes 注册管理员侧上游配置路由。

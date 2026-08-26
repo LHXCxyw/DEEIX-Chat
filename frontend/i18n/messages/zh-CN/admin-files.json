@@ -1,8 +1,8 @@
 {
   "groups": {
     "uploadLimits": {
-      "title": "上传限制",
-      "description": "控制对话附件数量、MIME 白名单和文件大小上限。"
+      "title": "文件准入策略",
+      "description": "治理可进入平台的附件数量、MIME 类型、单文件大小与用户存储配额。"
     },
     "extraction": {
       "title": "内容提取",
@@ -101,8 +101,8 @@
     },
     "file": {
       "allowed_mime_types": {
-        "label": "附件 MIME 白名单",
-        "description": "用于限制允许上传的附件 MIME 类型，多个值使用逗号分隔。",
+        "label": "准入 MIME 类型",
+        "description": "仅允许列出的附件 MIME 类型进入平台处理链路，多个值使用逗号分隔。",
         "placeholder": "MIME 类型，逗号分隔"
       },
       "image_max_bytes": {

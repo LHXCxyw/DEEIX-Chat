@@ -76,6 +76,29 @@ func TestExecuteAssistantToolCallsEphemeralSkipsToolCallPersistence(t *testing.T
 	}
 }
 
+func TestExecuteAssistantToolCallsProjectToolBypassesLedger(t *testing.T) {
+	ledger := newToolExecutionLedger()
+	ledger.store("project_list_files", `{}`, toolExecutionRecord{
+		row:    model.ToolCall{ToolName: "project_list_files", InputJSON: `{}`, OutputJSON: `[]`, Status: "success"},
+		result: llm.ToolResult{ToolName: "project_list_files", OutputJSON: `[]`, Status: "success"},
+	})
+
+	result := (&Service{}).executeAssistantToolCalls(t.Context(), executeAssistantToolCallsInput{
+		ToolCalls: []llm.ToolCall{{
+			ToolCallID:    "call-1",
+			ToolType:      "function",
+			ToolName:      "project_list_files",
+			ArgumentsJSON: `{}`,
+		}},
+		Ledger:    ledger,
+		Ephemeral: true,
+	})
+
+	if len(result.Rows) != 1 || result.Rows[0].Status != "error" || !strings.Contains(result.Rows[0].ErrorJSON, "project context is required") {
+		t.Fatalf("expected project tool to execute instead of reusing ledger result, got %#v", result.Rows)
+	}
+}
+
 func TestResolveMaxLLMCallsPerRunRequiresFollowUpRound(t *testing.T) {
 	svc := &Service{cfg: config.NewRuntime(config.Config{MCPMaxLLMCallsPerRun: 1})}
 	if got := svc.resolveMaxLLMCallsPerRun(); got != 2 {

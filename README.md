@@ -32,7 +32,7 @@ The system is designed around simple deployment, efficient static delivery, and 
 
 ## Personal Fork Notice
 
-This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat). It is maintained independently from the upstream project and is not an official DEEIX Chat distribution. This fork currently includes user-owned upstream channels and user model routing (BYOK), together with related backend, frontend, configuration, and database migration changes. Please refer to the commit history for the detailed modification record.
+This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat). It is maintained independently from the upstream project and is not an official DEEIX Chat distribution. This fork currently includes user-owned upstream channels and user model routing (BYOK), an AI project workspace with an IDE-style file explorer, together with related backend, frontend, configuration, and database migration changes. Please refer to the commit history for the detailed modification record.
 
 ### Secondary Development Capabilities
 
@@ -44,6 +44,10 @@ This repository is a personal fork and secondary development project based on [D
 - **Administrator controls**: Allow administrators to enable or disable the feature, set per-user channel quotas, choose approval requirements, and configure billing behavior.
 - **Usage and billing modes**: Support disabled billing, usage statistics only, or platform-pricing billing for user-owned upstream calls.
 - **Data isolation and migrations**: Scope personal channels and models to their owners and include the related ownership fields and database migrations.
+- **AI project workspaces**: Turn project conversations into file-producing workspaces where the AI creates, reads, searches, patches, and deletes files through dedicated project tools instead of emitting code in chat, with archive packaging exposed as a one-click download card.
+- **IDE-style explorer**: A persistent side panel with a collapsible file tree, multi-select, localized context menus, manual create/edit/delete, ZIP import and download, and path-aware drag-and-drop that lands files into the hovered folder.
+- **In-chat code editing**: Opened files become editor tabs next to the chat tab, powered by Monaco with syntax highlighting, language-service completion, word wrap, localized context menus, and per-round change cards with merged cumulative diffs.
+- **Sandboxed HTML preview**: Render HTML/SVG files in an isolated iframe with workspace-relative assets inlined, while scripts stay unable to touch application data.
 
 ![DEEIX Chat workspace](./frontend/public/DEEIX-Chat.jpg)
 
@@ -52,6 +56,7 @@ This repository is a personal fork and secondary development project based on [D
 | Area | Capabilities |
 | --- | --- |
 | Conversations | A multimodal chat interface for daily use, with streaming, branches, retries, edits, feedback, sharing, rich rendering, and traceable model execution metadata. |
+| Project workspaces | Project conversations with AI-driven file tools (write, read, search, patch, delete, archive), an IDE-style explorer, Monaco editor tabs with syntax highlighting and completion, per-round change cards with merged diffs, sandboxed HTML preview, and ZIP import/export. |
 | Models and routing | A platform-model layer for upstream channels, real models, route bindings, priority, weights, circuit breaking, vendor mapping, and capability configuration, reducing the cost of multi-provider operations. |
 | Protocols and adaptation | Unified support for OpenAI, Anthropic, Google/Gemini, xAI, OpenRouter, and OpenAI-compatible protocols across text, image, tools, and provider-native capability differences. |
 | Files and retrieval | File upload, preview, extraction, OCR, storage quota, full-context injection, chunking, embeddings, and semantic retrieval so file content can naturally enter the conversation context. |

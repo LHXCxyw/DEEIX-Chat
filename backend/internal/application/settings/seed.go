@@ -76,12 +76,18 @@ func defaultSettings() []domainsettings.SystemSetting {
 		{Namespace: "chat", Key: "model_option_policy_mode", Value: "allowlist", ValueType: "string", Description: "模型 options 透传策略：allowlist=仅白名单，denylist=黑名单拦截，disabled=禁止透传"},
 		{Namespace: "chat", Key: "model_option_allowed_paths", Value: config.DefaultModelOptionAllowedPathsJSON(), ValueType: "json", Description: "模型 options 白名单路径 JSON，default 对所有协议生效"},
 		{Namespace: "chat", Key: "model_option_denied_paths", Value: config.DefaultModelOptionDeniedPathsJSON(), ValueType: "json", Description: "模型 options 黑名单路径 JSON，default 对所有协议生效"},
-		
+
 		// 用户自有渠道配置（BYOK）
 		{Namespace: "chat", Key: "user_upstream_enabled", Value: "false", ValueType: "bool", Description: "全局开关：是否允许用户添加自有上游渠道（BYOK）"},
 		{Namespace: "chat", Key: "user_upstream_billing_mode", Value: "statistics_only", ValueType: "string", Description: "用户渠道计费策略：disabled=禁用功能 | statistics_only=仅统计不扣费 | platform_pricing=按平台价格扣费"},
 		{Namespace: "chat", Key: "user_upstream_quota_limit", Value: "3", ValueType: "int", Description: "单用户最多创建上游数量，0表示无限制"},
-		{Namespace: "chat", Key: "user_upstream_require_approval", Value: "false", ValueType: "bool", Description: "用户创建渠道是否需要管理员审批"},
+		{Namespace: "chat", Key: "user_upstream_require_approval", Value: "true", ValueType: "bool", Description: "用户创建渠道是否需要管理员审批"},
+		{Namespace: "file", Key: "user_embedding_enabled", Value: "false", ValueType: "bool", Description: "是否准入用户通过本人渠道配置Embedding"},
+		{Namespace: "chat", Key: "user_rag_enabled", Value: "false", ValueType: "bool", Description: "是否准入用户和项目使用自有RAG"},
+		{Namespace: "file", Key: "user_embedding_profile_limit", Value: "3", ValueType: "int", Description: "单用户Embedding Profile上限"},
+		{Namespace: "file", Key: "user_embedding_allowed_protocols", Value: "openai", ValueType: "string", Description: "允许的用户Embedding协议，逗号分隔"},
+		{Namespace: "file", Key: "user_embedding_min_dimensions", Value: "64", ValueType: "int", Description: "用户Embedding最小维度"},
+		{Namespace: "file", Key: "user_embedding_max_dimensions", Value: "8192", ValueType: "int", Description: "用户Embedding最大维度"},
 
 		// 存储配置
 		{Namespace: "storage", Key: "user_storage_quota_bytes", Value: "104857600", ValueType: "int", Description: "用户总存储配额（管理页面按 MB 输入，内部以字节保存），0表示不限制"},

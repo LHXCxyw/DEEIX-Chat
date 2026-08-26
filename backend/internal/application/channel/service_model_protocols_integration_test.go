@@ -305,6 +305,45 @@ func TestUpsertUpstreamModelAppliesOnlyExplicitRouteOverrides(t *testing.T) {
 	}
 }
 
+func TestBindModelUpstreamSourceExpandsOpenAIDualImageRoutes(t *testing.T) {
+	db := openModelProtocolsTestDB(t)
+	upstream := model.LLMUpstream{Name: "bind-image-upstream", Compatible: "openai", Status: "active"}
+	if err := db.Create(&upstream).Error; err != nil {
+		t.Fatalf("create upstream: %v", err)
+	}
+	upstreamModel := model.LLMUpstreamModel{
+		UpstreamID: upstream.ID, BindingCode: "bind-image-model", UpstreamModelName: "gpt-image-1",
+		SuggestedProtocol: "openai_image_generations", KindsJSON: `["image_gen","image_edit"]`, Status: "active",
+	}
+	if err := db.Create(&upstreamModel).Error; err != nil {
+		t.Fatalf("create upstream model: %v", err)
+	}
+	platformModel := model.LLMPlatformModel{Name: "bind-image-platform", Vendor: "openai", KindsJSON: `["image_gen","image_edit"]`, Status: "active"}
+	if err := db.Create(&platformModel).Error; err != nil {
+		t.Fatalf("create platform model: %v", err)
+	}
+
+	repo := channelrepo.NewRepo(db)
+	service := appchannel.NewService(config.Config{}, repo, repo, nil, nil)
+	view, err := service.BindModelUpstreamSource(context.Background(), platformModel.ID, appchannel.BindModelUpstreamSourceInput{
+		UpstreamID: upstream.ID, UpstreamModelID: upstreamModel.ID,
+	})
+	if err != nil {
+		t.Fatalf("BindModelUpstreamSource() error = %v", err)
+	}
+	if view.Protocol != "openai_image_generations" {
+		t.Fatalf("expected generation route view, got %q", view.Protocol)
+	}
+
+	var routes []model.LLMPlatformModelRoute
+	if err := db.Where("platform_model_id = ? AND upstream_model_id = ?", platformModel.ID, upstreamModel.ID).Order("protocol ASC").Find(&routes).Error; err != nil {
+		t.Fatalf("load routes: %v", err)
+	}
+	if len(routes) != 2 || routes[0].Protocol != "openai_image_edits" || routes[1].Protocol != "openai_image_generations" {
+		t.Fatalf("expected generation and edit routes, got %#v", routes)
+	}
+}
+
 func openModelProtocolsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "channel.db")), &gorm.Config{})

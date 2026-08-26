@@ -1,6 +1,6 @@
 "use client";
 
-import { Glasses } from "lucide-react";
+import { FileCode2, Glasses, MessageSquare, PanelRightOpen, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import * as React from "react";
@@ -15,6 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   ConversationShareDialog,
   sharePatchFromDTO,
@@ -25,6 +26,8 @@ import { ChatArea, ChatAreaLoadError, ChatAreaSkeleton } from "@/features/chat/c
 import { ChatArtifactWorkspace } from "@/features/chat/components/sections/chat-artifact";
 import { ChatEmptyState } from "@/features/chat/components/sections/chat-empty";
 import { ChatInput } from "@/features/chat/components/sections/chat-input";
+import { ChatProjectWorkspace, ProjectFileEditor, collectProjectFileChanges, reconstructProjectFileInitial, type ProjectChange, type ProjectFileTab, type ProjectWorkspaceHandle } from "@/features/chat/components/sections/chat-project-workspace";
+import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { ChatScreenshotPreviewDialog } from "@/features/chat/components/sections/chat-screenshot-preview-dialog";
 import { TemporaryChatModeControl } from "@/features/chat/components/temporary-chat-mode-control";
 import { useChatSession } from "@/features/chat/context/chat-session-context";
@@ -52,7 +55,15 @@ import { toPendingAttachment } from "@/features/chat/model/message-submit";
 import type { ChatAreaMessage, MessageAttachment } from "@/features/chat/types/messages";
 import { useSettingsChatPreferences } from "@/features/settings/hooks/use-settings-chat-preferences";
 import { cn } from "@/lib/utils";
-import { getConversation } from "@/shared/api/conversation";
+import {
+  deleteProjectFile,
+  downloadProjectArchive,
+  fetchProjectFileContent,
+  getConversation,
+  getProjectWorkspace,
+  saveProjectFile,
+  type ProjectWorkspaceFileDTO,
+} from "@/shared/api/conversation";
 import type { ConversationDTO, ConversationOptions } from "@/shared/api/conversation.types";
 import type { FileObjectDTO } from "@/shared/api/file.types";
 import { listAvailableMCPTools } from "@/shared/api/mcp";
@@ -76,6 +87,14 @@ const EMPTY_CONVERSATION_OPTIONS: ConversationOptions = {};
 const EMPTY_LIST: never[] = [];
 const TOP_LOAD_OLDER_MESSAGES_THRESHOLD_PX = 48;
 const SCREENSHOT_PREVIEW_CLOSE_DELAY_MS = 220;
+const PROJECT_PANEL_OPEN_KEY = "deeix-chat:project-panel-open";
+const PROJECT_PANEL_WIDTH_KEY = "deeix-chat:project-panel-width";
+
+// 按 key 更新或追加文件标签页（纯函数，供 setState 更新器复用）。
+function upsertIn(previous: ProjectFileTab[], tab: ProjectFileTab): ProjectFileTab[] {
+  const index = previous.findIndex((item) => item.key === tab.key);
+  return index < 0 ? [...previous, tab] : previous.map((item) => (item.key === tab.key ? tab : item));
+}
 
 function dragEventContainsFiles(event: React.DragEvent<HTMLElement>): boolean {
   return Array.from(event.dataTransfer.types ?? []).includes("Files");
@@ -1080,9 +1099,9 @@ export function AppChatArea() {
     const errors = [
       modelsErrorMsg.trim()
         ? {
-            title: t("modelListLoadFailed"),
-            message: modelsErrorMsg.trim(),
-          }
+          title: t("modelListLoadFailed"),
+          message: modelsErrorMsg.trim(),
+        }
         : null,
     ].filter((item): item is NonNullable<typeof item> => item !== null);
 
@@ -1141,12 +1160,224 @@ export function AppChatArea() {
     messages: displayMessages,
   });
   const workspaceRef = React.useRef<HTMLDivElement | null>(null);
+  const projectWorkspaceRef = React.useRef<ProjectWorkspaceHandle | null>(null);
+  const [projectPanelOpen, setProjectPanelOpen] = React.useState(true);
+  const [projectPanelWidth, setProjectPanelWidth] = React.useState(360);
+  React.useEffect(() => {
+    setProjectPanelOpen(window.localStorage.getItem(PROJECT_PANEL_OPEN_KEY) !== "false");
+    const storedWidth = Number(window.localStorage.getItem(PROJECT_PANEL_WIDTH_KEY));
+    if (Number.isFinite(storedWidth)) setProjectPanelWidth(Math.min(720, Math.max(280, storedWidth)));
+    const openProjectPanel = () => setProjectPanelOpen(true);
+    window.addEventListener("deeix-chat:open-project-panel", openProjectPanel);
+    return () => window.removeEventListener("deeix-chat:open-project-panel", openProjectPanel);
+  }, []);
+  const setProjectPanelVisibility = React.useCallback((open: boolean) => {
+    setProjectPanelOpen(open);
+    window.localStorage.setItem(PROJECT_PANEL_OPEN_KEY, String(open));
+  }, []);
   const artifactResizeCleanupRef = React.useRef<(() => void) | null>(null);
   const [artifactResizing, setArtifactResizing] = React.useState(false);
   const hasInlineArtifact = Boolean(artifactWorkspace.activeArtifact && artifactWorkspace.isInlineViewport);
+  const workspaceProjectID = currentConversation?.projectID || routeProjectID || "";
+  // 聊天区文件标签页：第一个固定为聊天，其余为打开的项目文件。
+  const [projectFileTabs, setProjectFileTabs] = React.useState<ProjectFileTab[]>([]);
+  const [activeProjectTabKey, setActiveProjectTabKey] = React.useState("");
+  const [projectFileBusy, setProjectFileBusy] = React.useState(false);
+
+  // 切换项目后清空所有文件标签页并回到聊天页。
+  React.useEffect(() => {
+    setProjectFileTabs([]);
+    setActiveProjectTabKey("");
+  }, [workspaceProjectID]);
+
+  // 活动标签页被关闭后自动回到聊天页。
+  React.useEffect(() => {
+    if (activeProjectTabKey && !projectFileTabs.some((tab) => tab.key === activeProjectTabKey)) {
+      setActiveProjectTabKey("");
+    }
+  }, [projectFileTabs, activeProjectTabKey]);
+
+  // 从资源管理器打开项目文件：拉取完整内容并激活对应标签页。
+  const openProjectFile = React.useCallback(async (file: ProjectWorkspaceFileDTO) => {
+    setProjectFileBusy(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error("登录状态已失效");
+      const content = await fetchProjectFileContent(token, workspaceProjectID, file.PublicID);
+      setProjectFileTabs((previous) => {
+        const existing = previous.find((item) => item.key === file.RelativePath);
+        const tab: ProjectFileTab = existing
+          ? { ...existing, fileID: file.PublicID, content, savedContent: content, diff: existing.diff ? { ...existing.diff, next: content } : null, note: "", deleted: false }
+          : { key: file.RelativePath, path: file.RelativePath, fileID: file.PublicID, content, savedContent: content, diff: null, note: "", deleted: false };
+        return upsertIn(previous, tab);
+      });
+      setActiveProjectTabKey(file.RelativePath);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "无法读取项目文件"); }
+    finally { setProjectFileBusy(false); }
+  }, [workspaceProjectID]);
+
+  // 点击消息卡片或每轮变更：打开对应文件的 Diff 视图、下载归档或显示删除提示。
+  const openProjectChange = React.useCallback(async (change: ProjectChange) => {
+    if (change.name === "project_create_archive") {
+      setProjectFileBusy(true);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) throw new Error("登录状态已失效");
+        const { blob, fileName } = await downloadProjectArchive(token, workspaceProjectID);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      } catch (error) { toast.error(error instanceof Error ? error.message : "下载失败"); }
+      finally { setProjectFileBusy(false); }
+      return;
+    }
+    setProjectPanelVisibility(true);
+    setProjectFileBusy(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error("登录状态已失效");
+      // 优先读取工作区中的实际文件内容（完整无截断），trace 明细仅作兜底。
+      let file: ProjectWorkspaceFileDTO | undefined;
+      let fetched = "";
+      try {
+        const view = await getProjectWorkspace(token, workspaceProjectID);
+        file = (view.Files ?? []).find((item) => item.RelativePath === change.path);
+        if (file && change.name !== "project_delete_file") {
+          fetched = await fetchProjectFileContent(token, workspaceProjectID, file.PublicID);
+        }
+      } catch { /* 工作区查询失败时回退到 trace 内容 */ }
+      if (change.name === "project_delete_file") {
+        const tab: ProjectFileTab = {
+          key: change.path,
+          path: change.path,
+          fileID: file?.PublicID ?? "",
+          content: fetched,
+          savedContent: fetched,
+          diff: null,
+          note: "该文件已被删除",
+          deleted: true,
+        };
+        setProjectFileTabs((previous) => upsertIn(previous, tab));
+        setActiveProjectTabKey(change.path);
+        return;
+      }
+      // 同一文件的多次修改合并为累计 Diff：跨轮次收集原子变更，从当前内容逆序还原初始内容。
+      const finalContent = fetched || change.newContent || "";
+      const atomics = collectProjectFileChanges(displayMessages, change.path);
+      let initial = atomics.length > 0
+        ? reconstructProjectFileInitial(finalContent, atomics)
+        : change.name === "project_write_file" ? "" : change.oldContent ?? "";
+      // 还原失败（片段在当前内容中已不存在）时回退到首个变更的原始片段。
+      if (initial === finalContent && atomics.length > 0) {
+        initial = atomics[0].name === "project_write_file" ? "" : atomics[0].oldContent ?? "";
+      }
+      const tab: ProjectFileTab = {
+        key: change.path,
+        path: change.path,
+        fileID: file?.PublicID ?? "",
+        content: finalContent,
+        savedContent: fetched,
+        diff: { old: initial, next: finalContent },
+        note: atomics.length > 1 ? `累计 ${atomics.length} 次修改的合并 Diff（初始 → 当前）` : "",
+        deleted: false,
+      };
+      setProjectFileTabs((previous) => upsertIn(previous, tab));
+      setActiveProjectTabKey(change.path);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "无法读取项目文件"); }
+    finally { setProjectFileBusy(false); }
+  }, [displayMessages, workspaceProjectID, setProjectPanelVisibility]);
+
+  const onOpenProjectChange = React.useCallback((change: ProjectChange) => {
+    setProjectPanelVisibility(true);
+    void openProjectChange(change);
+  }, [openProjectChange, setProjectPanelVisibility]);
+
+  // 新建文件标签页：目录参数作为路径前缀，自动生成不重名的 untitled 文件。
+  const createProjectFile = React.useCallback((directory: string) => {
+    const prefix = directory.trim().replace(/^\/+|\/+$/g, "");
+    const base = prefix ? `${prefix}/untitled` : "untitled";
+    let path = `${base}.ts`;
+    let index = 1;
+    while (projectFileTabs.some((tab) => tab.path === path || tab.key === path)) {
+      index += 1;
+      path = `${base}-${index}.ts`;
+    }
+    const tab: ProjectFileTab = { key: path, path, fileID: "", content: "", savedContent: "", diff: null, note: "", deleted: false };
+    setProjectFileTabs((previous) => [...previous, tab]);
+    setActiveProjectTabKey(path);
+    setProjectPanelVisibility(true);
+  }, [projectFileTabs, setProjectPanelVisibility]);
+
+  const closeProjectTab = React.useCallback((key: string) => {
+    setProjectFileTabs((previous) => previous.filter((tab) => tab.key !== key));
+  }, []);
+
+  // 资源管理器批量删除后，同步关闭命中的文件标签页（含目录前缀匹配）。
+  const onProjectFilesDeleted = React.useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    setProjectFileTabs((previous) => previous.filter((tab) => !paths.some((path) => path !== "" && (tab.path === path || tab.path.startsWith(`${path}/`)))));
+  }, []);
+
+  const activeProjectTab = projectFileTabs.find((tab) => tab.key === activeProjectTabKey) ?? null;
+
+  const updateActiveProjectTab = React.useCallback((patch: Partial<ProjectFileTab>) => {
+    setProjectFileTabs((previous) => previous.map((tab) => (tab.key === activeProjectTabKey ? { ...tab, ...patch } : tab)));
+  }, [activeProjectTabKey]);
+
+  // 保存当前标签页文件：新文件按输入路径创建，已存在文件覆盖更新。
+  const saveActiveProjectTab = React.useCallback(async () => {
+    const tab = projectFileTabs.find((item) => item.key === activeProjectTabKey);
+    if (!tab || !tab.path.trim()) return;
+    setProjectFileBusy(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error("登录状态已失效");
+      const file = await saveProjectFile(token, workspaceProjectID, tab.path.trim(), tab.content);
+      const nextKey = tab.path.trim();
+      setProjectFileTabs((previous) => previous
+        .filter((item) => item.key === nextKey || item.key === tab.key)
+        .map((item) => (item.key === tab.key ? { ...item, key: nextKey, path: nextKey, fileID: file.PublicID, savedContent: item.content, diff: null, deleted: false, note: "" } : item)));
+      setActiveProjectTabKey(nextKey);
+      projectWorkspaceRef.current?.refresh();
+      toast.success("项目文件已保存");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "保存失败"); }
+    finally { setProjectFileBusy(false); }
+  }, [activeProjectTabKey, projectFileTabs, workspaceProjectID]);
+
+  // 删除当前标签页文件：新文件仅关闭标签页，已保存文件调用删除接口。
+  const deleteActiveProjectTab = React.useCallback(async () => {
+    const tab = projectFileTabs.find((item) => item.key === activeProjectTabKey);
+    if (!tab) return;
+    if (!tab.fileID) {
+      closeProjectTab(tab.key);
+      return;
+    }
+    setProjectFileBusy(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error("登录状态已失效");
+      await deleteProjectFile(token, workspaceProjectID, tab.fileID);
+      closeProjectTab(tab.key);
+      projectWorkspaceRef.current?.refresh();
+      toast.success("项目文件已删除");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "删除失败"); }
+    finally { setProjectFileBusy(false); }
+  }, [activeProjectTabKey, closeProjectTab, projectFileTabs, workspaceProjectID]);
+
+  const isMobileViewport = useIsMobile();
+  // 移动端面板为全宽抽屉：网格退化为单列，避免固定像素的第二列把聊天区挤到一边。
   const workspaceGridColumns = hasInlineArtifact
     ? `minmax(0, ${1 - artifactWorkspace.artifactRatio}fr) minmax(0, ${artifactWorkspace.artifactRatio}fr)`
-    : "minmax(0, 1fr) minmax(0, 0fr)";
+    : isMobileViewport
+      ? "minmax(0, 1fr)"
+      : workspaceProjectID && projectPanelOpen
+        ? `minmax(0, 1fr) ${projectPanelWidth}px`
+        : "minmax(0, 1fr) minmax(0, 0fr)";
 
   React.useEffect(() => () => {
     artifactResizeCleanupRef.current?.();
@@ -1336,7 +1567,52 @@ export function AppChatArea() {
   const isConversationLoading = !temporaryMode && Boolean(conversationID) && loading && visibleMessageCount === 0 && displayMessages.length === 0;
   const isConversationLoadFailed = !temporaryMode && Boolean(conversationID) && !loading && errorMsg.trim().length > 0 && visibleMessageCount === 0;
   const shouldUseCenteredComposer =
-    !isConversationLoading && !isConversationLoadFailed && !composerConversationMode && displayMessages.length === 0;
+    !workspaceProjectID && !isConversationLoading && !isConversationLoadFailed && !composerConversationMode && displayMessages.length === 0;
+
+  // 聊天区标签条：第一个固定为聊天，其后为已打开的项目文件，可自由切换。
+  const projectTabStrip = workspaceProjectID && projectFileTabs.length > 0 ? (
+    <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b bg-muted/30 px-2">
+      <button
+        type="button"
+        onClick={() => setActiveProjectTabKey("")}
+        className={cn(
+          "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
+          activeProjectTabKey === "" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted",
+        )}
+      >
+        <MessageSquare className="size-3.5 shrink-0" />
+        <span className="shrink-0">聊天</span>
+      </button>
+      {projectFileTabs.map((tab) => (
+        <div
+          key={tab.key}
+          className={cn(
+            "group flex h-7 shrink-0 items-center gap-1.5 rounded-md pl-2 pr-1 text-xs transition-colors",
+            activeProjectTabKey === tab.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => setActiveProjectTabKey(tab.key)}
+            className="flex min-w-0 items-center gap-1.5"
+            title={tab.path}
+          >
+            <FileCode2 className="size-3.5 shrink-0" />
+            <span className="max-w-[180px] truncate">{tab.path.split("/").at(-1) ?? tab.path}</span>
+            {!tab.diff && !tab.deleted && tab.content !== tab.savedContent ? <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label="未保存" /> : null}
+          </button>
+          <button
+            type="button"
+            aria-label="关闭标签页"
+            className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-muted-foreground/20"
+            onClick={() => closeProjectTab(tab.key)}
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -1346,137 +1622,236 @@ export function AppChatArea() {
       onDragLeave={onFileDragLeave}
       onDrop={onFileDrop}
     >
-      {!conversationID ? (
-        <TemporaryChatModeControl
-          active={temporaryMode}
-          requiresExitConfirmation={temporaryRuntime.sending || temporaryRuntime.messages.length > 0}
-        />
-      ) : null}
-      {shouldUseCenteredComposer ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ChatEmptyState
-            greetingTitle={activeRouteProject?.name || greetingTitle}
-            badgeLabel={activeRouteProject ? t("projectMode") : undefined}
-            badgeTooltip={activeRouteProject ? t("projectModeTooltip") : undefined}
-            titleAdornment={temporaryMode ? (
-              <Glasses
-                aria-hidden
-                className="size-5 shrink-0 text-muted-foreground md:size-[22px]"
-                strokeWidth={1.6}
-              />
-            ) : undefined}
-            contentWidthClassName={chatContentWidthClassName}
-          >
-            <ChatInput {...chatInputProps} />
-          </ChatEmptyState>
-        </div>
-      ) : (
-        <div
-          ref={workspaceRef}
-          className={cn(
-            "relative grid min-h-0 flex-1 overflow-hidden",
-            artifactResizing
-              ? "transition-none"
-              : "transition-[grid-template-columns] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
-            hasInlineArtifact && "md:overflow-visible",
-          )}
-          style={{ gridTemplateColumns: workspaceGridColumns }}
+      {workspaceProjectID && !projectPanelOpen ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          title="打开 IDE"
+          aria-label="打开 IDE"
+          // 移动端为抽屉入口按钮（底部悬浮），桌面为右缘贴边按钮。
+          className="absolute bottom-4 right-4 z-30 inline-flex rounded-lg border shadow-sm md:bottom-auto md:right-0 md:top-1/2 md:-translate-y-1/2 md:rounded-l-lg md:rounded-r-none md:border-r-0"
+          onClick={() => setProjectPanelVisibility(true)}
         >
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {isConversationLoading ? (
-                <ChatAreaSkeleton contentWidthClassName={chatContentWidthClassName} />
-              ) : isConversationLoadFailed ? (
-                <ChatAreaLoadError onRefresh={reload} onNewConversation={onNewConversationFromLoadError} />
-              ) : (
-                <ChatArea
-                  title={temporaryMode ? t("temporary.title") : activeConversationTitle}
-                  starred={activeConversationStarred}
-                  canOperateConversation={temporaryMode ? false : canOperateConversation}
-                  messages={displayMessages}
-                  messagesReadOnly={temporaryMode}
-                  busy={composerSending}
-                  messageContentRef={messageContentRef}
-                  onScroll={onScroll}
-                  onRetryUserMessage={onRetryUserMessage}
-                  onRetryAssistantMessage={onRetryAssistantMessage}
-                  onContinueAssistantMessage={onContinueAssistantMessage}
-                  onEditAssistantMessage={onEditAssistantMessage}
-                  onEditUserMessage={onEditUserMessage}
-                  onForkMessage={temporaryMode ? undefined : onForkMessage}
-                  modelOptions={modelOptions}
-                  selectedPlatformModelName={selectedPlatformModelName}
-                  onModelChange={setSelectedPlatformModelName}
-                  onModelCatalogRefresh={refreshModelCatalogForComposer}
-                  onEditImageAttachment={onEditGeneratedImageAttachment}
-                  onExtendVideoAttachment={onExtendGeneratedVideoAttachment}
-                  onOpenCodeArtifact={artifactWorkspace.openArtifact}
-                  onCycleMessageBranch={onCycleMessageBranch}
-                  onToggleStar={temporaryMode ? undefined : onToggleActiveConversationStar}
-                  onRename={temporaryMode ? undefined : onRenameActiveConversation}
-                  onAutoRename={temporaryMode ? undefined : onAutoRenameActiveConversation}
-                  labels={temporaryMode ? EMPTY_LIST : activeConversationLabels}
-                  onUpdateLabels={temporaryMode ? undefined : onUpdateActiveConversationLabels}
-                  projectMenu={temporaryMode ? undefined : {
-                    label: t("labelMenu.moveToProject"),
-                    unassignedLabel: t("labelMenu.unassignedProject"),
-                    currentProjectID: currentConversation?.projectID,
-                    projects,
-                    onSelect: onSetActiveConversationProject,
-                  }}
-                  onShare={temporaryMode ? undefined : onShareActiveConversation}
-                  shareActive={activeConversationShared}
-                  onExport={temporaryMode ? undefined : onExportActiveConversation}
-                  onDelete={temporaryMode ? undefined : onRequestDeleteActiveConversation}
-                  markdownRender={markdownRender}
-                  autoExpandThinking={autoExpandThinking}
-                  autoExpandToolCalls={autoExpandToolCalls}
-                  showModelInfo={showModelInfo}
-                  showLatency={showLatency}
-                  showTokenUsage={showTokenUsage}
-                  showBillingCost={showBillingCost}
-                  billingDisplayCurrency={billingDisplayCurrency}
-                  billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
-                  splitRightInset={hasInlineArtifact}
-                  contentWidthClassName={chatContentWidthClassName}
-                  onScreenshotLatest={screenshot.captureLatestMessages}
-                  onScreenshotSelect={screenshot.startSelectionScreenshot}
-                  screenshot={{
-                    selectionMode: screenshot.selectionMode,
-                    selectedIDs: screenshot.selectedIDs,
-                    selectedCount: screenshot.selectedCount,
-                    capturing: screenshot.capturing,
-                    onToggleSelection: screenshot.toggleSelection,
-                    onSelectAll: screenshot.selectMany,
-                    onClearSelection: screenshot.clearSelection,
-                    onPruneSelection: screenshot.pruneSelection,
-                    onCapture: screenshot.captureSelectedMessages,
-                    onExit: screenshot.exitSelectionMode,
-                  }}
+          <PanelRightOpen className="size-4" />
+        </Button>
+      ) : null
+      }
+      {/* 项目对话不显示临时对话控件：避免与右侧 IDE 按钮区域重叠，且项目会话不适用临时模式 */}
+      {
+        !conversationID && !workspaceProjectID ? (
+          <TemporaryChatModeControl
+            active={temporaryMode}
+            requiresExitConfirmation={temporaryRuntime.sending || temporaryRuntime.messages.length > 0}
+          />
+        ) : null
+      }
+      {
+        shouldUseCenteredComposer ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <ChatEmptyState
+              greetingTitle={activeRouteProject?.name || greetingTitle}
+              badgeLabel={activeRouteProject ? t("projectMode") : undefined}
+              badgeTooltip={activeRouteProject ? t("projectModeTooltip") : undefined}
+              titleAdornment={temporaryMode ? (
+                <Glasses
+                  aria-hidden
+                  className="size-5 shrink-0 text-muted-foreground md:size-[22px]"
+                  strokeWidth={1.6}
                 />
-              )}
+              ) : undefined}
+              contentWidthClassName={chatContentWidthClassName}
+            >
+              <ChatInput {...chatInputProps} />
+            </ChatEmptyState>
+          </div>
+        ) : (
+          <div
+            ref={workspaceRef}
+            className={cn(
+              "relative grid min-h-0 flex-1 overflow-hidden",
+              artifactResizing
+                ? "transition-none"
+                : "transition-[grid-template-columns] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              hasInlineArtifact && "md:overflow-visible",
+            )}
+            style={{ gridTemplateColumns: workspaceGridColumns }}
+          >
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              {projectTabStrip}
+              {activeProjectTab ? (
+                <ProjectFileEditor
+                  key={activeProjectTab.key}
+                  tab={activeProjectTab}
+                  busy={projectFileBusy}
+                  projectID={workspaceProjectID}
+                  onPathChange={(path) => updateActiveProjectTab({ path })}
+                  onContentChange={(content) => updateActiveProjectTab({ content })}
+                  onSave={() => void saveActiveProjectTab()}
+                  onDelete={() => void deleteActiveProjectTab()}
+                />
+              ) : null}
+              <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", activeProjectTab && "hidden")}>
+                {isConversationLoading ? (
+                  <ChatAreaSkeleton contentWidthClassName={chatContentWidthClassName} />
+                ) : isConversationLoadFailed ? (
+                  <ChatAreaLoadError onRefresh={reload} onNewConversation={onNewConversationFromLoadError} />
+                ) : (
+                  <ChatArea
+                    title={temporaryMode ? t("temporary.title") : activeConversationTitle}
+                    starred={activeConversationStarred}
+                    canOperateConversation={temporaryMode ? false : canOperateConversation}
+                    messages={displayMessages}
+                    messagesReadOnly={temporaryMode}
+                    busy={composerSending}
+                    messageContentRef={messageContentRef}
+                    onScroll={onScroll}
+                    onRetryUserMessage={onRetryUserMessage}
+                    onRetryAssistantMessage={onRetryAssistantMessage}
+                    onContinueAssistantMessage={onContinueAssistantMessage}
+                    onEditAssistantMessage={onEditAssistantMessage}
+                    onEditUserMessage={onEditUserMessage}
+                    onForkMessage={temporaryMode ? undefined : onForkMessage}
+                    modelOptions={modelOptions}
+                    selectedPlatformModelName={selectedPlatformModelName}
+                    onModelChange={setSelectedPlatformModelName}
+                    onModelCatalogRefresh={refreshModelCatalogForComposer}
+                    onEditImageAttachment={onEditGeneratedImageAttachment}
+                    onExtendVideoAttachment={onExtendGeneratedVideoAttachment}
+                    onOpenCodeArtifact={artifactWorkspace.openArtifact}
+                    onOpenProjectChange={workspaceProjectID ? onOpenProjectChange : undefined}
+                    onCycleMessageBranch={onCycleMessageBranch}
+                    onToggleStar={temporaryMode ? undefined : onToggleActiveConversationStar}
+                    onRename={temporaryMode ? undefined : onRenameActiveConversation}
+                    onAutoRename={temporaryMode ? undefined : onAutoRenameActiveConversation}
+                    labels={temporaryMode ? EMPTY_LIST : activeConversationLabels}
+                    onUpdateLabels={temporaryMode ? undefined : onUpdateActiveConversationLabels}
+                    projectMenu={temporaryMode ? undefined : {
+                      label: t("labelMenu.moveToProject"),
+                      unassignedLabel: t("labelMenu.unassignedProject"),
+                      currentProjectID: currentConversation?.projectID,
+                      projects,
+                      onSelect: onSetActiveConversationProject,
+                    }}
+                    onShare={temporaryMode ? undefined : onShareActiveConversation}
+                    shareActive={activeConversationShared}
+                    onExport={temporaryMode ? undefined : onExportActiveConversation}
+                    onDelete={temporaryMode ? undefined : onRequestDeleteActiveConversation}
+                    markdownRender={markdownRender}
+                    autoExpandThinking={autoExpandThinking}
+                    autoExpandToolCalls={autoExpandToolCalls}
+                    showModelInfo={showModelInfo}
+                    showLatency={showLatency}
+                    showTokenUsage={showTokenUsage}
+                    showBillingCost={showBillingCost}
+                    billingDisplayCurrency={billingDisplayCurrency}
+                    billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
+                    splitRightInset={hasInlineArtifact}
+                    contentWidthClassName={chatContentWidthClassName}
+                    onScreenshotLatest={screenshot.captureLatestMessages}
+                    onScreenshotSelect={screenshot.startSelectionScreenshot}
+                    screenshot={{
+                      selectionMode: screenshot.selectionMode,
+                      selectedIDs: screenshot.selectedIDs,
+                      selectedCount: screenshot.selectedCount,
+                      capturing: screenshot.capturing,
+                      onToggleSelection: screenshot.toggleSelection,
+                      onSelectAll: screenshot.selectMany,
+                      onClearSelection: screenshot.clearSelection,
+                      onPruneSelection: screenshot.pruneSelection,
+                      onCapture: screenshot.captureSelectedMessages,
+                      onExit: screenshot.exitSelectionMode,
+                    }}
+                  />
+                )}
+              </div>
+
+              {!isConversationLoadFailed ? (
+                <div className="relative z-10 shrink-0 px-3 pb-3 md:px-6">
+                  <div className={cn("mx-auto w-full", chatContentWidthClassName)}>
+                    <ChatInput {...chatInputProps} />
+                  </div>
+                </div>
+              ) : null}
             </div>
 
-            {!isConversationLoadFailed ? (
-              <div className="relative z-10 shrink-0 px-3 pb-3 md:px-6">
-                <div className={cn("mx-auto w-full", chatContentWidthClassName)}>
-                  <ChatInput {...chatInputProps} />
-                </div>
+            {hasInlineArtifact ? (
+              <ChatArtifactWorkspace
+                artifact={artifactWorkspace.activeArtifact}
+                artifacts={artifactWorkspace.artifacts}
+                isInlineViewport={artifactWorkspace.isInlineViewport}
+                onArtifactChange={artifactWorkspace.selectArtifact}
+                onClose={artifactWorkspace.closeArtifact}
+                onResizeReset={artifactWorkspace.resetArtifactRatio}
+                onResizeStart={onArtifactResizeStart}
+              />
+            ) : workspaceProjectID && projectPanelOpen ? (
+              <div className={cn("relative h-full min-h-0", isMobileViewport && "static")}>
+                {/* 移动端遮罩：点击抽屉外区域关闭资源管理器。 */}
+                {isMobileViewport ? (
+                  <button
+                    type="button"
+                    aria-label="关闭资源管理器"
+                    className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                    onClick={() => setProjectPanelVisibility(false)}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  aria-label="拖动调整 IDE 宽度"
+                  // 移动端抽屉为全宽，无拖拽意义；仅桌面显示。
+                  className="absolute -left-1 top-0 z-20 hidden h-full w-2 cursor-col-resize touch-none md:block"
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    const startX = event.clientX;
+                    const startWidth = projectPanelWidth;
+                    const handle = event.currentTarget;
+                    let nextWidth = startWidth;
+                    const move = (moveEvent: PointerEvent) => {
+                      nextWidth = Math.min(720, Math.max(280, startWidth - (moveEvent.clientX - startX)));
+                      setProjectPanelWidth(nextWidth);
+                    };
+                    const stop = () => {
+                      window.localStorage.setItem(PROJECT_PANEL_WIDTH_KEY, String(nextWidth));
+                      handle.removeEventListener("pointermove", move);
+                      handle.removeEventListener("pointerup", stop);
+                      handle.removeEventListener("pointercancel", stop);
+                    };
+                    handle.addEventListener("pointermove", move);
+                    handle.addEventListener("pointerup", stop);
+                    handle.addEventListener("pointercancel", stop);
+                  }}
+                />
+                <ChatProjectWorkspace
+                  ref={projectWorkspaceRef}
+                  projectID={workspaceProjectID}
+                  messages={displayMessages}
+                  width={isMobileViewport ? 0 : projectPanelWidth}
+                  isDrawer={isMobileViewport}
+                  onClose={() => setProjectPanelVisibility(false)}
+                  activeTabPath={activeProjectTabKey}
+                  // 移动端打开文件后收起抽屉，露出聊天区的文件标签页。
+                  onOpenFile={(file) => { void openProjectFile(file); if (isMobileViewport) setProjectPanelVisibility(false); }}
+                  onOpenChange={(change) => { void openProjectChange(change); if (isMobileViewport) setProjectPanelVisibility(false); }}
+                  onNewFile={createProjectFile}
+                  onFilesDeleted={onProjectFilesDeleted}
+                />
               </div>
-            ) : null}
+            ) : (
+              <ChatArtifactWorkspace
+                artifact={artifactWorkspace.activeArtifact}
+                artifacts={artifactWorkspace.artifacts}
+                isInlineViewport={artifactWorkspace.isInlineViewport}
+                onArtifactChange={artifactWorkspace.selectArtifact}
+                onClose={artifactWorkspace.closeArtifact}
+                onResizeReset={artifactWorkspace.resetArtifactRatio}
+                onResizeStart={onArtifactResizeStart}
+              />
+            )}
           </div>
-
-          <ChatArtifactWorkspace
-            artifact={artifactWorkspace.activeArtifact}
-            artifacts={artifactWorkspace.artifacts}
-            isInlineViewport={artifactWorkspace.isInlineViewport}
-            onArtifactChange={artifactWorkspace.selectArtifact}
-            onClose={artifactWorkspace.closeArtifact}
-            onResizeReset={artifactWorkspace.resetArtifactRatio}
-            onResizeStart={onArtifactResizeStart}
-          />
-        </div>
-      )}
+        )
+      }
 
       <ChatScreenshotPreviewDialog
         open={screenshotPreviewOpen}
@@ -1491,52 +1866,54 @@ export function AppChatArea() {
         onCopy={screenshot.copyPreviewToClipboard}
       />
 
-      {canOperateConversation ? (
-        <>
-          <ConversationShareDialog
-            open={shareDialogOpen}
-            onOpenChange={setShareDialogOpen}
-            conversationPublicID={actionConversationID}
-            conversationTitle={activeConversationTitle}
-            defaultMessagePublicIDs={shareDefaultMessagePublicIDs}
-            onShareChange={(share) => {
-              touchByPublicID(actionConversationID, sharePatchFromDTO(share));
-            }}
-          />
+      {
+        canOperateConversation ? (
+          <>
+            <ConversationShareDialog
+              open={shareDialogOpen}
+              onOpenChange={setShareDialogOpen}
+              conversationPublicID={actionConversationID}
+              conversationTitle={activeConversationTitle}
+              defaultMessagePublicIDs={shareDefaultMessagePublicIDs}
+              onShareChange={(share) => {
+                touchByPublicID(actionConversationID, sharePatchFromDTO(share));
+              }}
+            />
 
-          <AlertDialog
-            open={deleteDialogOpen}
-            onOpenChange={(open) => {
-              setDeleteDialogOpen(open);
-              if (!open) {
-                setDeleteFiles(false);
-              }
-            }}
-          >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{tRecent("dialogs.deleteTitle")}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {tRecent("dialogs.deleteDescription", {
-                    label: tRecent("deleteConversationLabel", { title: activeConversationTitle }),
-                  })}
-                </AlertDialogDescription>
-                <DeleteFilesOption
-                  id={deleteFilesID}
-                  checked={deleteFiles}
-                  onCheckedChange={setDeleteFiles}
-                />
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{tRecent("dialogs.cancel")}</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" onClick={() => void onConfirmDeleteActiveConversation()}>
-                  {tRecent("dialogs.delete")}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </>
-      ) : null}
-    </div>
+            <AlertDialog
+              open={deleteDialogOpen}
+              onOpenChange={(open) => {
+                setDeleteDialogOpen(open);
+                if (!open) {
+                  setDeleteFiles(false);
+                }
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{tRecent("dialogs.deleteTitle")}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {tRecent("dialogs.deleteDescription", {
+                      label: tRecent("deleteConversationLabel", { title: activeConversationTitle }),
+                    })}
+                  </AlertDialogDescription>
+                  <DeleteFilesOption
+                    id={deleteFilesID}
+                    checked={deleteFiles}
+                    onCheckedChange={setDeleteFiles}
+                  />
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{tRecent("dialogs.cancel")}</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={() => void onConfirmDeleteActiveConversation()}>
+                    {tRecent("dialogs.delete")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        ) : null
+      }
+    </div >
   );
 }

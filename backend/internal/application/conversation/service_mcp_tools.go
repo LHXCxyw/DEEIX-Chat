@@ -33,14 +33,53 @@ type selectedAttachmentProcessor struct {
 	promptArgument string
 }
 
+func addProjectToolDefinitions(runtime *selectedToolRuntime) {
+	if runtime == nil || runtime.nameMap == nil || runtime.schemas == nil {
+		return
+	}
+	definitions := []llm.ToolDefinition{
+		{Name: "project_list_files", Description: "列出当前项目文件。需要了解项目文件树、确认文件是否存在或获取文件标识时必须调用，不得凭上下文猜测。", InputSchema: json.RawMessage(`{"type":"object","properties":{"prefix":{"type":"string","description":"可选的项目内相对路径前缀"}}}`)},
+		{Name: "project_read_file", Description: "读取当前项目文件内容。回答、分析或修改现有项目文件前必须调用；聊天上下文、记忆或代码块不能替代实际读取。", InputSchema: json.RawMessage(`{"type":"object","properties":{"file":{"type":"string","description":"文件 public_id 或项目内相对路径"}},"required":["file"]}`)},
+		{Name: "project_search_files", Description: "搜索当前项目文件的实际内容。需要定位实现、符号或文本时必须调用，不得用记忆或推测替代搜索。", InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"要搜索的非空文本"}},"required":["query"]}`)},
+		{Name: "project_write_file", Description: "创建或完整覆盖当前项目文件。用户要求创建、生成、保存或覆盖项目文件时必须调用；仅在回复中给出代码块、补丁或声称已完成不等于文件写入。路径已存在时会覆盖并递增版本。", InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"项目内相对路径，不得为绝对路径或包含上级目录穿越"},"content":{"type":"string","description":"要写入的完整文件内容"}},"required":["path","content"]}`)},
+		{Name: "project_patch_file", Description: "像 IDE 一样对已有项目文件做片段编辑：提供文件中唯一且连续的原始片段 old 与替换文本 new，或多处修改时用 patches 数组一次提交多个片段（全部成功才写入，任一 old 未命中则整体失败并提示片段序号）。用户要求编辑、修复或更新已有文件时优先使用本工具，不要用 project_write_file 重写整个文件。调用前必须实际读取目标文件，回复中的 diff 不能替代修改。", InputSchema: json.RawMessage(`{"type":"object","properties":{"file":{"type":"string","description":"文件 public_id 或项目内相对路径"},"old":{"type":"string","description":"单片段模式：文件中唯一且连续的原始文本"},"new":{"type":"string","description":"单片段模式：替换后的文本"},"patches":{"type":"array","description":"多片段模式：一次提交多处修改，全部命中才写入","items":{"type":"object","properties":{"old":{"type":"string","description":"文件中唯一且连续的原始文本"},"new":{"type":"string","description":"替换后的文本"}},"required":["old","new"]}}},"required":["file"]}`)},
+		{Name: "project_delete_file", Description: "删除当前项目文件。用户要求删除项目文件时必须调用；口头确认、空内容覆盖或建议用户自行删除均不能替代此工具。", InputSchema: json.RawMessage(`{"type":"object","properties":{"file":{"type":"string","description":"文件 public_id 或项目内相对路径"}},"required":["file"]}`)},
+		{Name: "project_create_archive", Description: "创建当前项目 ZIP 归档。归档通过界面的下载按钮交付给用户，调用成功后只需说明归档已生成；严禁输出任何下载 URL、链接或路径，直接链接因需要鉴权而无法访问。", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	}
+	for _, definition := range definitions {
+		runtime.definitions = append(runtime.definitions, definition)
+		runtime.nameMap[definition.Name] = definition.Name
+		runtime.schemas[definition.Name] = definition.InputSchema
+	}
+}
+
+func (r selectedToolRuntime) withoutProjectTools() selectedToolRuntime {
+	projectNames := map[string]struct{}{
+		"project_list_files": {}, "project_read_file": {}, "project_search_files": {},
+		"project_write_file": {}, "project_patch_file": {}, "project_delete_file": {}, "project_create_archive": {},
+	}
+	definitions := make([]llm.ToolDefinition, 0, len(r.definitions))
+	for _, definition := range r.definitions {
+		if _, ok := projectNames[definition.Name]; !ok {
+			definitions = append(definitions, definition)
+		}
+	}
+	r.definitions = definitions
+	for name := range projectNames {
+		delete(r.nameMap, name)
+		delete(r.mcpConfigs, name)
+		delete(r.schemas, name)
+	}
+	return r
+}
 func injectMCPToolGuidance(messages []llm.Message, runtime selectedToolRuntime, customPrompt string) []llm.Message {
 	if len(runtime.definitions) == 0 {
 		return messages
 	}
 
-	content := strings.TrimSpace(customPrompt)
-	if content == "" {
-		content = defaultMCPToolGuidancePrompt()
+	content := defaultMCPToolGuidancePrompt(runtime)
+	if custom := strings.TrimSpace(customPrompt); custom != "" {
+		content += "\n\n# custom_tool_use\n" + custom
 	}
 
 	insertAt := 0
@@ -54,7 +93,7 @@ func injectMCPToolGuidance(messages []llm.Message, runtime selectedToolRuntime, 
 	return next
 }
 
-func defaultMCPToolGuidancePrompt() string {
+func defaultMCPToolGuidancePrompt(runtime selectedToolRuntime) string {
 	var builder strings.Builder
 	builder.WriteString("# tool_use\n")
 	builder.WriteString("- Tools are declared separately via the API schema; follow that schema exactly.\n")
@@ -63,7 +102,22 @@ func defaultMCPToolGuidancePrompt() string {
 	builder.WriteString("- Do not repeat an identical failed call. Adjust arguments, use another tool, or answer from available evidence.\n")
 	builder.WriteString("- If tools fail or lack enough data, state the gap in the final answer.\n")
 	builder.WriteString("- Do not expose raw tool JSON, internal fields, or tool logs unless the user asks.\n")
+	if hasProjectToolDefinitions(runtime) {
+		builder.WriteString("- Project file operations are real side effects: listing, reading, searching, creating, overwriting, patching, or deleting project files MUST use the corresponding project_* tool when available.\n")
+		builder.WriteString("- Never substitute a code block, diff, explanation, memory, or claim of completion for a required project file tool call. Read an existing file before modifying it, and report success only after the tool succeeds.\n")
+		builder.WriteString("- Prefer project_patch_file with focused old/new snippets (or the patches array for multiple edits) when modifying existing files; reserve project_write_file for creating files or explicit full rewrites.\n")
+	}
 	return strings.TrimSpace(builder.String())
+}
+
+func hasProjectToolDefinitions(runtime selectedToolRuntime) bool {
+	for _, definition := range runtime.definitions {
+		switch definition.Name {
+		case "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive":
+			return true
+		}
+	}
+	return false
 }
 
 func summarizeToolInputSchema(raw json.RawMessage) string {
@@ -137,8 +191,10 @@ func schemaFieldType(prop map[string]interface{}) string {
 }
 
 func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint) (selectedToolRuntime, error) {
+	result := selectedToolRuntime{definitions: make([]llm.ToolDefinition, 0), nameMap: map[string]string{}, mcpConfigs: map[string]mcp.CallConfig{}, schemas: map[string]json.RawMessage{}}
+	addProjectToolDefinitions(&result)
 	if len(toolIDs) == 0 || !s.cfg.Snapshot().MCPEnable {
-		return selectedToolRuntime{}, nil
+		return result, nil
 	}
 	if s.mcpRepo == nil {
 		return selectedToolRuntime{}, fmt.Errorf("resolve selected MCP tools: repository unavailable")
@@ -152,13 +208,12 @@ func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint
 	}
 
 	cfg := s.cfg.Snapshot()
-	result := selectedToolRuntime{
-		definitions: make([]llm.ToolDefinition, 0, len(tools)),
-		nameMap:     map[string]string{},
-		mcpConfigs:  map[string]mcp.CallConfig{},
-		schemas:     map[string]json.RawMessage{},
+	result.definitions = make([]llm.ToolDefinition, 0, len(tools)+7)
+	addProjectToolDefinitions(&result)
+	usedNames := map[string]int{
+		"project_list_files": 1, "project_read_file": 1, "project_search_files": 1,
+		"project_write_file": 1, "project_patch_file": 1, "project_delete_file": 1, "project_create_archive": 1,
 	}
-	usedNames := map[string]int{}
 	serverCache := map[uint]*domainmcp.Server{}
 	for _, tool := range tools {
 		if tool.Status != "active" {

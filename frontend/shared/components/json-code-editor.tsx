@@ -96,6 +96,25 @@ function configureMonacoWorkers() {
           { type: "module" },
         );
       }
+      // 与项目工作区编辑器共用同一套 worker 分发，避免后安装者覆盖导致语言服务失效。
+      if (label === "typescript" || label === "javascript") {
+        return new Worker(
+          new URL("monaco-editor/esm/vs/language/typescript/ts.worker.js", import.meta.url),
+          { type: "module" },
+        );
+      }
+      if (label === "css" || label === "scss" || label === "less") {
+        return new Worker(
+          new URL("monaco-editor/esm/vs/language/css/css.worker.js", import.meta.url),
+          { type: "module" },
+        );
+      }
+      if (label === "html") {
+        return new Worker(
+          new URL("monaco-editor/esm/vs/language/html/html.worker.js", import.meta.url),
+          { type: "module" },
+        );
+      }
 
       return new Worker(
         new URL("monaco-editor/esm/vs/editor/editor.worker.js", import.meta.url),

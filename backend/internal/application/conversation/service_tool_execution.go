@@ -17,6 +17,7 @@ import (
 type executeAssistantToolCallsInput struct {
 	UserID            uint
 	ConversationID    uint
+	ProjectPublicID   string
 	MessageID         uint
 	RequestID         string
 	RunID             string
@@ -42,6 +43,15 @@ type executeAssistantToolCallsResult struct {
 type toolExecutionRecord struct {
 	row    model.ToolCall
 	result llm.ToolResult
+}
+
+func isProjectWorkspaceQueryTool(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "project_list_files", "project_read_file", "project_search_files":
+		return true
+	default:
+		return false
+	}
 }
 
 type toolExecutionSlot struct {
@@ -93,7 +103,7 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		}
 
 		mcpConfig := resolveMCPConfig(modelToolName, input.MCPConfigs)
-		if mcpConfig == nil {
+		if mcpConfig == nil && !isProjectTool(executionToolName) {
 			row.Status = "error"
 			row.ErrorJSON = toolNotEnabledForRunMessage(modelToolName)
 			slots[i] = toolExecutionSlot{
@@ -124,7 +134,7 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		}
 		row.InputJSON = normalizedInput
 
-		if input.Ledger != nil {
+		if input.Ledger != nil && !isProjectWorkspaceQueryTool(row.ToolName) {
 			if previous, ok := input.Ledger.lookup(row.ToolName, row.InputJSON); ok {
 				slot := buildRepeatedToolSlot(row, modelToolName, previous)
 				persisted := false
@@ -140,12 +150,13 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 
 		toolStartedAt := time.Now()
 		outputJSON, executeErr := s.executeToolCall(ctx, ExecuteToolInput{
-			UserID:         input.UserID,
-			ConversationID: input.ConversationID,
-			RequestID:      strings.TrimSpace(input.RequestID),
-			ToolName:       row.ToolName,
-			ArgumentsJSON:  row.InputJSON,
-			MCPConfig:      mcpConfig,
+			UserID:          input.UserID,
+			ConversationID:  input.ConversationID,
+			ProjectPublicID: strings.TrimSpace(input.ProjectPublicID),
+			RequestID:       strings.TrimSpace(input.RequestID),
+			ToolName:        row.ToolName,
+			ArgumentsJSON:   row.InputJSON,
+			MCPConfig:       mcpConfig,
 		})
 		row.LatencyMS = time.Since(toolStartedAt).Milliseconds()
 		if row.LatencyMS < 0 {

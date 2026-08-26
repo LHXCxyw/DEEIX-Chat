@@ -21,7 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion, type Transition } from "motion/react";
-import { ChevronDown, PencilLine, Star, StarOff, Trash } from "lucide-react";
+import { ChevronDown, Files, PencilLine, Star, StarOff, Trash } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
@@ -835,6 +835,17 @@ export function NavProjects() {
                                     </ProjectInlineAction>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end" className="w-max min-w-36 max-w-[calc(100vw-2rem)]">
+                                    <DropdownMenuItem
+                                      onSelect={(event) => {
+                                        event.preventDefault();
+                                        window.localStorage.setItem("deeix-chat:project-panel-open", "true");
+                                        window.dispatchEvent(new Event("deeix-chat:open-project-panel"));
+                                        startProjectConversation(project.publicID);
+                                      }}
+                                    >
+                                      <DropdownMenuItemIcon icon={Files} className="text-current" />
+                                      {t("files")}
+                                    </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onSelect={(event) => {
                                         event.preventDefault();

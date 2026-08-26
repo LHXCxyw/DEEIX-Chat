@@ -744,6 +744,9 @@ func (s *Service) BindModelUpstreamSource(ctx context.Context, modelID uint, inp
 	if err != nil {
 		return nil, err
 	}
+	if shouldBindOpenAIDualImageRoutes(modelItem.KindsJSON, protocol) {
+		return s.bindOpenAIDualImageRoutes(ctx, modelItem, upstream, upstreamModel, input)
+	}
 	if err := s.validateRouteProtocolCombination(ctx, upstream.ID, modelItem.ID, upstreamModel.ID, 0, protocol); err != nil {
 		return nil, err
 	}
@@ -769,6 +772,98 @@ func (s *Service) BindModelUpstreamSource(ctx context.Context, modelID uint, inp
 	s.InvalidateModelCatalog()
 
 	source, err := s.repo.GetModelUpstreamSourceByRouteID(ctx, modelItem.PlatformModelName, route.ID)
+	if err != nil {
+		return nil, err
+	}
+	view := toModelUpstreamSourceView(*source)
+	s.applyModelSourceCircuitStatus(ctx, &view)
+	return &view, nil
+}
+
+func shouldBindOpenAIDualImageRoutes(kindsJSON string, protocol string) bool {
+	kinds := parseKinds(kindsJSON)
+	return strings.TrimSpace(strings.ToLower(protocol)) == protocolOpenAIImageGenerations &&
+		hasModelKind(kinds, modelKindImageGen) && hasModelKind(kinds, modelKindImageEdit)
+}
+
+func (s *Service) bindOpenAIDualImageRoutes(
+	ctx context.Context,
+	modelItem *domainchannel.PlatformModel,
+	upstream *domainchannel.Upstream,
+	upstreamModel *domainchannel.UpstreamModel,
+	input BindModelUpstreamSourceInput,
+) (*ModelUpstreamSourceView, error) {
+	var generationRouteID uint
+	err := s.repo.WithinTransaction(ctx, func(txRepo repository.ChannelRepository) error {
+		sources, err := txRepo.ListModelUpstreamSourcesForUpdate(ctx, modelItem.PlatformModelName)
+		if err != nil {
+			return err
+		}
+		var binding *modelSourceBinding
+		for _, candidate := range groupModelSourceBindings(sources) {
+			if candidate.template.UpstreamID == upstream.ID && candidate.template.UpstreamModelID == upstreamModel.ID {
+				item := candidate
+				binding = &item
+				break
+			}
+		}
+
+		generation := domainchannel.PlatformModelRoute{
+			PlatformModelID:    modelItem.ID,
+			UpstreamModelID:    upstreamModel.ID,
+			Protocol:           protocolOpenAIImageGenerations,
+			Status:             normalizeStatus(input.Status),
+			Priority:           normalizePriority(input.Priority),
+			Weight:             normalizeWeight(input.Weight),
+			Source:             "manual",
+			CbFailureThreshold: normalizeNonNegative(input.CbFailureThreshold),
+			CbDurationMin:      normalizeNonNegative(input.CbDurationMin),
+			CbWindowMin:        normalizeNonNegative(input.CbWindowMin),
+		}
+		if binding != nil {
+			generation = modelSourceReplacementRoute(binding.template, protocolOpenAIImageGenerations)
+			if existing, ok := binding.sourcesByProtocol[protocolOpenAIImageGenerations]; ok {
+				generation = modelSourceReplacementRoute(existing, protocolOpenAIImageGenerations)
+			}
+		}
+		edit := generation
+		edit.Protocol = protocolOpenAIImageEdits
+		if binding != nil {
+			if existing, ok := binding.sourcesByProtocol[protocolOpenAIImageEdits]; ok {
+				edit = modelSourceReplacementRoute(existing, protocolOpenAIImageEdits)
+			}
+		}
+		var existingRouteIDs []uint
+		if binding != nil {
+			existingRouteIDs = binding.routeIDs
+		}
+		routes, err := txRepo.ReplacePlatformModelRoutes(ctx, []repository.ReplaceChannelPlatformRoutesInput{{
+			UpstreamID:       upstream.ID,
+			ExistingRouteIDs: existingRouteIDs,
+			Routes:           []domainchannel.PlatformModelRoute{generation, edit},
+		}})
+		if err != nil {
+			return err
+		}
+		for _, route := range routes {
+			if route.Protocol == protocolOpenAIImageGenerations {
+				generationRouteID = route.ID
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		if isDuplicateKeyError(err) {
+			return nil, ErrUpstreamModelConflict
+		}
+		return nil, err
+	}
+	if generationRouteID == 0 {
+		return nil, ErrUpstreamModelConflict
+	}
+	s.InvalidateModelCatalog()
+	source, err := s.repo.GetModelUpstreamSourceByRouteID(ctx, modelItem.PlatformModelName, generationRouteID)
 	if err != nil {
 		return nil, err
 	}

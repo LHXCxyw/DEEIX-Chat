@@ -196,6 +196,27 @@
     "empty": "当前 Artifact 为空，暂无法预览。",
     "security": "预览运行在隔离沙箱中，外部网络、表单、弹窗、父页面访问和存储访问均受限制。"
   },
+  "workspace": {
+    "newFile": "新建文件",
+    "newFileIn": "在 {name}/ 新建文件",
+    "openFile": "打开文件",
+    "deleteSelected": "删除选中（{count} 个文件）",
+    "expandFolder": "展开文件夹",
+    "collapseFolder": "折叠文件夹",
+    "expandAll": "全部展开",
+    "collapseAll": "全部折叠",
+    "refresh": "刷新",
+    "importZip": "导入 ZIP",
+    "downloadZip": "下载 ZIP",
+    "closeIDE": "关闭 IDE",
+    "cut": "剪切",
+    "copy": "复制",
+    "paste": "粘贴",
+    "selectAll": "全选",
+    "find": "查找",
+    "wordWrap": "自动换行",
+    "pasteHint": "浏览器已拒绝剪贴板读取权限，请在编辑器中按 Ctrl+V 粘贴"
+  },
   "messages": {
     "debugRequest": "请求",
     "debugResponse": "响应",

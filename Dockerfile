@@ -31,9 +31,7 @@ COPY packages/api-contract ./packages/api-contract
 
 WORKDIR /src/frontend
 
-# 如果你的 Next 版本支持，可以在 next.config 里开启 turbopack build filesystem cache
-RUN --mount=type=cache,id=next-cache,target=/src/frontend/.next/cache \
-    node ../scripts/sync-version.mjs frontend \
+RUN node ../scripts/sync-version.mjs frontend \
     && pnpm build
 
 

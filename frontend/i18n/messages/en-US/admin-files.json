@@ -1,8 +1,8 @@
 {
   "groups": {
     "uploadLimits": {
-      "title": "Upload limits",
-      "description": "Controls attachment count, MIME allowlist, and file size limits for chat messages."
+      "title": "File admission policy",
+      "description": "Govern attachment count, MIME types, per-file limits, and user storage quota before files enter the platform."
     },
     "extraction": {
       "title": "Content extraction",
@@ -101,8 +101,8 @@
     },
     "file": {
       "allowed_mime_types": {
-        "label": "Attachment MIME allowlist",
-        "description": "Allowed attachment MIME types. Separate multiple values with commas.",
+        "label": "Admitted MIME types",
+        "description": "Only listed attachment MIME types may enter the platform processing pipeline. Separate values with commas.",
         "placeholder": "MIME types, comma separated"
       },
       "image_max_bytes": {

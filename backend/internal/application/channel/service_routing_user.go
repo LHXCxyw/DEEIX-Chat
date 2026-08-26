@@ -30,13 +30,22 @@ func (s *Service) getUserModelRoute(ctx context.Context, input ResolveRouteInput
 		UpstreamName: upstream.Name, UpstreamOwnerUserID: upstream.OwnerUserID,
 		UpstreamOwnershipType: "user", UpstreamBillingMode: "self", PlatformModelName: userModel.Name,
 		ModelKindsJSON: userModel.KindsJSON, ModelCapabilitiesJSON: userModel.KindsJSON,
-		Protocol: userModel.Protocol, BaseURL: upstream.BaseURL, APIKeysEnc: upstream.APIKeysEnc,
+		Protocol: userModelRouteProtocol(input.TaskType, userModel.KindsJSON, userModel.Protocol), BaseURL: upstream.BaseURL, APIKeysEnc: upstream.APIKeysEnc,
 		ConnectTimeoutMS: upstream.ConnectTimeoutMS, ReadTimeoutMS: upstream.ReadTimeoutMS,
 		StreamIdleTimeoutMS: upstream.StreamIdleTimeoutMS, HeadersJSON: upstream.HeadersJSON,
 		RouteHeadersJSON: userModel.HeadersJSON, BindingCode: "user-model-" + strconv.FormatUint(uint64(userModel.ID), 10),
 		UpstreamModelName: userModel.UpstreamModelID, Weight: userModel.Weight, RoutePriority: userModel.Priority,
 	}
 	return []repository.ChannelUpstreamRouteRow{row}, nil
+}
+
+func userModelRouteProtocol(taskType string, kindsJSON string, protocol string) string {
+	if NormalizeTaskType(taskType) == TaskTypeImageEdit &&
+		protocol == protocolOpenAIImageGenerations &&
+		hasModelKind(parseKinds(kindsJSON), modelKindImageEdit) {
+		return protocolOpenAIImageEdits
+	}
+	return protocol
 }
 
 // getAvailableRoutesWithUserPriority 按用户渠道优先返回可用路由

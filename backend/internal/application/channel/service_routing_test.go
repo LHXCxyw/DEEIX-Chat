@@ -289,6 +289,22 @@ func TestRemoveCandidateUsesUpstreamModelIDInsteadOfPlatformModelName(t *testing
 	}
 }
 
+func TestUserModelRouteProtocolDerivesOpenAIImageEditsOnlyForEditTask(t *testing.T) {
+	kinds := `["image_gen","image_edit"]`
+	if got := userModelRouteProtocol(TaskTypeImageEdit, kinds, protocolOpenAIImageGenerations); got != protocolOpenAIImageEdits {
+		t.Fatalf("expected image edit protocol, got %q", got)
+	}
+	if got := userModelRouteProtocol(TaskTypeImageGeneration, kinds, protocolOpenAIImageGenerations); got != protocolOpenAIImageGenerations {
+		t.Fatalf("expected generation protocol to remain unchanged, got %q", got)
+	}
+	if got := userModelRouteProtocol(TaskTypeImageEdit, `["image_gen"]`, protocolOpenAIImageGenerations); got != protocolOpenAIImageGenerations {
+		t.Fatalf("expected protocol to remain unchanged without image_edit kind, got %q", got)
+	}
+	if got := userModelRouteProtocol(TaskTypeImageEdit, kinds, protocolGoogleImageGeneration); got != protocolGoogleImageGeneration {
+		t.Fatalf("expected non-OpenAI protocol to remain unchanged, got %q", got)
+	}
+}
+
 func TestBuildResolvedRouteSnapshotsModelIdentity(t *testing.T) {
 	route := buildResolvedRoute(repository.ChannelUpstreamRouteRow{
 		RouteID:           5,

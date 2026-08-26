@@ -48,6 +48,8 @@ type MediaImageInput struct {
 	TaskType              MediaImageTaskType
 	Prompt                string
 	PlatformModelName     string
+	ModelScope            string
+	UserModelID           uint
 	Options               map[string]interface{}
 	ClientRunID           string
 	FileIDs               []string
@@ -122,6 +124,8 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	}
 	route, err := s.routeResolver.ResolveRoute(ctx, channel.ResolveRouteInput{
 		PlatformModelName: platformModelName,
+		ModelScope:        input.ModelScope,
+		UserModelID:       input.UserModelID,
 		TaskType:          taskRouteType,
 		Scope:             channel.RouteScopeUser,
 		UserID:            input.UserID,

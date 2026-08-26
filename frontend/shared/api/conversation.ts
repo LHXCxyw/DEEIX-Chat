@@ -54,6 +54,82 @@ import type {
 } from "@/shared/api/conversation.types";
 import { ApiError, apiRequest, pathParam } from "@/shared/api/http-client";
 
+export async function uploadProjectArchive(accessToken: string, projectID: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return authedRequest(`/api/v1/conversation-projects/${pathParam(projectID)}/files/import`, { method: "POST", accessToken, body: formData }, true);
+}
+
+export async function downloadProjectArchive(accessToken: string, projectID: string): Promise<{ blob: Blob; fileName: string }> {
+  const response = await authedFetch(
+    `/api/v1/conversation-projects/${pathParam(projectID)}/archive`,
+    { method: "GET", accessToken, cache: "no-store" },
+    true,
+  );
+  const blob = await response.blob();
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `project-${projectID}.zip`;
+  return { blob, fileName };
+}
+
+export type ProjectWorkspaceFileDTO = {
+  PublicID: string;
+  RelativePath: string;
+  FileName: string;
+  EntryType: string;
+  SizeBytes: number;
+  MimeType: string;
+};
+
+export type ProjectWorkspaceViewDTO = {
+  Workspace: { PublicID: string; StorageBytes: number; FileCount: number };
+  Files: ProjectWorkspaceFileDTO[];
+};
+
+export async function getProjectWorkspace(accessToken: string, projectID: string): Promise<ProjectWorkspaceViewDTO> {
+  return authedRequest<ProjectWorkspaceViewDTO>(`/api/v1/conversation-projects/${pathParam(projectID)}/workspace`, { method: "GET", accessToken }, true);
+}
+
+export async function fetchProjectFileContent(accessToken: string, projectID: string, fileID: string): Promise<string> {
+  const response = await authedFetch(
+    `/api/v1/conversation-projects/${pathParam(projectID)}/files/${pathParam(fileID)}/content`,
+    { method: "GET", accessToken, cache: "no-store" },
+    true,
+  );
+  return response.text();
+}
+
+// 按原始字节读取项目文件（图片/字体等二进制资源，用于 HTML 预览内联）。
+export async function fetchProjectFileBlob(accessToken: string, projectID: string, fileID: string): Promise<Blob> {
+  const response = await authedFetch(
+    `/api/v1/conversation-projects/${pathParam(projectID)}/files/${pathParam(fileID)}/content`,
+    { method: "GET", accessToken, cache: "no-store" },
+    true,
+  );
+  return response.blob();
+}
+
+export async function saveProjectFile(
+  accessToken: string,
+  projectID: string,
+  path: string,
+  content: string,
+): Promise<ProjectWorkspaceFileDTO> {
+  return authedRequest<ProjectWorkspaceFileDTO>(
+    `/api/v1/conversation-projects/${pathParam(projectID)}/files`,
+    { method: "PUT", accessToken, body: JSON.stringify({ path, content }) },
+    true,
+  );
+}
+
+export async function deleteProjectFile(accessToken: string, projectID: string, fileID: string): Promise<void> {
+  await authedRequest(
+    `/api/v1/conversation-projects/${pathParam(projectID)}/files/${pathParam(fileID)}`,
+    { method: "DELETE", accessToken },
+    true,
+  );
+}
+
 type RawTraceBlock = MessageTraceBlockResponse;
 
 type RawProcessTrace = Omit<

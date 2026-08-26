@@ -1,16 +1,26 @@
 package conversation
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"path"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
 	appskill "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/skill"
+	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainknowledgebase "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/knowledgebase"
 	domainmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/mcp"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/objectstore"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/google/uuid"
 )
@@ -84,6 +94,353 @@ func (s *Service) CreateConversationProject(ctx context.Context, userID uint, in
 		return nil, err
 	}
 	return item, nil
+}
+
+const (
+	maxProjectArchiveBytes      = 100 << 20
+	maxProjectArchiveFiles      = 2000
+	maxProjectArchiveFileBytes  = 20 << 20
+	maxProjectArchiveTotalBytes = 200 << 20
+)
+
+// ProjectWorkspaceView 返回当前用户项目工作区及文件列表。
+type ProjectWorkspaceView struct {
+	Workspace model.ProjectWorkspace
+	Files     []model.ProjectFile
+}
+
+// ProjectArchiveInput 定义项目 ZIP 导入请求。
+type ProjectArchiveInput struct {
+	UserID          uint
+	ProjectPublicID string
+	ArchiveName     string
+	Reader          io.Reader
+}
+
+// ProjectArchiveResult 返回导入任务及文件统计。
+type ProjectArchiveResult struct {
+	Import     model.ProjectImport
+	FileCount  int
+	TotalBytes int64
+}
+
+// GetProjectWorkspace 按 user+project 授权读取项目工作区。
+func (s *Service) GetProjectWorkspace(ctx context.Context, userID uint, projectPublicID string) (*ProjectWorkspaceView, error) {
+	project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, strings.TrimSpace(projectPublicID))
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationProjectNotFound
+		}
+		return nil, err
+	}
+	workspace, err := s.repo.GetOrCreateProjectWorkspace(ctx, userID, project.ID, normalizePublicID(uuid.NewString()))
+	if err != nil {
+		return nil, err
+	}
+	files, err := s.repo.ListProjectFiles(ctx, userID, workspace.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectWorkspaceView{Workspace: *workspace, Files: files}, nil
+}
+
+// OpenProjectFileContent 按 user+project+file 三重边界读取项目文件。
+func (s *Service) OpenProjectFileContent(ctx context.Context, userID uint, projectPublicID string, filePublicID string) (*appupload.FileContentResult, error) {
+	project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, strings.TrimSpace(projectPublicID))
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationProjectNotFound
+		}
+		return nil, err
+	}
+	workspace, err := s.repo.GetProjectWorkspaceByProject(ctx, userID, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	file, err := s.repo.GetProjectFile(ctx, userID, workspace.ID, strings.TrimSpace(filePublicID))
+	if err != nil {
+		return nil, err
+	}
+	store, err := s.storeProvider.Open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reader, info, err := store.Open(ctx, file.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+	return &appupload.FileContentResult{File: model.FileObject{FileID: file.PublicID, FileName: file.FileName, MimeType: file.MimeType, SizeBytes: file.SizeBytes}, Reader: reader, ContentType: info.ContentType, SizeBytes: info.SizeBytes, ModTime: info.ModTime}, nil
+}
+
+// ArchiveProjectFiles 流式写出当前用户项目文件 ZIP，目录条目不读取对象存储。
+func (s *Service) ArchiveProjectFiles(ctx context.Context, userID uint, projectPublicID string, writer io.Writer) error {
+	project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, strings.TrimSpace(projectPublicID))
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrConversationProjectNotFound
+		}
+		return err
+	}
+	workspace, err := s.repo.GetProjectWorkspaceByProject(ctx, userID, project.ID)
+	if err != nil {
+		return err
+	}
+	files, err := s.repo.ListProjectFiles(ctx, userID, workspace.ID)
+	if err != nil {
+		return err
+	}
+	store, err := s.storeProvider.Open(ctx)
+	if err != nil {
+		return err
+	}
+	archive := zip.NewWriter(writer)
+	defer archive.Close()
+	for _, file := range files {
+		if file.EntryType != model.ProjectFileEntryTypeFile {
+			continue
+		}
+		entry, err := archive.CreateHeader(&zip.FileHeader{Name: file.RelativePath, Method: zip.Deflate})
+		if err != nil {
+			return err
+		}
+		reader, _, err := store.Open(ctx, file.StorageKey)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(entry, reader)
+		closeErr := reader.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return nil
+}
+
+// ImportProjectArchive 解压 ZIP 到项目工作区，所有路径、对象键和数据库写入均绑定 user+project。
+func (s *Service) ImportProjectArchive(ctx context.Context, input ProjectArchiveInput) (*ProjectArchiveResult, error) {
+	project, err := s.repo.GetConversationProjectByPublicID(ctx, input.UserID, strings.TrimSpace(input.ProjectPublicID))
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationProjectNotFound
+		}
+		return nil, err
+	}
+	workspace, err := s.repo.GetOrCreateProjectWorkspace(ctx, input.UserID, project.ID, normalizePublicID(uuid.NewString()))
+	if err != nil {
+		return nil, err
+	}
+	if input.Reader == nil {
+		return nil, ErrInvalidFileReference
+	}
+	data, err := io.ReadAll(io.LimitReader(input.Reader, maxProjectArchiveBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxProjectArchiveBytes {
+		return nil, ErrFileTooLarge
+	}
+	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid project archive: %w", err)
+	}
+	job := model.ProjectImport{PublicID: normalizePublicID(uuid.NewString()), OwnerUserID: input.UserID, ProjectID: workspace.ID, Status: "processing", ArchiveName: strings.TrimSpace(input.ArchiveName)}
+	if err = s.repo.CreateProjectImport(ctx, &job); err != nil {
+		return nil, err
+	}
+	store, err := s.storeProvider.Open(ctx)
+	if err != nil {
+		_ = s.repo.FailProjectImport(ctx, input.UserID, workspace.ID, job.ID, "storage_unavailable", "storage unavailable")
+		return nil, err
+	}
+	files := make([]model.ProjectFile, 0, min(len(archive.File), maxProjectArchiveFiles))
+	var total int64
+	for _, entry := range archive.File {
+		if len(files) >= maxProjectArchiveFiles {
+			_ = s.repo.FailProjectImport(ctx, input.UserID, workspace.ID, job.ID, "too_many_files", "too many files")
+			return nil, ErrFileTooLarge
+		}
+		relative := path.Clean(strings.ReplaceAll(entry.Name, "\\", "/"))
+		if relative == "." || strings.HasPrefix(relative, "../") || strings.HasPrefix(relative, "/") {
+			_ = s.repo.FailProjectImport(ctx, input.UserID, workspace.ID, job.ID, "invalid_path", "invalid archive path")
+			return nil, ErrInvalidFileReference
+		}
+		if entry.FileInfo().IsDir() {
+			continue
+		}
+		if entry.UncompressedSize64 > maxProjectArchiveFileBytes || total+int64(entry.UncompressedSize64) > maxProjectArchiveTotalBytes {
+			_ = s.repo.FailProjectImport(ctx, input.UserID, workspace.ID, job.ID, "archive_too_large", "expanded archive too large")
+			return nil, ErrFileTooLarge
+		}
+		reader, openErr := entry.Open()
+		if openErr != nil {
+			return nil, openErr
+		}
+		limited := io.LimitReader(reader, maxProjectArchiveFileBytes+1)
+		key := fmt.Sprintf("project/%d/%d/%s", input.UserID, workspace.ID, uuid.NewString()+"/"+relative)
+		info, putErr := store.Put(ctx, key, limited, objectstore.PutOptions{SizeBytes: int64(entry.UncompressedSize64), ContentType: mime.TypeByExtension(path.Ext(relative))})
+		_ = reader.Close()
+		if putErr != nil {
+			return nil, putErr
+		}
+		name := path.Base(relative)
+		files = append(files, model.ProjectFile{PublicID: normalizePublicID(uuid.NewString()), OwnerUserID: input.UserID, ProjectID: workspace.ID, RelativePath: relative, FileName: name, EntryType: model.ProjectFileEntryTypeFile, StorageKey: info.Key, MimeType: info.ContentType, SizeBytes: info.SizeBytes, Version: 1})
+		total += info.SizeBytes
+	}
+	if err = s.repo.CompleteProjectImport(ctx, input.UserID, workspace.ID, job.ID, files, len(files), total); err != nil {
+		return nil, err
+	}
+	return &ProjectArchiveResult{Import: job, FileCount: len(files), TotalBytes: total}, nil
+}
+
+// ListProjectFiles 列出当前用户项目工作区文件。
+func (s *Service) ListProjectFiles(ctx context.Context, userID uint, projectPublicID string) ([]model.ProjectFile, error) {
+	project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, strings.TrimSpace(projectPublicID))
+	if err != nil {
+		return nil, err
+	}
+	workspace, err := s.repo.GetProjectWorkspaceByProject(ctx, userID, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListProjectFiles(ctx, userID, workspace.ID)
+}
+
+// WriteProjectFile 在当前用户项目中创建文件，路径已存在时覆盖内容并递增版本。
+func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPublicID string, relativePath string, content []byte) (*model.ProjectFile, error) {
+	relative, err := normalizeProjectFilePath(relativePath)
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > maxProjectArchiveFileBytes {
+		return nil, ErrFileTooLarge
+	}
+	project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, strings.TrimSpace(projectPublicID))
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationProjectNotFound
+		}
+		return nil, err
+	}
+	workspace, err := s.repo.GetOrCreateProjectWorkspace(ctx, userID, project.ID, normalizePublicID(uuid.NewString()))
+	if err != nil {
+		return nil, err
+	}
+	files, err := s.repo.ListProjectFiles(ctx, userID, workspace.ID)
+	if err != nil {
+		return nil, err
+	}
+	var existing *model.ProjectFile
+	for i := range files {
+		if files[i].RelativePath == relative {
+			existing = &files[i]
+			break
+		}
+	}
+	if existing != nil && existing.EntryType != model.ProjectFileEntryTypeFile {
+		return nil, ErrInvalidFileReference
+	}
+	store, err := s.storeProvider.Open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(content)
+	key := fmt.Sprintf("project/%d/%d/%s/%s", userID, workspace.ID, uuid.NewString(), relative)
+	info, err := store.Put(ctx, key, bytes.NewReader(content), objectstore.PutOptions{SizeBytes: int64(len(content)), ContentType: mime.TypeByExtension(path.Ext(relative))})
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		updated, updateErr := s.repo.UpdateProjectFile(ctx, userID, workspace.ID, existing.PublicID, info.Key, info.ContentType, info.SizeBytes, hex.EncodeToString(digest[:]), existing.Version+1)
+		if updateErr != nil {
+			_ = store.Delete(ctx, info.Key)
+			return nil, updateErr
+		}
+		if updateErr = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, info.SizeBytes-existing.SizeBytes, 0); updateErr != nil {
+			return nil, updateErr
+		}
+		_ = store.Delete(ctx, existing.StorageKey)
+		return updated, nil
+	}
+	// 创建前清理同路径的软删除残留行，避免 (project_id, relative_path) 唯一索引冲突。
+	if err = s.repo.PurgeProjectFileByPath(ctx, userID, workspace.ID, relative); err != nil {
+		return nil, err
+	}
+	item := &model.ProjectFile{PublicID: normalizePublicID(uuid.NewString()), OwnerUserID: userID, ProjectID: workspace.ID, RelativePath: relative, FileName: path.Base(relative), EntryType: model.ProjectFileEntryTypeFile, StorageKey: info.Key, MimeType: info.ContentType, SizeBytes: info.SizeBytes, SHA256: hex.EncodeToString(digest[:]), Version: 1}
+	if err = s.repo.CreateProjectFile(ctx, item); err != nil {
+		if !errors.Is(err, repository.ErrDuplicate) {
+			_ = store.Delete(ctx, info.Key)
+			return nil, err
+		}
+		// 并发写入竞争唯一索引：回读活动记录并按覆盖更新处理。
+		latest, listErr := s.repo.ListProjectFiles(ctx, userID, workspace.ID)
+		if listErr != nil {
+			_ = store.Delete(ctx, info.Key)
+			return nil, err
+		}
+		var raced *model.ProjectFile
+		for i := range latest {
+			if latest[i].RelativePath == relative {
+				raced = &latest[i]
+				break
+			}
+		}
+		if raced == nil {
+			_ = store.Delete(ctx, info.Key)
+			return nil, err
+		}
+		updated, updateErr := s.repo.UpdateProjectFile(ctx, userID, workspace.ID, raced.PublicID, info.Key, info.ContentType, info.SizeBytes, hex.EncodeToString(digest[:]), raced.Version+1)
+		if updateErr != nil {
+			_ = store.Delete(ctx, info.Key)
+			return nil, updateErr
+		}
+		if updateErr = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, info.SizeBytes-raced.SizeBytes, 0); updateErr != nil {
+			return nil, updateErr
+		}
+		_ = store.Delete(ctx, raced.StorageKey)
+		return updated, nil
+	}
+	if err = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, info.SizeBytes, 1); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// DeleteProjectFile 按 user+project+file 三重边界删除项目文件。
+func (s *Service) DeleteProjectFile(ctx context.Context, userID uint, projectPublicID string, filePublicID string) (*model.ProjectFile, error) {
+	project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, strings.TrimSpace(projectPublicID))
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationProjectNotFound
+		}
+		return nil, err
+	}
+	workspace, err := s.repo.GetProjectWorkspaceByProject(ctx, userID, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	deleted, err := s.repo.DeleteProjectFile(ctx, userID, workspace.ID, strings.TrimSpace(filePublicID))
+	if err != nil {
+		return nil, err
+	}
+	store, storeErr := s.storeProvider.Open(ctx)
+	if storeErr == nil && deleted.StorageKey != "" {
+		_ = store.Delete(ctx, deleted.StorageKey)
+	}
+	if err = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, -deleted.SizeBytes, -1); err != nil {
+		return nil, err
+	}
+	return deleted, nil
+}
+
+func normalizeProjectFilePath(value string) (string, error) {
+	relative := path.Clean(strings.ReplaceAll(strings.TrimSpace(value), "\\", "/"))
+	if relative == "." || strings.HasPrefix(relative, "../") || strings.HasPrefix(relative, "/") {
+		return "", ErrInvalidFileReference
+	}
+	return relative, nil
 }
 
 // ListConversationProjects 查询当前用户项目分组。

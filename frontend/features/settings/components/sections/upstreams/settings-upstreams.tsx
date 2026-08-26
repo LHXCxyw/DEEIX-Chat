@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Server, Route, Pencil, PlugZap } from "lucide-react";
+import { Bot, Plus, Trash2, Server, Route, Pencil, PlugZap, Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { getUserSettings, patchUserSettings } from "@/shared/api/user-settings";
 import { COMPATIBLE_PRESETS } from "@/shared/lib/llm-presets";
 import {
   listUserUpstreams,
@@ -72,6 +73,20 @@ const EMPTY_UPSTREAM_FORM: UpstreamForm = {
   headers: "",
 };
 
+type RetrievalForm = {
+  embeddingModel: string;
+  ragEnabled: boolean;
+  topK: string;
+  similarityThreshold: string;
+};
+
+const EMPTY_RETRIEVAL_FORM: RetrievalForm = {
+  embeddingModel: "",
+  ragEnabled: false,
+  topK: "6",
+  similarityThreshold: "0.3",
+};
+
 function resolveErrorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -94,6 +109,9 @@ function parseHeaders(raw: string): Record<string, string> | undefined {
 export function SettingsUpstreams() {
   const [items, setItems] = React.useState<UserUpstreamDTO[]>([]);
   const [models, setModels] = React.useState<UserModelDTO[]>([]);
+  const [retrievalForm, setRetrievalForm] = React.useState<RetrievalForm>(EMPTY_RETRIEVAL_FORM);
+  const [retrievalSaved, setRetrievalSaved] = React.useState<RetrievalForm>(EMPTY_RETRIEVAL_FORM);
+  const [savingRetrieval, setSavingRetrieval] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [disabled, setDisabled] = React.useState(false);
   const [testingID, setTestingID] = React.useState<number | null>(null);
@@ -113,10 +131,21 @@ export function SettingsUpstreams() {
     setLoading(true);
     try {
       const accessToken = await resolveAccessToken();
-      const [upstreams, userModels] = await Promise.all([
+      const [upstreams, userModels, userSettings] = await Promise.all([
         listUserUpstreams(accessToken),
         listUserModels(accessToken),
+        getUserSettings(accessToken),
       ]);
+      const storedRetrieval = typeof window === "undefined" ? null : window.localStorage.getItem("deeix.user.rag.config");
+      const parsedRetrieval = storedRetrieval ? JSON.parse(storedRetrieval) as Partial<RetrievalForm> : {};
+      const nextRetrieval = {
+        embeddingModel: parsedRetrieval.embeddingModel ?? "",
+        ragEnabled: parsedRetrieval.ragEnabled ?? userSettings["chat.file_mode"] === "rag",
+        topK: parsedRetrieval.topK ?? "6",
+        similarityThreshold: parsedRetrieval.similarityThreshold ?? "0.3",
+      };
+      setRetrievalForm(nextRetrieval);
+      setRetrievalSaved(nextRetrieval);
       setItems(upstreams);
       setModels(userModels);
       setDisabled(false);
@@ -257,6 +286,36 @@ export function SettingsUpstreams() {
     setModelsDialogOpen(true);
   }
 
+  async function handleSaveRetrieval() {
+    if (!retrievalForm.embeddingModel.trim()) {
+      toast.error("请填写向量模型名称");
+      return;
+    }
+    setSavingRetrieval(true);
+    try {
+      const accessToken = await resolveAccessToken();
+      await patchUserSettings(accessToken, {
+        "chat.file_mode": retrievalForm.ragEnabled ? "rag" : "auto",
+      });
+      const next = {
+        ...retrievalForm,
+        embeddingModel: retrievalForm.embeddingModel.trim(),
+      };
+      window.localStorage.setItem("deeix.user.rag.config", JSON.stringify(next));
+      setRetrievalForm(next);
+      setRetrievalSaved(next);
+      toast.success("向量模型与 RAG 配置已保存");
+    } catch (error) {
+      toast.error(resolveErrorText(error, "保存 RAG 配置失败"));
+    } finally {
+      setSavingRetrieval(false);
+    }
+  }
+
+  function updateRetrieval<K extends keyof RetrievalForm>(key: K, value: RetrievalForm[K]) {
+    setRetrievalForm((current) => ({ ...current, [key]: value }));
+  }
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -276,23 +335,60 @@ export function SettingsUpstreams() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold">我的渠道与模型</h2>
-          <p className="text-sm text-muted-foreground">渠道与模型仅对你自己生效，不会进入平台全局模型目录</p>
-        </div>
-        <Button size="sm" onClick={openCreateUpstream}>
-          <Plus className="mr-1.5 size-4" />
-          添加渠道
-        </Button>
-      </div>
+        <section className="rounded-lg border p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <Bot className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <div>
+                <h2 className="text-sm font-semibold">向量模型与 RAG</h2>
+                <p className="mt-1 text-xs text-muted-foreground">为你的渠道配置个人向量模型与检索参数，仅对个人空间生效。</p>
+              </div>
+            </div>
+            {JSON.stringify(retrievalForm) !== JSON.stringify(retrievalSaved) ? (
+              <Button size="sm" disabled={savingRetrieval} onClick={() => void handleSaveRetrieval()}>
+                <Save className="mr-1.5 size-3.5" />
+                {savingRetrieval ? "保存中" : "保存"}
+              </Button>
+            ) : null}
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="user-rag-embedding-model">向量模型</Label>
+              <Input id="user-rag-embedding-model" placeholder="例如 text-embedding-3-small" value={retrievalForm.embeddingModel} onChange={(event) => updateRetrieval("embeddingModel", event.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="user-rag-top-k">召回片段数</Label>
+              <Input id="user-rag-top-k" type="number" min={1} max={50} value={retrievalForm.topK} onChange={(event) => updateRetrieval("topK", event.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="user-rag-threshold">相似度阈值</Label>
+              <Input id="user-rag-threshold" type="number" min={0} max={1} step={0.05} value={retrievalForm.similarityThreshold} onChange={(event) => updateRetrieval("similarityThreshold", event.target.value)} />
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between rounded-md bg-muted/30 px-3 py-2">
+            <div><p className="text-xs font-medium">启用个人 RAG</p><p className="text-[11px] text-muted-foreground">使用个人文件库进行语义检索。</p></div>
+            <Switch checked={retrievalForm.ragEnabled} onCheckedChange={(checked) => updateRetrieval("ragEnabled", checked)} />
+          </div>
+        </section>
 
-      {items.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          还没有添加任何渠道
-        </div>
-      ) : (
-        <ul className="space-y-2.5">
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold">我的渠道与模型</h2>
+              <p className="text-sm text-muted-foreground">渠道与模型仅对你自己生效，不会进入平台全局模型目录</p>
+            </div>
+            <Button size="sm" onClick={openCreateUpstream}>
+              <Plus className="mr-1.5 size-4" />
+              添加渠道
+            </Button>
+          </div>
+
+          {items.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+              还没有添加任何渠道
+            </div>
+          ) : (
+            <ul className="space-y-2.5">
           {items.map((item) => {
             const upstreamModels = models.filter((model) => model.upstreamId === item.id);
             const activeCount = upstreamModels.filter((model) => model.status === "active").length;
@@ -355,8 +451,9 @@ export function SettingsUpstreams() {
               </li>
             );
           })}
-        </ul>
-      )}
+            </ul>
+          )}
+        </section>
 
       <Dialog open={upstreamDialogOpen} onOpenChange={setUpstreamDialogOpen}>
         <DialogContent className="sm:max-w-[520px]">

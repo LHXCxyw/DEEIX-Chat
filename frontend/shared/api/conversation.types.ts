@@ -10,8 +10,6 @@ import type {
   ReorderConversationProjectsRequest as ContractReorderConversationProjectsRequest,
   RevokeConversationSharesRequest as ContractRevokeConversationSharesRequest,
   SendMessageRequest as ContractSendMessageRequest,
-  TemporaryChatHistoryMessage as ContractTemporaryChatHistoryMessage,
-  TemporaryChatMessageRequest as ContractTemporaryChatMessageRequest,
   SetConversationArchiveRequest as ContractSetConversationArchiveRequest,
   SetConversationProjectRequest as ContractSetConversationProjectRequest,
   SetConversationStarRequest as ContractSetConversationStarRequest,
@@ -214,6 +212,8 @@ export type SendMessageRequest = Omit<ContractSendMessageRequest, "options"> & {
 export type MediaImageRequest = {
   prompt: string;
   model?: string;
+  modelScope?: "platform" | "user";
+  userModelID?: number;
   options?: ConversationOptions;
   clientRunID?: string;
   fileIDs?: string[];
@@ -244,13 +244,21 @@ export type SendMessageResult = Omit<SendMessageResponse, "assistantMessage" | "
   metadataRefreshHint?: "pending" | "not_needed" | "skipped_no_titleable_content" | string;
 };
 
-export type TemporaryChatHistoryMessage = Omit<ContractTemporaryChatHistoryMessage, "role"> & {
+export type TemporaryChatHistoryMessage = {
+  content: string;
   role: "user" | "assistant";
 };
 
-export type TemporaryChatMessageRequest = Omit<ContractTemporaryChatMessageRequest, "messages" | "options"> & {
-  options?: ConversationOptions;
+export type TemporaryChatMessageRequest = {
+  clientRunID: string;
+  htmlVisualPrompt?: boolean;
+  knowledgeBaseIDs?: string[];
   messages: TemporaryChatHistoryMessage[];
+  model: string;
+  options?: ConversationOptions;
+  selectedToolIDs?: number[];
+  sessionID: string;
+  skillIDs?: number[];
 };
 
 export type StreamMessageEvent =

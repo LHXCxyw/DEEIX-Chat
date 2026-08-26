@@ -458,6 +458,18 @@ type UserModelRepository interface {
 	DeleteUserModel(ctx context.Context, userID, modelID uint) error
 }
 
+// UserRAGRepository 定义用户 Embedding Profile 与用户/项目 RAG 配置持久化能力。
+type UserRAGRepository interface {
+	ListUserEmbeddingProfiles(ctx context.Context, userID uint) ([]domainchannel.UserEmbeddingProfile, error)
+	GetUserEmbeddingProfile(ctx context.Context, userID, profileID uint) (*domainchannel.UserEmbeddingProfile, error)
+	SaveUserEmbeddingProfile(ctx context.Context, item *domainchannel.UserEmbeddingProfile) error
+	DeleteUserEmbeddingProfile(ctx context.Context, userID, profileID uint) error
+	GetUserRAGSettings(ctx context.Context, userID uint) (*domainchannel.RAGSettings, error)
+	SaveUserRAGSettings(ctx context.Context, item *domainchannel.RAGSettings) error
+	GetProjectRAGSettings(ctx context.Context, userID uint, projectPublicID string) (*domainchannel.RAGSettings, error)
+	SaveProjectRAGSettings(ctx context.Context, userID uint, projectPublicID string, item *domainchannel.RAGSettings) error
+}
+
 // ChannelRepository 定义渠道管理依赖的仓储能力。
 type ChannelRepository interface {
 	WithinTransaction(ctx context.Context, fn func(ChannelRepository) error) error

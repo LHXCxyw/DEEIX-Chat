@@ -196,6 +196,27 @@
     "empty": "This artifact is empty and cannot be previewed yet.",
     "security": "The preview runs in an isolated sandbox with external network, forms, popups, parent page access, and storage access restricted."
   },
+  "workspace": {
+    "newFile": "New file",
+    "newFileIn": "New file in {name}/",
+    "openFile": "Open file",
+    "deleteSelected": "Delete selected ({count} files)",
+    "expandFolder": "Expand folder",
+    "collapseFolder": "Collapse folder",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "refresh": "Refresh",
+    "importZip": "Import ZIP",
+    "downloadZip": "Download ZIP",
+    "closeIDE": "Close IDE",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selectAll": "Select all",
+    "find": "Find",
+    "wordWrap": "Word wrap",
+    "pasteHint": "Clipboard read was blocked by the browser; press Ctrl+V in the editor to paste"
+  },
   "messages": {
     "debugRequest": "Request",
     "debugResponse": "Response",

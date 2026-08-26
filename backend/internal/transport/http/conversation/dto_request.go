@@ -7,6 +7,12 @@ type CreateConversationRequest struct {
 	ProjectID string `json:"projectID,omitempty" binding:"omitempty,max=32"`
 }
 
+// WriteProjectFileRequest 手动创建或覆盖项目文件请求。
+type WriteProjectFileRequest struct {
+	Path    string `json:"path" binding:"required,max=1024"`
+	Content string `json:"content" binding:"max=20971520"`
+}
+
 // CreateConversationProjectRequest 创建会话项目请求。
 type CreateConversationProjectRequest struct {
 	Name                    string   `json:"name" binding:"required,max=80"`
@@ -134,6 +140,8 @@ type TemporaryChatHistoryMessage struct {
 type MediaImageRequest struct {
 	Prompt                string                 `json:"prompt" binding:"required"`
 	Model                 string                 `json:"model,omitempty" binding:"omitempty,max=128"`
+	ModelScope            string                 `json:"modelScope,omitempty" binding:"omitempty,oneof=platform user"`
+	UserModelID           uint                   `json:"userModelID,omitempty"`
 	Options               map[string]interface{} `json:"options,omitempty"`
 	ClientRunID           string                 `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
 	FileIDs               []string               `json:"fileIDs,omitempty" binding:"max=20"`

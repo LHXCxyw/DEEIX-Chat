@@ -24,6 +24,9 @@ func Models() []interface{} {
 		&model.LLMUpstream{},
 		&model.LLMUpstreamModel{},
 		&model.LLMUserModel{},
+		&model.UserEmbeddingProfile{},
+		&model.UserRAGSetting{},
+		&model.ProjectRAGSetting{},
 		&model.LLMModelVendor{},
 		&model.LLMModelDisplayGroup{},
 		&model.LLMModelIconAsset{},
@@ -33,6 +36,9 @@ func Models() []interface{} {
 		&model.MCPTool{},
 		&model.Conversation{},
 		&model.ConversationProject{},
+		&model.ProjectWorkspace{},
+		&model.ProjectFile{},
+		&model.ProjectImport{},
 		&model.ConversationShare{},
 		&model.Message{},
 		&model.ConversationMessageFeedback{},
@@ -130,6 +136,9 @@ func Migrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(Models()...); err != nil {
 		return err
 	}
+	if err := dropLegacyProjectWorkspaceOwnerPublicIndex(db); err != nil {
+		return err
+	}
 	if err := invalidateUnsignedFileEmbeddings(db); err != nil {
 		return err
 	}
@@ -137,6 +146,19 @@ func Migrate(db *gorm.DB) error {
 		return err
 	}
 	return backfillUsageLedgerBillingAt(db)
+}
+
+// dropLegacyProjectWorkspaceOwnerPublicIndex 删除历史版本的错误单列唯一索引。
+// 该索引因复合定义不完整只覆盖 owner_user_id，会限制每个用户仅能创建一个项目工作区。
+func dropLegacyProjectWorkspaceOwnerPublicIndex(db *gorm.DB) error {
+	migrator := db.Migrator()
+	if !migrator.HasTable(&model.ProjectWorkspace{}) {
+		return nil
+	}
+	if !migrator.HasIndex(&model.ProjectWorkspace{}, "idx_project_workspaces_owner_public") {
+		return nil
+	}
+	return migrator.DropIndex(&model.ProjectWorkspace{}, "idx_project_workspaces_owner_public")
 }
 
 // invalidateUnsignedFileEmbeddings makes legacy vectors enter the existing reindex flow.

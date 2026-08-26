@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, CircleAlert, Film, GalleryHorizontalEnd } from "lucide-react";
+import { ChevronDown, CircleAlert, FileCode2, FileDiff, Film, FolderArchive, GalleryHorizontalEnd, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { GrainientBackground } from "@/components/reactbits/backgrounds/grainient";
@@ -33,6 +33,7 @@ import type {
   ChatInlineAlert,
   MessageAttachment,
 } from "@/features/chat/types/messages";
+import { projectChanges, type ProjectChange } from "@/features/chat/components/sections/chat-project-workspace";
 import { isUpstreamStreamingDebugBody, summarizeUpstreamError } from "@/features/chat/utils/chat-runtime";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cn } from "@/lib/utils";
@@ -159,6 +160,7 @@ type ChatMessageBotProps = {
   attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onExtendVideoAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
+  onOpenProjectChange?: (change: ProjectChange) => void;
   artifactActions?: MarkdownArtifactActions;
   showBranchNavigator?: boolean;
   contentWidthClassName?: string;
@@ -190,6 +192,7 @@ export function ChatMessageBot({
   attachmentContentLoader,
   onEditImageAttachment,
   onExtendVideoAttachment,
+  onOpenProjectChange,
   artifactActions,
   showBranchNavigator = true,
   contentWidthClassName = "max-w-[1080px]",
@@ -322,6 +325,7 @@ export function ChatMessageBot({
     readOnly,
   ]);
   const processAutoCollapseReady = Boolean(hasTraceBlocks || hasStreamdownContent || item.inlineAlert);
+  const changes = React.useMemo(() => projectChanges([item]), [item]);
 
   if (!readOnly && isEditing) {
     const nextContent = editingValue.trim();
@@ -416,6 +420,22 @@ export function ChatMessageBot({
           <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{item.content}</p>
         ) : null}
       </div>
+
+      {changes.length > 0 && onOpenProjectChange ? (
+        <div className="my-3 w-full max-w-[34rem] space-y-1.5 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+          <div className="flex items-center gap-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <FileDiff className="size-3.5" />
+            <span>Project changes</span>
+          </div>
+          {changes.map((change) => (
+            <button key={change.key} type="button" onClick={() => onOpenProjectChange(change)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted">
+              {change.name === "project_delete_file" ? <Trash2 className="size-3.5 text-destructive" /> : change.name === "project_create_archive" ? <FolderArchive className="size-3.5 text-muted-foreground" /> : <FileCode2 className="size-3.5 text-muted-foreground" />}
+              <span className="min-w-0 flex-1 truncate">{change.name === "project_create_archive" ? "项目 ZIP 归档 · 点击下载" : change.path}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">{change.name === "project_create_archive" ? "archive" : change.parts && change.parts.length > 1 ? `${change.parts.length} 次修改` : change.name.replace("project_", "")}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {inlineVideoAttachment ? (
         <MessageInlineVideoPreview

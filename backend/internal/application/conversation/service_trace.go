@@ -48,7 +48,7 @@ const (
 
 const (
 	toolTracePreviewMaxChars = 260
-	toolTraceDetailMaxChars  = 4096
+	toolTraceDetailMaxChars  = 32768
 	maxTracePayloadBytes     = 1024 * 1024
 )
 

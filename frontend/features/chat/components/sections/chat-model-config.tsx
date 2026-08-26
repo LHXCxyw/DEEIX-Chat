@@ -19,12 +19,20 @@ import {
 import { Input } from "@/components/ui/input";
 import { InputGroupButton } from "@/components/ui/input-group";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -83,6 +91,8 @@ type ChatModelConfigProps = {
   modelOptionPolicy: ModelOptionPolicy | null;
   selectedProtocols: string[];
   selectedModelName: string;
+  selectedModelKinds: string[];
+  promptImageOptions?: boolean;
   onOptionsChange: React.Dispatch<React.SetStateAction<ConversationOptions>>;
   onOptionsReset: (defaults?: ConversationOptions) => void;
   onDefaultOptionsRestore: () => Promise<ConversationOptions | null>;
@@ -274,6 +284,51 @@ const OPTION_ORDER = [
   "imageConfig.imageSize",
 ];
 
+const MAX_TOKEN_OPTION_KEYS = new Set([
+  "max_tokens",
+  "max_completion_tokens",
+  "max_output_tokens",
+  "generation_config.max_output_tokens",
+  "generationConfig.maxOutputTokens",
+]);
+
+const IMAGE_OPTION_KEYS = new Set([
+  "aspect_ratio",
+  "aspectRatio",
+  "image_size",
+  "imageSize",
+  "size",
+  "quality",
+  "background",
+  "input_fidelity",
+  "output_format",
+  "resolution",
+  "response_format",
+  "response_format.aspect_ratio",
+  "response_format.image_size",
+  "response_format.mime_type",
+  "generationConfig.imageConfig.aspectRatio",
+  "generationConfig.imageConfig.imageSize",
+  "generationConfig.mediaResolution",
+  "generationConfig.responseModalities",
+  "generationConfig.responseMimeType",
+  "imageConfig.aspectRatio",
+  "imageConfig.imageSize",
+]);
+
+const COMPACT_PANEL_OPTION_KEYS = new Set([
+  "temperature",
+  "generationConfig.temperature",
+  "top_p",
+  "generationConfig.topP",
+  "frequency_penalty",
+  "generationConfig.frequencyPenalty",
+  "presence_penalty",
+  "generationConfig.presencePenalty",
+  "thinking.budget_tokens",
+  "generationConfig.thinkingConfig.thinkingBudget",
+]);
+
 const NUMBER_OPTION_KEYS = new Set([
   "budget_tokens",
   "candidate_count",
@@ -285,8 +340,10 @@ const NUMBER_OPTION_KEYS = new Set([
   "generationConfig.maxOutputTokens",
   "generationConfig.presencePenalty",
   "generationConfig.seed",
+  "generationConfig.temperature",
   "generationConfig.thinkingConfig.thinkingBudget",
   "generationConfig.topK",
+  "generationConfig.topP",
   "logprobs",
   "max_completion_tokens",
   "max_output_tokens",
@@ -319,6 +376,9 @@ const OPTION_SELECT_VALUES: Record<string, string[]> = {
   "generationConfig.responseMimeType": ["text/plain", "application/json", "text/x.enum"],
   "generationConfig.imageConfig.aspectRatio": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
   "generationConfig.imageConfig.imageSize": ["1K", "2K", "4K"],
+  "response_format.aspect_ratio": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+  "response_format.image_size": ["1K", "2K", "4K"],
+  "response_format.mime_type": ["image/png", "image/jpeg", "image/webp"],
   background: ["auto", "opaque", "transparent"],
   "generationConfig.thinkingConfig.thinkingLevel": ["low", "medium", "high"],
   "imageConfig.aspectRatio": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
@@ -370,6 +430,9 @@ const NESTED_VISUAL_OPTION_PATHS = [
   ["output_config", "effort"],
   ["output_config", "format", "type"],
   ["response_format", "type"],
+  ["response_format", "aspect_ratio"],
+  ["response_format", "image_size"],
+  ["response_format", "mime_type"],
   ["tool_choice", "type"],
   ["generationConfig", "maxOutputTokens"],
   ["generationConfig", "temperature"],
@@ -394,6 +457,131 @@ const NESTED_VISUAL_OPTION_PATHS = [
   ["tool_config", "functionCallingConfig", "mode"],
   ["toolConfig", "functionCallingConfig", "mode"],
 ];
+
+const BASE_OPTION_CONTROLS: Partial<Record<string, ModelOptionControl[]>> = {
+  anthropic_messages: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "thinking.budget_tokens", type: "number", placeholder: "1024" },
+    {
+      path: "output_config.effort",
+      type: "select",
+      options: ["low", "medium", "high", "xhigh", "max"],
+    },
+  ],
+  google_generate_content: [
+    { path: "generationConfig.temperature", type: "number" },
+    { path: "generationConfig.topP", type: "number" },
+    { path: "generationConfig.frequencyPenalty", type: "number" },
+    { path: "generationConfig.presencePenalty", type: "number" },
+    { path: "generationConfig.thinkingConfig.thinkingBudget", type: "number", placeholder: "1024" },
+    {
+      path: "generationConfig.thinkingConfig.thinkingLevel",
+      type: "select",
+      options: ["low", "medium", "high"],
+    },
+  ],
+  openai_image_generations: [
+    { path: "size", type: "select", options: ["auto", "1024x1024", "1024x1536", "1536x1024", "2048x2048", "2048x1152", "3840x2160", "2160x3840"] },
+    { path: "quality", type: "select", options: ["auto", "low", "medium", "high", "standard", "hd"] },
+    { path: "background", type: "select", options: ["auto", "opaque", "transparent"] },
+    { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
+  ],
+  openai_image_edits: [
+    { path: "size", type: "select", options: ["auto", "1024x1024", "1024x1536", "1536x1024", "2048x2048", "2048x1152", "3840x2160", "2160x3840"] },
+    { path: "quality", type: "select", options: ["auto", "low", "medium", "high", "standard", "hd"] },
+    { path: "background", type: "select", options: ["auto", "opaque", "transparent"] },
+    { path: "input_fidelity", type: "select", options: ["low", "high"] },
+    { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
+  ],
+  google_image_generation: [
+    { path: "generationConfig.responseModalities", type: "select", options: ["TEXT", "IMAGE"] },
+    { path: "generationConfig.imageConfig.aspectRatio", type: "select", options: OPTION_SELECT_VALUES["generationConfig.imageConfig.aspectRatio"] },
+    { path: "generationConfig.imageConfig.imageSize", type: "select", options: OPTION_SELECT_VALUES["generationConfig.imageConfig.imageSize"] },
+  ],
+  gemini_generate_content: [
+    { path: "generationConfig.temperature", type: "number" },
+    { path: "generationConfig.topP", type: "number" },
+    { path: "generationConfig.frequencyPenalty", type: "number" },
+    { path: "generationConfig.presencePenalty", type: "number" },
+    { path: "generationConfig.thinkingConfig.thinkingBudget", type: "number", placeholder: "1024" },
+    {
+      path: "generationConfig.thinkingConfig.thinkingLevel",
+      type: "select",
+      options: ["low", "medium", "high"],
+    },
+  ],
+  gemini_interactions: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    {
+      path: "generation_config.thinking_level",
+      type: "select",
+      options: ["minimal", "low", "medium", "high"],
+    },
+    { path: "response_format.aspect_ratio", type: "select", options: ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] },
+    { path: "response_format.image_size", type: "select", options: ["1K", "2K", "4K"] },
+    { path: "response_format.mime_type", type: "select", options: ["image/png", "image/jpeg", "image/webp"] },
+  ],
+  openai_chat_completions: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "frequency_penalty", type: "number" },
+    { path: "presence_penalty", type: "number" },
+    {
+      path: "reasoning_effort",
+      type: "select",
+      options: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    },
+  ],
+  openrouter_chat_completions: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "frequency_penalty", type: "number" },
+    { path: "presence_penalty", type: "number" },
+    {
+      path: "reasoning_effort",
+      type: "select",
+      options: ["minimal", "low", "medium", "high", "xhigh"],
+    },
+  ],
+  openai_responses: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "frequency_penalty", type: "number" },
+    { path: "presence_penalty", type: "number" },
+    {
+      path: "reasoning.effort",
+      type: "select",
+      options: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    },
+  ],
+  openrouter_responses: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "frequency_penalty", type: "number" },
+    { path: "presence_penalty", type: "number" },
+    { path: "reasoning.effort", type: "select", options: ["low", "medium", "high"] },
+  ],
+  xai_image: [
+    { path: "aspect_ratio", type: "select", options: ["auto", "1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "9:19.5", "19.5:9", "9:20", "20:9", "1:2", "2:1"] },
+    { path: "n", type: "number" },
+    { path: "resolution", type: "select", options: ["1k", "2k"] },
+    { path: "response_format", type: "select", options: ["url", "b64_json"] },
+  ],
+  xai_image_edits: [
+    { path: "aspect_ratio", type: "select", options: ["auto", "1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "9:19.5", "19.5:9", "9:20", "20:9", "1:2", "2:1"] },
+    { path: "resolution", type: "select", options: ["1k", "2k"] },
+    { path: "response_format", type: "select", options: ["url", "b64_json"] },
+  ],
+  xai_responses: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "frequency_penalty", type: "number" },
+    { path: "presence_penalty", type: "number" },
+    { path: "reasoning.effort", type: "select", options: ["none", "low", "medium", "high"] },
+  ],
+};
 
 const PROTOCOL_LABELS: Record<string, string> = {
   anthropic_messages: "Messages",
@@ -700,6 +888,37 @@ function setOptionAtPath(options: ConversationOptions, path: string[], value: un
   };
 }
 
+function deleteOptionAtPath(options: ConversationOptions, path: string[]): ConversationOptions {
+  if (path.length === 0) {
+    return options;
+  }
+  const [segment, ...rest] = path;
+  if (rest.length === 0) {
+    const nextOptions = { ...options };
+    delete nextOptions[segment];
+    return nextOptions;
+  }
+  const current = options[segment];
+  if (!isPlainOptionObject(current)) {
+    return options;
+  }
+  const nextNested = deleteOptionAtPath(current, rest);
+  const nextOptions = { ...options };
+  if (Object.keys(nextNested).length === 0) {
+    delete nextOptions[segment];
+  } else {
+    nextOptions[segment] = nextNested;
+  }
+  return nextOptions;
+}
+
+function isVisibleOptionForMode(key: string, imageMode: boolean): boolean {
+  if (imageMode) {
+    return IMAGE_OPTION_KEYS.has(key);
+  }
+  return !MAX_TOKEN_OPTION_KEYS.has(key);
+}
+
 function applyLockedDefaultOptions(
   options: ConversationOptions,
   defaults: ConversationOptions,
@@ -772,6 +991,34 @@ function optionPathFromControl(path: string): string[] {
     .filter(Boolean);
 }
 
+function resolveBaseOptionProtocol(protocol: string): string | null {
+  const normalized = protocol.trim().toLowerCase();
+  if (Object.hasOwn(BASE_OPTION_CONTROLS, normalized)) {
+    return normalized;
+  }
+  if (["anthropic", "claude", "gemini", "google", "google_generate_content", "grok", "openai", "openrouter", "xai"].includes(normalized)) {
+    return resolveModelOptionPolicyProtocol(normalized);
+  }
+  return null;
+}
+
+function mergeOptionControls(protocols: string[], adminControls: ModelOptionControl[]): ModelOptionControl[] {
+  const controlsByPath = new Map<string, ModelOptionControl>();
+  const normalizedProtocols = Array.from(new Set(protocols.map(resolveBaseOptionProtocol).filter((item) => item !== null)));
+  for (const protocol of normalizedProtocols) {
+    for (const control of BASE_OPTION_CONTROLS[protocol] ?? []) {
+      controlsByPath.set(optionPathKey(optionPathFromControl(control.path)), control);
+    }
+  }
+  for (const control of adminControls) {
+    const path = optionPathFromControl(control.path);
+    if (path.length > 0) {
+      controlsByPath.set(optionPathKey(path), control);
+    }
+  }
+  return Array.from(controlsByPath.values());
+}
+
 function resolveControlEditableValue(options: ConversationOptions, path: string[]): EditableOptionValue {
   const currentValue = getOptionAtPath(options, path);
   if (isEditableOptionValue(currentValue)) {
@@ -830,6 +1077,29 @@ function visualOptionsFromControls(
   });
 }
 
+function resolveVisualOptions({
+  defaultOptions = {},
+  nativeToolDefinitions,
+  optionControls,
+  options,
+  policy,
+  protocols,
+}: {
+  defaultOptions?: ConversationOptions;
+  nativeToolDefinitions: NativeToolDefinition[];
+  optionControls: ModelOptionControl[];
+  options: ConversationOptions;
+  policy: ModelOptionPolicy | null;
+  protocols: string[];
+}): VisualOption[] {
+  const controls = mergeOptionControls(protocols, optionControls);
+  const configuredOptions = visualOptionsFromControls(controls, options, defaultOptions);
+  const configuredKeys = new Set(configuredOptions.map((item) => item.key));
+  const inferredOptions = visualOptionsFromOptions(options, policy, protocols, nativeToolDefinitions)
+    .filter((item) => !configuredKeys.has(item.key));
+  return [...configuredOptions, ...inferredOptions];
+}
+
 function hasVisualConfigurationContent({
   nativeToolDefinitions,
   optionControls,
@@ -843,29 +1113,44 @@ function hasVisualConfigurationContent({
   policy: ModelOptionPolicy | null;
   protocols: string[];
 }): boolean {
-  if (nativeToolDefinitions.length > 0) {
-    return true;
+  return nativeToolDefinitions.length > 0 || resolveVisualOptions({
+    nativeToolDefinitions,
+    optionControls,
+    options,
+    policy,
+    protocols,
+  }).length > 0;
+}
+
+function canonicalOptionTranslationKey(key: string): string {
+  if (key.endsWith(".temperature")) {
+    return "temperature";
   }
-  const configuredOptions = visualOptionsFromControls(optionControls, options);
-  if (configuredOptions.length > 0) {
-    return true;
+  if (key.endsWith(".topP")) {
+    return "top_p";
   }
-  const configuredKeys = new Set(configuredOptions.map((item) => item.key));
-  return visualOptionsFromOptions(options, policy, protocols, nativeToolDefinitions)
-    .some((item) => !configuredKeys.has(item.key));
+  if (key.endsWith(".frequencyPenalty")) {
+    return "frequency_penalty";
+  }
+  if (key.endsWith(".presencePenalty")) {
+    return "presence_penalty";
+  }
+  return key;
 }
 
 function resolveOptionTitle(key: string, configuredLabel: string | undefined, translate: OptionTranslationResolver): string {
-  const translationKey = key.replaceAll(".", "__");
-  if (OPTION_LABEL_KEYS.has(key) && translate.has?.(translationKey)) {
+  const canonicalKey = canonicalOptionTranslationKey(key);
+  const translationKey = canonicalKey.replaceAll(".", "__");
+  if (OPTION_LABEL_KEYS.has(canonicalKey) && translate.has?.(translationKey)) {
     return translate(translationKey);
   }
   return configuredLabel?.trim() || key;
 }
 
 function resolveOptionDescription(key: string, description: string | undefined, translate: OptionTranslationResolver): string {
-  const translationKey = key.replaceAll(".", "__");
-  if (OPTION_DESCRIPTION_KEYS.has(key) && translate.has?.(translationKey)) {
+  const canonicalKey = canonicalOptionTranslationKey(key);
+  const translationKey = canonicalKey.replaceAll(".", "__");
+  if (OPTION_DESCRIPTION_KEYS.has(canonicalKey) && translate.has?.(translationKey)) {
     return translate(translationKey);
   }
   return description?.trim() || "";
@@ -1037,6 +1322,8 @@ export function ChatModelConfig({
   modelOptionPolicy,
   selectedProtocols,
   selectedModelName,
+  selectedModelKinds,
+  promptImageOptions = false,
   onOptionsChange,
   onOptionsReset,
   onDefaultOptionsRestore,
@@ -1055,6 +1342,7 @@ export function ChatModelConfig({
   const [restoredDefaultOptions, setRestoredDefaultOptions] = React.useState<ConversationOptions | null>(null);
   const optionsObjectRef = React.useRef<ConversationOptions>({});
   const effectiveDefaultOptions = restoredDefaultOptions ?? defaultOptions;
+  const imageMode = selectedModelKinds.some((kind) => kind === "image_gen" || kind === "image_edit");
   const modelProtocolLabels = selectedProtocols.map(resolveProtocolLabel).join(" / ");
   const nativeToolVisualOptions = React.useMemo(
     () => nativeToolVisualOptionsFromConfigs(nativeTools, nativeToolKeys, modelOptionPolicy?.nativeTools ?? [], selectedProtocols),
@@ -1064,21 +1352,29 @@ export function ChatModelConfig({
     () => nativeToolVisualOptions.flatMap((item) => item.variants),
     [nativeToolVisualOptions],
   );
-  const configuredOptions = React.useMemo(
-    () => visualOptionsFromControls(optionControls, optionsObject, effectiveDefaultOptions),
-    [effectiveDefaultOptions, optionControls, optionsObject],
-  );
-  const configuredOptionKeys = React.useMemo(
-    () => new Set(configuredOptions.map((item) => item.key)),
-    [configuredOptions],
-  );
-  const editableOptions = React.useMemo(
-    () => visualOptionsFromOptions(optionsObject, modelOptionPolicy, selectedProtocols, nativeToolDefinitions)
-      .filter((item) => !configuredOptionKeys.has(item.key)),
-    [configuredOptionKeys, modelOptionPolicy, nativeToolDefinitions, optionsObject, selectedProtocols],
+  const displayOptionControls = React.useMemo(() => {
+    if (!promptImageOptions) {
+      return optionControls;
+    }
+    return mergeOptionControls(selectedProtocols, [
+      { path: "aspect_ratio", type: "select", options: OPTION_SELECT_VALUES.aspect_ratio },
+      { path: "image_size", type: "select", options: OPTION_SELECT_VALUES.image_size },
+      ...optionControls,
+    ]);
+  }, [optionControls, promptImageOptions, selectedProtocols]);
+  const visibleOptions = React.useMemo(
+    () => resolveVisualOptions({
+      defaultOptions: effectiveDefaultOptions,
+      nativeToolDefinitions,
+      optionControls: displayOptionControls,
+      options: optionsObject,
+      policy: modelOptionPolicy,
+      protocols: selectedProtocols,
+    }).filter((item) => isVisibleOptionForMode(item.key, imageMode)),
+    [displayOptionControls, effectiveDefaultOptions, imageMode, modelOptionPolicy, nativeToolDefinitions, optionsObject, selectedProtocols],
   );
   const nativeToolGroup = React.useMemo(() => {
-    if (nativeToolVisualOptions.length === 0) {
+    if (imageMode || nativeToolVisualOptions.length === 0) {
       return null;
     }
     const providers = Array.from(new Set(
@@ -1089,12 +1385,29 @@ export function ChatModelConfig({
       title: provider ? resolveNativeToolGroupTitle(provider, provider, tComposer) : tComposer("nativeTools.official"),
       options: nativeToolVisualOptions,
     };
-  }, [nativeToolVisualOptions, tComposer]);
-  const visibleOptions = React.useMemo(
-    () => [...configuredOptions, ...editableOptions],
-    [configuredOptions, editableOptions],
-  );
+  }, [imageMode, nativeToolVisualOptions, tComposer]);
   const lockedOptionPathSet = React.useMemo(() => new Set(lockedOptionPaths), [lockedOptionPaths]);
+  const compactOptions = React.useMemo(
+    () => resolveVisualOptions({
+      defaultOptions: effectiveDefaultOptions,
+      nativeToolDefinitions,
+      optionControls: displayOptionControls,
+      options: applyLockedDefaultOptions(sanitizeConversationOptions(options), effectiveDefaultOptions, lockedOptionPaths),
+      policy: modelOptionPolicy,
+      protocols: selectedProtocols,
+    }).filter((item) => item.editable && !item.locked && isVisibleOptionForMode(item.key, imageMode))
+      .sort((left, right) => {
+        const priority = (key: string) => key.endsWith("budget_tokens") || key.endsWith("thinkingBudget")
+          ? 0
+          : COMPACT_PANEL_OPTION_KEYS.has(key) ? 1 : 2;
+        return priority(left.key) - priority(right.key);
+      }),
+    [displayOptionControls, effectiveDefaultOptions, imageMode, lockedOptionPaths, modelOptionPolicy, nativeToolDefinitions, options, selectedProtocols],
+  );
+  const textPanelOptions = imageMode
+    ? []
+    : compactOptions.filter((item) => COMPACT_PANEL_OPTION_KEYS.has(item.key));
+  const enabledTextPanelOptionCount = textPanelOptions.filter((item) => typeof item.value === "number").length;
   const hasRecognizedOptions = Boolean(nativeToolGroup) || visibleOptions.length > 0;
 
   React.useEffect(() => {
@@ -1109,7 +1422,7 @@ export function ChatModelConfig({
     );
     const hasVisualContent = hasVisualConfigurationContent({
       nativeToolDefinitions,
-      optionControls,
+      optionControls: displayOptionControls,
       options: sanitized,
       policy: modelOptionPolicy,
       protocols: selectedProtocols,
@@ -1120,7 +1433,7 @@ export function ChatModelConfig({
     setMobileView(hasVisualContent ? "visual" : "json");
     setRestoredDefaultOptions(null);
     setDialogOpen(true);
-  }, [effectiveDefaultOptions, lockedOptionPaths, modelOptionPolicy, nativeToolDefinitions, optionControls, options, selectedProtocols]);
+  }, [displayOptionControls, effectiveDefaultOptions, lockedOptionPaths, modelOptionPolicy, nativeToolDefinitions, options, selectedProtocols]);
 
   const replaceOptionsDraft = React.useCallback((next: ConversationOptions) => {
     const sanitized = applyLockedDefaultOptions(
@@ -1150,6 +1463,27 @@ export function ChatModelConfig({
       replaceRawOptionsDraft(setOptionAtPath(optionsObjectRef.current, path, value));
     },
     [replaceRawOptionsDraft],
+  );
+
+  const updateCompactOptionValue = React.useCallback(
+    (path: string[], value: unknown) => {
+      const currentOptions = applyLockedDefaultOptions(
+        sanitizeConversationOptions(options),
+        effectiveDefaultOptions,
+        lockedOptionPaths,
+      );
+      const nextOptions = sanitizeConversationOptions(
+        value === undefined
+          ? deleteOptionAtPath(currentOptions, path)
+          : setOptionAtPath(currentOptions, path, value),
+      );
+      if (JSON.stringify(nextOptions) === JSON.stringify(effectiveDefaultOptions)) {
+        onOptionsReset(effectiveDefaultOptions);
+        return;
+      }
+      onOptionsChange(nextOptions);
+    },
+    [effectiveDefaultOptions, lockedOptionPaths, onOptionsChange, onOptionsReset, options],
   );
 
   const updateProviderTool = React.useCallback(
@@ -1520,7 +1854,256 @@ export function ChatModelConfig({
   );
 
   return (
-    <>
+    <div className="flex min-w-0 items-center gap-1">
+      {textPanelOptions.length > 0 ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <InputGroupButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="hidden h-7 max-w-40 min-w-0 shrink-0 gap-1 rounded-md border border-border/60 bg-background/60 px-2 text-[11px] hover:bg-accent sm:flex"
+              disabled={disabled}
+              title={`文本参数，已启用 ${enabledTextPanelOptionCount} 项`}
+            >
+              <span className="min-w-0 truncate text-muted-foreground">文本参数</span>
+              <span className="shrink-0 tabular-nums text-foreground">{enabledTextPanelOptionCount}/{textPanelOptions.length}</span>
+            </InputGroupButton>
+          </PopoverTrigger>
+          <PopoverContent side="top" align="start" sideOffset={8} collisionPadding={12} className="w-56 p-2">
+            <div className="max-h-[min(70vh,32rem)] space-y-2 overflow-y-auto pr-1">
+              {textPanelOptions.map(({ key, path, value, label, placeholder }) => {
+                const title = resolveOptionTitle(key, label, tOptionLabels);
+                const optionDescription = resolveOptionDescription(key, undefined, tOptionDescriptions);
+                const enabled = typeof value === "number";
+                const isBudget = key.endsWith("budget_tokens") || key.endsWith("thinkingBudget");
+                const isPenalty = key.endsWith("frequency_penalty") || key.endsWith("frequencyPenalty")
+                  || key.endsWith("presence_penalty") || key.endsWith("presencePenalty");
+                const isTemperature = key.endsWith("temperature");
+                const sliderMin = isBudget ? 0 : isPenalty ? -2 : 0;
+                const sliderMax = isBudget ? 32768 : isTemperature ? 2 : 1;
+                const sliderStep = isBudget ? 128 : 0.01;
+                const fallbackValue = Number(placeholder ?? (isBudget ? 1024 : isTemperature ? 0.7 : isPenalty ? 0 : 1));
+                const numericValue = typeof value === "number" ? value : fallbackValue;
+
+                return (
+                  <div key={key} className="space-y-1.5 border-b border-border/60 pb-2 last:border-b-0 last:pb-0">
+                    <div className="flex items-start justify-between gap-1.5">
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-1">
+                          <span className="truncate text-xs font-medium">{title}</span>
+                          {optionDescription ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <CircleHelp className="size-3 shrink-0 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-64 text-xs">{optionDescription}</TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </div>
+                        {optionDescription ? <p className="truncate text-[10px] leading-3 text-muted-foreground" title={optionDescription}>{optionDescription}</p> : null}
+                        <code className="block truncate font-mono text-[9px] leading-3 text-muted-foreground">{key}</code>
+                      </div>
+                      <label className="flex shrink-0 items-center gap-1 text-[10px] leading-3 text-muted-foreground">
+                        <Checkbox
+                          className="size-3.5"
+                          checked={enabled}
+                          disabled={disabled}
+                          onCheckedChange={(checked) => updateCompactOptionValue(path, checked === true ? numericValue : undefined)}
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <Slider
+                      className="py-0.5"
+                      value={[numericValue]}
+                      min={sliderMin}
+                      max={sliderMax}
+                      step={sliderStep}
+                      disabled={disabled || !enabled}
+                      onValueChange={([nextValue]) => updateCompactOptionValue(path, nextValue)}
+                    />
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-[10px] leading-3 text-muted-foreground">{sliderMin} — {sliderMax}</span>
+                      <Input
+                        type="number"
+                        value={enabled ? numericValue : ""}
+                        min={sliderMin}
+                        max={sliderMax}
+                        step={sliderStep}
+                        disabled={disabled || !enabled}
+                        placeholder={String(fallbackValue)}
+                        className="h-6 w-20 px-1.5 tabular-nums text-[10px]"
+                        onChange={(event) => {
+                          const nextValue = Number(event.target.value);
+                          if (Number.isFinite(nextValue)) {
+                            updateCompactOptionValue(path, Math.min(sliderMax, Math.max(sliderMin, nextValue)));
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      ) : null}
+
+      {compactOptions.filter((item) => imageMode || !COMPACT_PANEL_OPTION_KEYS.has(item.key)).map(({ key, path, value, label, kind: configuredKind, selectValues: configuredSelectValues, placeholder }) => {
+        const editableValue = isEditableOptionValue(value) ? value : null;
+        const selectValues = resolveSelectValues(key, configuredSelectValues);
+        const kind = configuredKind === "select" && selectValues.length === 0
+          ? "text"
+          : (configuredKind ?? resolveOptionKind(key, editableValue));
+        const title = resolveOptionTitle(key, label, tOptionLabels);
+        const displayValue = editableValue === null ? (placeholder ?? tComposer("default")) : String(editableValue);
+        const isNumber = kind === "number" || NUMBER_OPTION_KEYS.has(key);
+        const isCompactPanelOption = COMPACT_PANEL_OPTION_KEYS.has(key);
+        const enabled = typeof editableValue === "number";
+        const isBudget = key.endsWith("budget_tokens") || key.endsWith("thinkingBudget");
+        const isPenalty = key.endsWith("frequency_penalty") || key.endsWith("frequencyPenalty")
+          || key.endsWith("presence_penalty") || key.endsWith("presencePenalty");
+        const isTemperature = key.endsWith("temperature");
+        const sliderMin = isBudget ? 0 : isPenalty ? -2 : 0;
+        const sliderMax = isBudget ? 32768 : isTemperature ? 2 : 1;
+        const sliderStep = isBudget ? 128 : 0.01;
+        const fallbackValue = Number(placeholder ?? (isBudget ? 1024 : isTemperature ? 0.7 : isPenalty ? 0 : 1));
+        const numericValue = typeof editableValue === "number" ? editableValue : fallbackValue;
+        const optionDescription = resolveOptionDescription(key, undefined, tOptionDescriptions);
+
+        if (kind === "select" || kind === "boolean") {
+          const menuItems = kind === "boolean" ? ["true", "false"] : selectValues;
+          return (
+            <DropdownMenu key={key} modal={false}>
+              <DropdownMenuTrigger asChild>
+                <InputGroupButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="hidden h-7 max-w-40 min-w-0 shrink-0 gap-1 rounded-md border border-border/60 bg-background/60 px-2 text-[11px] hover:bg-accent sm:flex"
+                  disabled={disabled}
+                  title={`${title} ${displayValue}`}
+                >
+                  <span className="min-w-0 truncate text-muted-foreground">{title}</span>
+                  <span className="max-w-24 shrink-0 truncate text-foreground">{displayValue}</span>
+                </InputGroupButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" sideOffset={8} className="max-h-72 min-w-36 overflow-y-auto">
+                {menuItems.map((item) => (
+                  <DropdownMenuItem
+                    key={item}
+                    onSelect={() => updateCompactOptionValue(
+                      path,
+                      kind === "boolean" ? item === "true" : resolveSelectOptionValue(key, item, selectValues),
+                    )}
+                  >
+                    {kind === "boolean" ? (item === "true" ? tComposer("booleanOn") : tComposer("booleanOff")) : item}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        }
+
+        if (isCompactPanelOption) {
+          return (
+            <Popover key={key}>
+              <PopoverTrigger asChild>
+                <InputGroupButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="hidden h-7 max-w-40 min-w-0 shrink-0 gap-1 rounded-md border border-border/60 bg-background/60 px-2 text-[11px] hover:bg-accent sm:flex"
+                  disabled={disabled}
+                  title={`${title} ${displayValue}`}
+                >
+                  <span className="min-w-0 truncate text-muted-foreground">{title}</span>
+                  <span className="shrink-0 tabular-nums text-foreground">{displayValue}</span>
+                </InputGroupButton>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" sideOffset={8} collisionPadding={12} className="w-80 p-4">
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium">{title}</span>
+                        {optionDescription ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <CircleHelp className="size-3.5 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-64 text-xs">{optionDescription}</TooltipContent>
+                          </Tooltip>
+                        ) : null}
+                      </div>
+                      <code className="block truncate font-mono text-[11px] text-muted-foreground">{key}</code>
+                    </div>
+                    <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={enabled}
+                        disabled={disabled}
+                        onCheckedChange={(checked) => updateCompactOptionValue(path, checked === true ? numericValue : undefined)}
+                      />
+                      启用
+                    </label>
+                  </div>
+                  <Slider
+                    value={[numericValue]}
+                    min={sliderMin}
+                    max={sliderMax}
+                    step={sliderStep}
+                    disabled={disabled || !enabled}
+                    onValueChange={([nextValue]) => updateCompactOptionValue(path, nextValue)}
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-muted-foreground">{sliderMin} — {sliderMax}</span>
+                    <Input
+                      type="number"
+                      value={enabled ? numericValue : ""}
+                      min={sliderMin}
+                      max={sliderMax}
+                      step={sliderStep}
+                      disabled={disabled || !enabled}
+                      placeholder={String(fallbackValue)}
+                      className="h-8 w-28 tabular-nums text-xs"
+                      onChange={(event) => {
+                        const nextValue = Number(event.target.value);
+                        if (Number.isFinite(nextValue)) {
+                          updateCompactOptionValue(path, Math.min(sliderMax, Math.max(sliderMin, nextValue)));
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          );
+        }
+
+        return (
+          <label
+            key={key}
+            className="hidden h-7 max-w-48 min-w-28 shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/60 px-2 text-[11px] sm:flex"
+            title={title}
+          >
+            <span className="min-w-0 truncate text-muted-foreground">{title}</span>
+            <Input
+              type={isNumber ? "number" : "text"}
+              value={editableValue === null ? "" : String(editableValue)}
+              step={isNumber ? 1 : undefined}
+              disabled={disabled}
+              className="h-5 min-w-0 flex-1 border-0 bg-transparent px-1 text-right tabular-nums text-[11px] shadow-none focus-visible:ring-0"
+              placeholder={placeholder ?? "-"}
+              onChange={(event) => updateCompactOptionValue(
+                path,
+                isNumber ? parseVisualNumberInput(event.target.value) : event.target.value,
+              )}
+            />
+          </label>
+        );
+      })}
+
       <Tooltip>
         <TooltipTrigger asChild>
           <InputGroupButton
@@ -1588,6 +2171,6 @@ export function ChatModelConfig({
           </form>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   );
 }

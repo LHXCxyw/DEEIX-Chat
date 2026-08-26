@@ -161,7 +161,7 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.ModelOptionAllowedPaths = item.Value
 	case "chat:model_option_denied_paths":
 		cfg.ModelOptionDeniedPaths = item.Value
-	
+
 	// 用户自有渠道配置（BYOK）
 	case "chat:user_upstream_enabled":
 		cfg.UserUpstreamEnabled = toBool(item.Value, cfg.UserUpstreamEnabled)
@@ -171,6 +171,18 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.UserUpstreamQuotaLimit = toInt(item.Value, cfg.UserUpstreamQuotaLimit)
 	case "chat:user_upstream_require_approval":
 		cfg.UserUpstreamRequireApproval = toBool(item.Value, cfg.UserUpstreamRequireApproval)
+	case "file:user_embedding_enabled":
+		cfg.UserEmbeddingEnabled = toBool(item.Value, cfg.UserEmbeddingEnabled)
+	case "chat:user_rag_enabled":
+		cfg.UserRAGEnabled = toBool(item.Value, cfg.UserRAGEnabled)
+	case "file:user_embedding_profile_limit":
+		cfg.UserEmbeddingProfileLimit = toInt(item.Value, cfg.UserEmbeddingProfileLimit)
+	case "file:user_embedding_allowed_protocols":
+		cfg.UserEmbeddingAllowedProtocols = item.Value
+	case "file:user_embedding_min_dimensions":
+		cfg.UserEmbeddingMinDimensions = toInt(item.Value, cfg.UserEmbeddingMinDimensions)
+	case "file:user_embedding_max_dimensions":
+		cfg.UserEmbeddingMaxDimensions = toInt(item.Value, cfg.UserEmbeddingMaxDimensions)
 
 		// 存储配置
 	case "storage:user_storage_quota_bytes":

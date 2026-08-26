@@ -3,14 +3,120 @@ package conversation
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	appconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/filecontent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
 )
 
-// ListConversationProjects godoc
+// GetProjectWorkspace godoc
+func (h *Handler) GetProjectWorkspace(c *gin.Context) {
+	view, err := h.service.GetProjectWorkspace(c.Request.Context(), middleware.MustUserID(c), c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "project workspace not found")
+		return
+	}
+	response.Success(c, view)
+}
+
+// ListProjectFiles 列出项目工作区文件。
+func (h *Handler) ListProjectFiles(c *gin.Context) {
+	items, err := h.service.ListProjectFiles(c.Request.Context(), middleware.MustUserID(c), c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "project files not found")
+		return
+	}
+	response.Success(c, gin.H{"items": items, "total": len(items)})
+}
+
+// ImportProjectZIP 导入项目 ZIP。
+func (h *Handler) ImportProjectZIP(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 101<<20)
+	file, err := c.FormFile("file")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "ZIP file is required")
+		return
+	}
+	reader, err := file.Open()
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid ZIP file")
+		return
+	}
+	defer reader.Close()
+	item, err := h.service.ImportProjectArchive(c.Request.Context(), appconversation.ProjectArchiveInput{UserID: userID, ProjectPublicID: c.Param("id"), ArchiveName: file.Filename, Reader: reader})
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid project archive")
+		return
+	}
+	response.Success(c, item)
+}
+
+// GetProjectFileContent 下载项目文件。
+func (h *Handler) GetProjectFileContent(c *gin.Context) {
+	result, err := h.service.OpenProjectFileContent(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), c.Param("file_id"))
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "project file not found")
+		return
+	}
+	_ = filecontent.Write(c, result, false)
+}
+
+// WriteProjectFile 创建或覆盖项目文本文件。
+func (h *Handler) WriteProjectFile(c *gin.Context) {
+	var req WriteProjectFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	item, err := h.service.WriteProjectFile(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), req.Path, []byte(req.Content))
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrInvalidFileReference), errors.Is(err, appconversation.ErrFileTooLarge):
+			response.Error(c, http.StatusBadRequest, "invalid project file")
+		case errors.Is(err, appconversation.ErrConversationProjectNotFound):
+			response.Error(c, http.StatusNotFound, "conversation project not found")
+		default:
+			response.Error(c, http.StatusInternalServerError, "write project file failed")
+		}
+		return
+	}
+	response.Success(c, item)
+}
+
+// DeleteProjectFile 删除项目文件。
+func (h *Handler) DeleteProjectFile(c *gin.Context) {
+	deleted, err := h.service.DeleteProjectFile(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), c.Param("file_id"))
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) || errors.Is(err, appconversation.ErrConversationProjectNotFound) {
+			response.Error(c, http.StatusNotFound, "project file not found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "delete project file failed")
+		return
+	}
+	response.Success(c, gin.H{"deleted": true, "file": deleted})
+}
+
+// DownloadProjectArchive 流式下载当前用户项目 ZIP。
+func (h *Handler) DownloadProjectArchive(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	projectID := strings.TrimSpace(c.Param("id"))
+	if projectID == "" {
+		response.Error(c, http.StatusBadRequest, "invalid project id")
+		return
+	}
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", `attachment; filename="project-`+projectID+`.zip"`)
+	if err := h.service.ArchiveProjectFiles(c.Request.Context(), userID, projectID, c.Writer); err != nil && errors.Is(err, appconversation.ErrConversationProjectNotFound) {
+		response.Error(c, http.StatusNotFound, "conversation project not found")
+	}
+}
+
 // @Summary 会话项目列表
 // @Description 查询当前用户的会话项目分组
 // @Tags chat

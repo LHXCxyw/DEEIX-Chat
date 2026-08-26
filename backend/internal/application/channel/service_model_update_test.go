@@ -682,6 +682,30 @@ func (r *modelUpdateRepo) GetUpstreamListRowByID(context.Context, uint) (*reposi
 	return nil, repository.ErrNotFound
 }
 
+func (r *modelUpdateRepo) ListUserUpstreams(context.Context, uint) ([]domainchannel.Upstream, error) {
+	return nil, nil
+}
+
+func (r *modelUpdateRepo) GetUserUpstreamByID(context.Context, uint, uint) (*domainchannel.Upstream, error) {
+	return nil, repository.ErrNotFound
+}
+
+func (r *modelUpdateRepo) CreateUserUpstream(context.Context, *domainchannel.Upstream) error {
+	return nil
+}
+
+func (r *modelUpdateRepo) UpdateUserUpstream(context.Context, *domainchannel.Upstream) error {
+	return nil
+}
+
+func (r *modelUpdateRepo) DeleteUserUpstream(context.Context, uint, uint) error {
+	return nil
+}
+
+func (r *modelUpdateRepo) CountUserUpstreams(context.Context, uint) (int64, error) {
+	return 0, nil
+}
+
 func (r *modelUpdateRepo) ListUpstreams(context.Context, repository.ListChannelUpstreamsInput) ([]repository.ChannelUpstreamListRow, int64, error) {
 	return r.upstreamRows, int64(len(r.upstreamRows)), nil
 }

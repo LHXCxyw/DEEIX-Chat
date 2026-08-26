@@ -436,10 +436,16 @@ type Config struct {
 	ModelOptionDeniedPaths       string
 
 	// 用户自有渠道配置（BYOK）
-	UserUpstreamEnabled         bool
-	UserUpstreamBillingMode     string
-	UserUpstreamQuotaLimit      int
-	UserUpstreamRequireApproval bool
+	UserUpstreamEnabled           bool
+	UserUpstreamBillingMode       string
+	UserUpstreamQuotaLimit        int
+	UserUpstreamRequireApproval   bool
+	UserEmbeddingEnabled          bool
+	UserRAGEnabled                bool
+	UserEmbeddingProfileLimit     int
+	UserEmbeddingAllowedProtocols string
+	UserEmbeddingMinDimensions    int
+	UserEmbeddingMaxDimensions    int
 	// 存储配置
 	UserStorageQuotaBytes int64
 	MaxUploadFileBytes    int64

@@ -98,6 +98,7 @@ export type AdminLLMModelDTO = Omit<
   accessScope: AdminLLMModelAccessScope;
   status: AdminLLMStatus;
   cbPolicyMode: AdminLLMModelCbPolicyMode;
+  contextWindow: number;
 };
 
 export type AdminLLMUpstreamModelDTO = Omit<

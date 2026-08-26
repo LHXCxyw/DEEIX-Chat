@@ -28,6 +28,7 @@
     "expandSection": "Expand projects",
     "create": "New project",
     "newChatInProject": "New chat in project",
+    "files": "Project files",
     "menu": "Project menu",
     "dragToReorder": "Drag to reorder {name}",
     "reorderFailed": "Failed to save project order",

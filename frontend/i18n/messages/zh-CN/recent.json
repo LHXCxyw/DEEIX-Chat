@@ -28,6 +28,7 @@
     "expandSection": "展开项目",
     "create": "新建项目",
     "newChatInProject": "在项目中新建对话",
+    "files": "项目文件",
     "menu": "项目菜单",
     "dragToReorder": "拖拽以调整「{name}」排序",
     "reorderFailed": "保存项目排序失败",
