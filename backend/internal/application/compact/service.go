@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"go.uber.org/zap"
 )
@@ -39,7 +39,7 @@ type compactionDecision struct {
 	messages               []domainconversation.Message
 	coveredMessages        []domainconversation.Message
 	contextModelName       string
-	resolvedCaps           llm.ResolvedModelCaps
+	resolvedCaps           domainchannel.ResolvedModelCaps
 	effectiveContextBudget int
 	modelTriggerTokens     int64
 	observedTokens         int64
@@ -265,7 +265,7 @@ func (s *Service) ContextBudgetExceeded(input MaybeCompactConversationInput) boo
 	}
 	observedTokens := compactionScopeTokenEstimate(input)
 	cfg := s.snapshot()
-	return observedTokens > int64(llm.EffectiveContextBudgetFromCapabilitiesWithFallback(
+	return observedTokens > int64(domainchannel.EffectiveContextBudgetFromCapabilitiesWithFallback(
 		contextModelName,
 		input.CapabilitiesJSON,
 		cfg.ContextWindowFallbackTokens,
@@ -295,9 +295,9 @@ func resolveCompactionDecision(cfg config.Config, input MaybeCompactConversation
 	if contextModelName == "" {
 		contextModelName = strings.TrimSpace(input.PlatformModelName)
 	}
-	resolvedCaps := llm.ResolveModelCapsFromCapabilitiesWithFallback(contextModelName, input.CapabilitiesJSON, cfg.ContextWindowFallbackTokens)
-	effectiveContextBudget := llm.EffectiveContextBudgetFromCapabilitiesWithFallback(contextModelName, input.CapabilitiesJSON, cfg.ContextWindowFallbackTokens)
-	modelTriggerTokens := llm.CompactionThresholdFromCapabilitiesWithFallback(
+	resolvedCaps := domainchannel.ResolveModelCapsFromCapabilitiesWithFallback(contextModelName, input.CapabilitiesJSON, cfg.ContextWindowFallbackTokens)
+	effectiveContextBudget := domainchannel.EffectiveContextBudgetFromCapabilitiesWithFallback(contextModelName, input.CapabilitiesJSON, cfg.ContextWindowFallbackTokens)
+	modelTriggerTokens := domainchannel.CompactionThresholdFromCapabilitiesWithFallback(
 		contextModelName,
 		input.CapabilitiesJSON,
 		cfg.ContextWindowFallbackTokens,

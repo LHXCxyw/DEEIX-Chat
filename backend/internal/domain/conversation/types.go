@@ -46,6 +46,7 @@ type ConversationProject struct {
 	Name                    string
 	Description             string
 	SystemPrompt            string
+	DefaultModel            string
 	MCPDefaultMode          string
 	DefaultMCPToolIDs       []uint
 	DefaultSkillIDs         []uint
@@ -63,6 +64,7 @@ type ConversationProjectPatch struct {
 	Name                    *string
 	Description             *string
 	SystemPrompt            *string
+	DefaultModel            *string
 	MCPDefaultMode          *string
 	DefaultMCPToolIDs       *[]uint
 	DefaultSkillIDs         *[]uint
@@ -293,6 +295,30 @@ type FileObject struct {
 	UpdatedAt              time.Time
 }
 
+const (
+	FileProcessingStatusUploaded   = "uploaded"
+	FileProcessingStatusQueued     = "queued"
+	FileProcessingStatusExtracting = "extracting"
+	FileProcessingStatusEmbedding  = "embedding"
+	FileSubprocessStatusQueued     = "queued"
+	FileSubprocessStatusProcessing = "processing"
+)
+
+// IsFileProcessing 统一判断文件是否仍处于服务端处理阶段。
+func IsFileProcessing(file FileObject) bool {
+	switch file.ProcessingStatus {
+	case FileProcessingStatusUploaded,
+		FileProcessingStatusQueued,
+		FileProcessingStatusExtracting,
+		FileProcessingStatusEmbedding:
+		return true
+	default:
+		return file.ExtractStatus == FileSubprocessStatusProcessing ||
+			file.EmbedStatus == FileSubprocessStatusQueued ||
+			file.EmbedStatus == FileSubprocessStatusProcessing
+	}
+}
+
 // FileObjectProcessing 表示 file_objects 中的服务端处理状态。
 type FileObjectProcessing struct {
 	ID                 uint
@@ -301,11 +327,13 @@ type FileObjectProcessing struct {
 	DetectedMIME       string
 	FileCategory       string
 	ProcessingStatus   string
+	ProcessingReady    bool
 	ExtractStatus      string
 	ExtractEngine      string
 	ExtractStoragePath string
 	ExtractChars       int
 	ExtractPages       int
+	PageCount          int
 	PreviewText        string
 	OCRUsed            bool
 	RAGReady           bool
@@ -316,6 +344,7 @@ type FileObjectProcessing struct {
 	PayloadJSON        string
 	StartedAt          *time.Time
 	CompletedAt        *time.Time
+	ExtractedAt        *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
@@ -390,6 +419,12 @@ type Run struct {
 	EndedAt                  *time.Time
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+}
+
+// RunStatus 表示用于状态同步的最小运行快照。
+type RunStatus struct {
+	RunID  string
+	Status string
 }
 
 // MessageTrace 表示消息处理轨迹。
@@ -489,13 +524,17 @@ type ToolCall struct {
 	ToolCallID     string
 	ToolType       string
 	ToolName       string
-	Status         string
-	LatencyMS      int64
-	InputJSON      string
-	OutputJSON     string
-	ErrorJSON      string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// MCPServerID / MCPServerName 记录 MCP 调用的服务器归属快照；
+	// 不同服务器可能暴露同名工具，缺少归属时用量统计无法区分。
+	MCPServerID   uint
+	MCPServerName string
+	Status        string
+	LatencyMS     int64
+	InputJSON     string
+	OutputJSON    string
+	ErrorJSON     string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ContextSnapshot 表示上下文压缩快照。

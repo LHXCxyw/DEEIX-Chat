@@ -722,7 +722,7 @@ export function ChatModelPicker({
         );
         setActiveGroupKey(selectedGroupKey || scopedGroups[0]?.key || "");
         if (onModelCatalogRefresh) {
-          void Promise.resolve(onModelCatalogRefresh()).catch(() => undefined);
+          void Promise.resolve(onModelCatalogRefresh()).catch((): undefined => undefined);
         }
       }
       setOpen(nextOpen);

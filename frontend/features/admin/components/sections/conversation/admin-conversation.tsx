@@ -415,7 +415,7 @@ export function AdminConversationSettingsPage() {
       }
       const [grouped, referenceData] = await Promise.all([
         listAdminSettings(token),
-        getAdminReferenceData(token).catch(() => null),
+        getAdminReferenceData(token).catch((): null => null),
       ]);
       const nextModelOptions = buildTaskModelOptions({
         models: referenceData?.models ?? [],

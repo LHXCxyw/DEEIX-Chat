@@ -343,6 +343,29 @@ func TestInputImageModerationSkipsNonImageAttachments(t *testing.T) {
 	}
 }
 
+func TestEphemeralInputImageModerationQueuesRequestScopedBytes(t *testing.T) {
+	service := NewService(nil, &coordinatorTestRepo{}, "", nil)
+	cfg := runtimeConfig{Policy: Policy{InputImageCategories: []string{"violence"}}}
+	coord := newRunCoordinator(service, RunMeta{RunID: "run_ephemeral_image", Ephemeral: true}, cfg)
+
+	coord.EnqueueInputImageSources([]OutputImageSource{
+		{FileID: "temporary_image", Data: []byte("image-bytes"), MimeType: "image/png", SHA256: "sha"},
+		{FileID: "temporary_duplicate", Data: []byte("duplicate"), MimeType: "image/png", SHA256: "sha"},
+	})
+
+	select {
+	case task := <-service.taskQueue:
+		if task == nil || task.Modality != domaincm.ModalityImage || !task.IsolateOnly {
+			t.Fatalf("unexpected request-scoped moderation task: %#v", task)
+		}
+		if len(task.RawImages) != 1 || string(task.RawImages[0].Data) != "image-bytes" {
+			t.Fatalf("request-scoped image bytes were not queued safely: %#v", task.RawImages)
+		}
+	default:
+		t.Fatal("request-scoped image moderation task was not queued")
+	}
+}
+
 func TestRecordHitRollsBackIsolatedImagesWhenEventCreateFails(t *testing.T) {
 	repo := &coordinatorTestRepo{createErr: errors.New("database unavailable")}
 	store := &coordinatorTestObjectStore{}

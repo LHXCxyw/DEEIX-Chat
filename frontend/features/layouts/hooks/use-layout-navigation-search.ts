@@ -1,23 +1,27 @@
 "use client";
 
-import * as React from "react";
 import { useRouter } from "next/navigation";
+import * as React from "react";
 
-import { useConversationSearchPreview } from "@/features/layouts/hooks/use-conversation-search-preview";
-import { toConversationSearchResult } from "@/features/layouts/model/navigation-search";
-import { hasPlatformModifierKey } from "@/shared/lib/platform-shortcuts";
-import { normalizeConversationSearchText } from "@/shared/lib/conversation-search";
+import { useLayoutSearchPreview } from "@/features/layouts/hooks/use-layout-search-preview";
+import {
+  NAVIGATION_SEARCH_PAGE_SIZE,
+  toConversationSearchResult,
+} from "@/features/layouts/model/navigation-search";
+import type { ConversationSearchResult } from "@/features/layouts/types/navigation";
 import { searchConversations } from "@/shared/api/conversation";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import type { ConversationSearchResult } from "@/features/layouts/types/navigation";
+import { normalizeConversationSearchText } from "@/shared/lib/conversation-search";
+import { hasPlatformModifierKey } from "@/shared/lib/platform-shortcuts";
 
 type UseLayoutNavigationSearchOptions = {
+  initialResults?: readonly ConversationSearchResult[];
   untitled: string;
 };
 
 const NAVIGATION_SEARCH_DEBOUNCE_MS = 250;
-const NAVIGATION_SEARCH_PAGE_SIZE = 20;
 const DEFAULT_SEARCH_CACHE_TTL_MS = 30_000;
+const EMPTY_SEARCH_RESULTS: readonly ConversationSearchResult[] = [];
 
 type DefaultSearchCache = {
   results: ConversationSearchResult[];
@@ -33,11 +37,14 @@ function mergeSearchResults(
   return [...current, ...next.filter((item) => !seen.has(item.publicID))];
 }
 
-export function useLayoutNavigationSearch({ untitled }: UseLayoutNavigationSearchOptions) {
+export function useLayoutNavigationSearch({
+  initialResults = EMPTY_SEARCH_RESULTS,
+  untitled,
+}: UseLayoutNavigationSearchOptions) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
-  const [results, setResults] = React.useState<ConversationSearchResult[]>([]);
+  const [results, setResults] = React.useState<ConversationSearchResult[]>(() => [...initialResults]);
   const [page, setPage] = React.useState(1);
   const [hasMore, setHasMore] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
@@ -49,13 +56,15 @@ export function useLayoutNavigationSearch({ untitled }: UseLayoutNavigationSearc
   const loadingMoreRef = React.useRef(false);
   const loadMoreAbortRef = React.useRef<AbortController | null>(null);
   const defaultSearchCacheRef = React.useRef<DefaultSearchCache | null>(null);
-  const conversationPreview = useConversationSearchPreview(open);
+  const initialResultsRef = React.useRef(initialResults);
+  initialResultsRef.current = initialResults;
+  const conversationPreview = useLayoutSearchPreview(open);
 
   React.useEffect(() => {
     if (!open) {
       const defaultSearchCache = defaultSearchCacheRef.current;
       setQuery("");
-      setResults(defaultSearchCache?.results ?? []);
+      setResults(defaultSearchCache?.results ?? [...initialResults]);
       setPage(1);
       setHasMore(defaultSearchCache?.hasMore ?? false);
       setLoading(false);
@@ -67,7 +76,7 @@ export function useLayoutNavigationSearch({ untitled }: UseLayoutNavigationSearc
       loadMoreAbortRef.current = null;
       requestVersionRef.current += 1;
     }
-  }, [open]);
+  }, [initialResults, open]);
 
   const normalizedQuery = normalizeConversationSearchText(query);
 
@@ -79,16 +88,14 @@ export function useLayoutNavigationSearch({ untitled }: UseLayoutNavigationSearc
     requestVersionRef.current += 1;
     const requestVersion = requestVersionRef.current;
     const defaultSearchCache = normalizedQuery ? null : defaultSearchCacheRef.current;
-    const hasDefaultSearchCache = Boolean(defaultSearchCache);
-    if (defaultSearchCache) {
-      setResults(defaultSearchCache.results);
-      setHasMore(defaultSearchCache.hasMore);
-    } else {
-      setResults([]);
-      setHasMore(false);
-    }
+    const fallbackResults = normalizedQuery
+      ? []
+      : (defaultSearchCache?.results ?? initialResultsRef.current);
+    const hasFallbackResults = fallbackResults.length > 0;
+    setResults([...fallbackResults]);
+    setHasMore(defaultSearchCache?.hasMore ?? false);
     setPage(1);
-    setLoading(!hasDefaultSearchCache);
+    setLoading(!hasFallbackResults);
     setLoadingMore(false);
     setLoadFailed(false);
     setLoadMoreFailed(false);
@@ -110,7 +117,7 @@ export function useLayoutNavigationSearch({ untitled }: UseLayoutNavigationSearc
             return;
           }
           if (!token) {
-            if (!defaultSearchCache) {
+            if (!hasFallbackResults) {
               setLoadFailed(true);
             }
             return;
@@ -137,7 +144,7 @@ export function useLayoutNavigationSearch({ untitled }: UseLayoutNavigationSearc
           setHasMore(data.hasMore ?? false);
         } catch {
           if (requestVersion === requestVersionRef.current) {
-            if (!defaultSearchCache) {
+            if (!hasFallbackResults) {
               setResults([]);
               setHasMore(false);
               setLoadFailed(true);

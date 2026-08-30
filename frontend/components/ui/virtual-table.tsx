@@ -47,21 +47,21 @@ export function useVirtualTableRows<T>(
   const paddingBottom = lastVirtualItem ? Math.max(0, totalSize - lastVirtualItem.end) : 0;
   const rows: Array<VirtualTableRow<T>> = enabled
     ? virtualItems
-      .map((virtualItem) => {
+      .map((virtualItem): VirtualTableRow<T> | null => {
         const item = items[virtualItem.index];
         return item === undefined
           ? null
-          : { item, index: virtualItem.index, virtualItem };
+          : { item: item as T, index: virtualItem.index, virtualItem };
       })
       .filter((row): row is VirtualTableRow<T> => row !== null)
-    : items.map((item, index) => ({ item, index, virtualItem: null }));
+    : items.map((item, index): VirtualTableRow<T> => ({ item, index, virtualItem: null }));
 
   return {
     enabled,
     paddingTop,
     paddingBottom,
     rows,
-    viewportClassName: "max-h-[var(--virtual-table-max-height)] overflow-auto [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20",
+    viewportClassName: "max-h-[var(--virtual-table-max-height)] [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20",
     viewportRef,
     viewportStyle: {
       "--virtual-table-max-height": `${maxHeight}px`,

@@ -1,4 +1,4 @@
-import type { ProcessTraceLabels } from "@/features/chat/hooks/use-process-trace-labels";
+import type { ProcessTraceLabels } from "@/features/chat/hooks/use-chat-trace-labels";
 import type { ChatPromptTrace, ChatTraceEvent, RAGCitation } from "@/features/chat/types/messages";
 
 export const TRACE_KIND_CONTEXT_PLANNING = "context_planning";

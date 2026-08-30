@@ -1,15 +1,11 @@
 "use client";
 
-import * as React from "react";
-import { Ellipsis, PencilLine, SquareCheckBig, Trash2, Zap } from "lucide-react";
+import { DatabaseZap, Ellipsis, PencilLine, SquareCheckBig, Trash2, Zap } from "lucide-react";
 import { useTranslations } from "next-intl";
-
-import { resolveFileIcon } from "@/shared/lib/file-display";
+import * as React from "react";
+import { AnimatedText } from "@/components/ui/animated-text";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
-import { AnimatedText } from "@/components/ui/animated-text";
-import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,10 +13,14 @@ import {
   DropdownMenuItemIcon,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { useLoadMoreSentinel } from "@/shared/hooks/use-load-more-sentinel";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import type { FileObjectDTO } from "@/shared/api/file.types";
+import { useLoadMoreSentinel } from "@/shared/hooks/use-load-more-sentinel";
+import { resolveFileIcon } from "@/shared/lib/file-display";
+import { canManuallyVectorizeFile, isVectorIndexOutdated } from "@/shared/lib/file-processing";
 
 type SidebarListProps = {
   items: FileObjectDTO[];
@@ -30,6 +30,7 @@ type SidebarListProps = {
   loadingMore: boolean;
   hasMore: boolean;
   syncing: boolean;
+  vectorizingFileIDs: string[];
   renamingFileID: string | null;
   renameValue: string;
   onSelect: (fileID: string) => void;
@@ -39,6 +40,7 @@ type SidebarListProps = {
   onRenameValueChange: (value: string) => void;
   onRenameCommit: (fileID: string, currentFileName: string) => void;
   onRenameCancel: () => void;
+  onVectorize: (fileID: string) => void;
   onDeleteRequest: (item: FileObjectDTO) => void;
 };
 
@@ -46,6 +48,8 @@ function SidebarListItem({
   item,
   selected,
   checked,
+  vectorizing,
+  vectorizationBusy,
   renaming,
   renameValue,
   onSelect,
@@ -54,11 +58,14 @@ function SidebarListItem({
   onRenameValueChange,
   onRenameCommit,
   onRenameCancel,
+  onVectorize,
   onDeleteRequest,
 }: {
   item: FileObjectDTO;
   selected: boolean;
   checked: boolean;
+  vectorizing: boolean;
+  vectorizationBusy: boolean;
   renaming: boolean;
   renameValue: string;
   onSelect: (fileID: string) => void;
@@ -67,11 +74,13 @@ function SidebarListItem({
   onRenameValueChange: (value: string) => void;
   onRenameCommit: (fileID: string, currentFileName: string) => void;
   onRenameCancel: () => void;
+  onVectorize: (fileID: string) => void;
   onDeleteRequest: (item: FileObjectDTO) => void;
 }) {
   const t = useTranslations("files");
   const fileIcon = resolveFileIcon(item);
   const showsRetrievalStatus = item.fileCategory !== "image" && item.embedStatus === "ready";
+  const vectorizable = canManuallyVectorizeFile(item);
   const [actionsMenuOpen, setActionsMenuOpen] = React.useState(false);
 
   if (renaming) {
@@ -192,6 +201,19 @@ function SidebarListItem({
                 <DropdownMenuItemIcon icon={PencilLine} />
                 {t("actions.rename")}
               </DropdownMenuItem>
+              {vectorizable ? (
+                <DropdownMenuItem
+                  disabled={vectorizationBusy}
+                  onSelect={() => onVectorize(item.fileID)}
+                >
+                  {vectorizing ? (
+                    <Spinner className="size-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <DropdownMenuItemIcon icon={DatabaseZap} />
+                  )}
+                  {t(isVectorIndexOutdated(item) ? "actions.updateIndex" : "actions.vectorize")}
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -224,6 +246,7 @@ export function SidebarList({
   loadingMore,
   hasMore,
   syncing,
+  vectorizingFileIDs,
   renamingFileID,
   renameValue,
   onSelect,
@@ -233,11 +256,13 @@ export function SidebarList({
   onRenameValueChange,
   onRenameCommit,
   onRenameCancel,
+  onVectorize,
   onDeleteRequest,
 }: SidebarListProps) {
   const t = useTranslations("files");
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
   const selectedFileIDSet = React.useMemo(() => new Set(selectedFileIDs), [selectedFileIDs]);
+  const vectorizingFileIDSet = React.useMemo(() => new Set(vectorizingFileIDs), [vectorizingFileIDs]);
 
   const loadMoreRef = useLoadMoreSentinel<HTMLDivElement>({
     enabled: hasMore && !loading && !loadingMore,
@@ -283,6 +308,8 @@ export function SidebarList({
                   item={item}
                   selected={isSelected}
                   checked={isChecked}
+                  vectorizing={vectorizingFileIDSet.has(item.fileID)}
+                  vectorizationBusy={vectorizingFileIDs.length > 0}
                   renaming={isRenaming}
                   renameValue={renameValue}
                   onSelect={onSelect}
@@ -291,6 +318,7 @@ export function SidebarList({
                   onRenameValueChange={onRenameValueChange}
                   onRenameCommit={onRenameCommit}
                   onRenameCancel={onRenameCancel}
+                  onVectorize={onVectorize}
                   onDeleteRequest={onDeleteRequest}
                 />
               );

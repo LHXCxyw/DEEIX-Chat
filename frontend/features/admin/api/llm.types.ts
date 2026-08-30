@@ -29,6 +29,7 @@ import type {
   ReorderModelsRequest,
   SetModelProtocolsRequest,
   SetModelsDisplayGroupRequest,
+  SyncUpstreamModelsResponse,
   UpdateModelDisplayGroupRequest,
   UpdateModelRequest,
   UpdateModelUpstreamSourceRequest,
@@ -306,6 +307,8 @@ export type ResetAdminLLMCircuitData = CircuitResetResponse;
 export type ListAdminLLMRemoteModelsData = Omit<UpstreamRemoteModelsResponse, "items"> & {
   items: AdminLLMRemoteModelItem[];
 };
+
+export type SyncAdminLLMUpstreamModelsData = SyncUpstreamModelsResponse;
 
 export type ImportAdminLLMUpstreamModelsData = Omit<ImportUpstreamModelsResponse, "results"> & {
   results: Array<

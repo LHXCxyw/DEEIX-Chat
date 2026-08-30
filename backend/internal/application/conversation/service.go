@@ -23,9 +23,8 @@ import (
 	domainmemory "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/memory"
 	domainskill "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/skill"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/embedding"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/mcp"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/mcp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"go.uber.org/zap"
 )
@@ -45,6 +44,12 @@ type routeResolver interface {
 // conversation 只依赖这个窄接口，不直接感知 channel.Service 的具体实现。
 type defaultRouteResolver interface {
 	ResolveDefaultRoute(ctx context.Context, input channel.ResolveRouteInput) (*channel.ResolvedRoute, error)
+}
+
+// activeModelCatalogResolver 提供用户可见的静态模型目录。
+// 项目默认模型校验不应依赖瞬时路由健康或熔断状态。
+type activeModelCatalogResolver interface {
+	ListActiveModels(ctx context.Context, userID uint) ([]channel.ModelView, error)
 }
 
 type memoryRecorder interface {
@@ -67,6 +72,11 @@ type mcpToolResolver interface {
 	ListToolsByIDs(ctx context.Context, toolIDs []uint) ([]domainmcp.Tool, error)
 	ListServers(ctx context.Context) ([]domainmcp.Server, error)
 	GetServer(ctx context.Context, serverID uint) (*domainmcp.Server, error)
+}
+
+// mcpToolCaller 执行远端 MCP 工具调用。
+type mcpToolCaller interface {
+	CallTool(ctx context.Context, cfg mcp.CallConfig, input mcp.CallInput) (string, error)
 }
 
 type auditWriter interface {
@@ -97,6 +107,14 @@ type basicServiceBillingContext struct {
 	ConversationID uint
 }
 
+// llmGateway 定义会话推理、媒体生成与后台响应管理所需的上游调用能力。
+type llmGateway interface {
+	Generate(ctx context.Context, route llm.RouteConfig, input llm.GenerateInput) (*llm.GenerateOutput, error)
+	GenerateStream(ctx context.Context, route llm.RouteConfig, input llm.GenerateInput, onEvent func(llm.GenerateStreamEvent) error) (*llm.GenerateOutput, error)
+	RetrieveOpenAIResponse(ctx context.Context, route llm.RouteConfig, responseID string) (*llm.GenerateOutput, error)
+	CancelOpenAIResponse(ctx context.Context, route llm.RouteConfig, responseID string) (*llm.GenerateOutput, error)
+}
+
 // Service 封装会话业务能力。
 type Service struct {
 	cfg                   *config.Runtime
@@ -105,9 +123,9 @@ type Service struct {
 	routeResolver         routeResolver
 	memoryRecorder        memoryRecorder
 	mcpRepo               mcpToolResolver
-	llmClient             *llm.Client
+	llmClient             llmGateway
 	mediaDownloader       generatedMediaDownloader
-	mcpClient             *mcp.Client
+	mcpClient             mcpToolCaller
 	uploadSvc             *appupload.Service
 	compactSvc            *appcompact.Service
 	embeddingSvc          *appembedding.Service
@@ -225,9 +243,11 @@ type SendMessageResult struct {
 	CacheWrite5mTokens  int64
 	CacheWrite1hTokens  int64
 	ServerSideToolUsage map[string]int64
-	LatencyMS           int64
-	DurationSeconds     int64
-	StartedAt           time.Time
+	// MCPToolUsage 聚合本次运行成功的 MCP 调用计量，供计费台账消费。
+	MCPToolUsage    []MCPToolUsageItem
+	LatencyMS       int64
+	DurationSeconds int64
+	StartedAt       time.Time
 	// Moderation is set when a soft-moderation barrier ran; Blocked means withdrawn.
 	Moderation            *MessageModerationOutcome
 	postBillingCompaction *postBillingCompactionTask
@@ -249,10 +269,10 @@ func NewService(
 	cache repository.ConversationCacheRepository,
 	routeResolver routeResolver,
 	memoryRecorder memoryRecorder,
-	llmClient *llm.Client,
+	llmClient llmGateway,
 	mediaDownloader generatedMediaDownloader,
-	mcpClient *mcp.Client,
-	embedClient *embedding.Client,
+	mcpClient mcpToolCaller,
+	embedClient apprag.EmbeddingClient,
 	uploadSvc *appupload.Service,
 	compactSvc *appcompact.Service,
 	embeddingSvc *appembedding.Service,
@@ -271,10 +291,10 @@ func NewServiceWithRuntime(
 	cache repository.ConversationCacheRepository,
 	routeResolver routeResolver,
 	memoryRecorder memoryRecorder,
-	llmClient *llm.Client,
+	llmClient llmGateway,
 	mediaDownloader generatedMediaDownloader,
-	mcpClient *mcp.Client,
-	embedClient *embedding.Client,
+	mcpClient mcpToolCaller,
+	embedClient apprag.EmbeddingClient,
 	uploadSvc *appupload.Service,
 	compactSvc *appcompact.Service,
 	embeddingSvc *appembedding.Service,

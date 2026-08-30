@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	appskill "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/skill"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
@@ -29,6 +30,7 @@ const (
 	conversationProjectNameMaxChars         = 80
 	conversationProjectDescriptionMaxChars  = 255
 	conversationProjectSystemPromptMaxChars = 12000
+	conversationProjectModelMaxChars        = 128
 	conversationProjectMetaMaxChars         = 32
 )
 
@@ -37,6 +39,7 @@ type ConversationProjectInput struct {
 	Name                    string
 	Description             string
 	SystemPrompt            string
+	DefaultModel            string
 	MCPDefaultMode          string
 	DefaultMCPToolIDs       []uint
 	DefaultSkillIDs         []uint
@@ -50,6 +53,7 @@ type ConversationProjectPatchInput struct {
 	Name                    *string
 	Description             *string
 	SystemPrompt            *string
+	DefaultModel            *string
 	MCPDefaultMode          *string
 	DefaultMCPToolIDs       *[]uint
 	DefaultSkillIDs         *[]uint
@@ -68,6 +72,7 @@ func (s *Service) CreateConversationProject(ctx context.Context, userID uint, in
 	if err = s.validateConversationProjectDefaults(
 		ctx,
 		userID,
+		normalized.DefaultModel,
 		normalized.MCPDefaultMode,
 		normalized.DefaultMCPToolIDs,
 		normalized.DefaultSkillIDs,
@@ -82,6 +87,7 @@ func (s *Service) CreateConversationProject(ctx context.Context, userID uint, in
 		Name:                    normalized.Name,
 		Description:             normalized.Description,
 		SystemPrompt:            normalized.SystemPrompt,
+		DefaultModel:            normalized.DefaultModel,
 		MCPDefaultMode:          normalized.MCPDefaultMode,
 		DefaultMCPToolIDs:       normalized.DefaultMCPToolIDs,
 		DefaultSkillIDs:         normalized.DefaultSkillIDs,
@@ -459,7 +465,7 @@ func (s *Service) UpdateConversationProject(
 	if err != nil {
 		return nil, err
 	}
-	if patch.MCPDefaultMode != nil || patch.DefaultMCPToolIDs != nil || patch.DefaultSkillIDs != nil || patch.DefaultKnowledgeBaseIDs != nil {
+	if patch.DefaultModel != nil || patch.MCPDefaultMode != nil || patch.DefaultMCPToolIDs != nil || patch.DefaultSkillIDs != nil || patch.DefaultKnowledgeBaseIDs != nil {
 		current, currentErr := s.repo.GetConversationProjectByPublicID(ctx, userID, strings.TrimSpace(publicID))
 		if currentErr != nil {
 			if errors.Is(currentErr, repository.ErrNotFound) {
@@ -467,10 +473,14 @@ func (s *Service) UpdateConversationProject(
 			}
 			return nil, currentErr
 		}
+		defaultModel := current.DefaultModel
 		mode := current.MCPDefaultMode
 		mcpToolIDs := current.DefaultMCPToolIDs
 		skillIDs := current.DefaultSkillIDs
 		knowledgeBaseIDs := current.DefaultKnowledgeBaseIDs
+		if patch.DefaultModel != nil {
+			defaultModel = *patch.DefaultModel
+		}
 		if patch.MCPDefaultMode != nil {
 			mode = *patch.MCPDefaultMode
 		}
@@ -486,7 +496,7 @@ func (s *Service) UpdateConversationProject(
 		if mode == model.ConversationProjectMCPDefaultModeInherit {
 			mcpToolIDs = []uint{}
 		}
-		if err = s.validateConversationProjectDefaults(ctx, userID, mode, mcpToolIDs, skillIDs, knowledgeBaseIDs, current); err != nil {
+		if err = s.validateConversationProjectDefaults(ctx, userID, defaultModel, mode, mcpToolIDs, skillIDs, knowledgeBaseIDs, current); err != nil {
 			return nil, err
 		}
 		patch.MCPDefaultMode = &mode
@@ -620,6 +630,7 @@ func normalizeConversationProjectInput(input ConversationProjectInput) (Conversa
 		Name:                    strings.TrimSpace(input.Name),
 		Description:             strings.TrimSpace(input.Description),
 		SystemPrompt:            strings.TrimSpace(input.SystemPrompt),
+		DefaultModel:            strings.TrimSpace(input.DefaultModel),
 		MCPDefaultMode:          mcpDefaultMode,
 		DefaultMCPToolIDs:       uniqueToolIDs(input.DefaultMCPToolIDs),
 		DefaultSkillIDs:         normalizeSelectedSkillIDs(input.DefaultSkillIDs),
@@ -638,6 +649,7 @@ func normalizeConversationProjectInput(input ConversationProjectInput) (Conversa
 	}
 	if exceedsRuneLimit(normalized.Description, conversationProjectDescriptionMaxChars) ||
 		exceedsRuneLimit(normalized.SystemPrompt, conversationProjectSystemPromptMaxChars) ||
+		exceedsRuneLimit(normalized.DefaultModel, conversationProjectModelMaxChars) ||
 		exceedsRuneLimit(normalized.Color, conversationProjectMetaMaxChars) ||
 		exceedsRuneLimit(normalized.Icon, conversationProjectMetaMaxChars) {
 		return ConversationProjectInput{}, ErrInvalidConversationProject
@@ -667,6 +679,13 @@ func normalizeConversationProjectPatch(input ConversationProjectPatchInput) (mod
 			return model.ConversationProjectPatch{}, ErrInvalidConversationProject
 		}
 		patch.SystemPrompt = &value
+	}
+	if input.DefaultModel != nil {
+		value := strings.TrimSpace(*input.DefaultModel)
+		if exceedsRuneLimit(value, conversationProjectModelMaxChars) {
+			return model.ConversationProjectPatch{}, ErrInvalidConversationProject
+		}
+		patch.DefaultModel = &value
 	}
 	if input.MCPDefaultMode != nil {
 		value := normalizeConversationProjectMCPDefaultMode(*input.MCPDefaultMode)
@@ -711,7 +730,7 @@ func normalizeConversationProjectPatch(input ConversationProjectPatchInput) (mod
 		}
 		patch.Status = &value
 	}
-	if patch.Name == nil && patch.Description == nil && patch.SystemPrompt == nil && patch.MCPDefaultMode == nil &&
+	if patch.Name == nil && patch.Description == nil && patch.SystemPrompt == nil && patch.DefaultModel == nil && patch.MCPDefaultMode == nil &&
 		patch.DefaultMCPToolIDs == nil && patch.DefaultSkillIDs == nil && patch.DefaultKnowledgeBaseIDs == nil && patch.Color == nil && patch.Icon == nil && patch.Status == nil {
 		return model.ConversationProjectPatch{}, ErrInvalidConversationProject
 	}
@@ -722,6 +741,7 @@ func normalizeConversationProjectPatch(input ConversationProjectPatchInput) (mod
 func (s *Service) validateConversationProjectDefaults(
 	ctx context.Context,
 	userID uint,
+	defaultModel string,
 	mcpDefaultMode string,
 	mcpToolIDs []uint,
 	skillIDs []uint,
@@ -730,6 +750,17 @@ func (s *Service) validateConversationProjectDefaults(
 ) error {
 	if normalizeConversationProjectMCPDefaultMode(mcpDefaultMode) == "" {
 		return ErrInvalidConversationProject
+	}
+	normalizedDefaultModel := strings.TrimSpace(defaultModel)
+	defaultModelChanged := current == nil || normalizedDefaultModel != strings.TrimSpace(current.DefaultModel)
+	if defaultModelChanged && normalizedDefaultModel != "" {
+		available, err := s.isAvailableConversationProjectDefaultModel(ctx, userID, normalizedDefaultModel)
+		if err != nil {
+			return err
+		}
+		if !available {
+			return ErrInvalidConversationProject
+		}
 	}
 	mcpSelectionChanged := current == nil ||
 		mcpDefaultMode != current.MCPDefaultMode ||
@@ -834,6 +865,24 @@ func (s *Service) validateConversationProjectDefaults(
 		}
 	}
 	return nil
+}
+
+func (s *Service) isAvailableConversationProjectDefaultModel(ctx context.Context, userID uint, platformModelName string) (bool, error) {
+	resolver, ok := s.routeResolver.(activeModelCatalogResolver)
+	if !ok {
+		return false, nil
+	}
+	models, err := resolver.ListActiveModels(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	name := strings.TrimSpace(platformModelName)
+	for _, item := range models {
+		if strings.TrimSpace(item.PlatformModelName) == name && channel.ModelSupportsTask(item.KindsJSON, channel.TaskTypeChat) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func newProjectDefaultPublicIDs(selectedIDs []string, existingIDs []string) []string {

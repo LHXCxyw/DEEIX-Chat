@@ -19,6 +19,6 @@ type ConversationRepository interface {
 	FileEmbeddingArtifactsRepository
 	EmbeddingRepository
 	RAGRepository
-	FileProcessingRepository
+	FileProcessingStatusRepository
 	ConversationSettingsRepository
 }

@@ -8,6 +8,7 @@ import { authedFetch, authedRequest } from "@/shared/api/authed-client";
 import type { PagePayload } from "@/shared/api/common.types";
 import type {
   ActiveConversationRunEvent,
+  ConversationRunStatusDTO,
   BatchSetConversationProjectRequest,
   BatchSetConversationProjectResult,
   ContextArtifactDTO,
@@ -131,6 +132,15 @@ export async function deleteProjectFile(accessToken: string, projectID: string, 
 }
 
 type RawTraceBlock = MessageTraceBlockResponse;
+
+export const TEMPORARY_CHAT_MAX_ATTACHMENTS = 20;
+export const TEMPORARY_CHAT_MAX_IMAGE_ATTACHMENTS = 10;
+
+export type TemporaryChatRequestAttachment = {
+  file: File;
+  messageIndex: number;
+  kind: "file" | "image";
+};
 
 type RawProcessTrace = Omit<
   MessageProcessTraceResponse,
@@ -386,7 +396,7 @@ function handleStreamEvent(event: StreamMessageEvent, options: ConversationStrea
     }
   }
 
-  throw new ApiError(event.message || "stream failed", responseStatus, event.debug, event.errorCode);
+  throw new ApiError(event.message || "stream failed", event.status ?? responseStatus, event.debug, event.errorCode);
 }
 
 type ListConversationsOptions = {
@@ -888,6 +898,31 @@ export async function listConversationRuns(
   };
 }
 
+export async function getConversationRunStatuses(
+  accessToken: string,
+  runIDs: string[],
+  signal?: AbortSignal,
+): Promise<ConversationRunStatusDTO[]> {
+  const normalizedRunIDs = Array.from(new Set(runIDs.map((runID) => runID.trim()).filter(Boolean)));
+  if (normalizedRunIDs.length === 0) {
+    return [];
+  }
+  const requests: Promise<ConversationRunStatusDTO[]>[] = [];
+  for (let index = 0; index < normalizedRunIDs.length; index += 100) {
+    requests.push(authedRequest<ConversationRunStatusDTO[]>(
+      "/api/v1/conversation-runs/statuses",
+      {
+        method: "POST",
+        accessToken,
+        body: { runIDs: normalizedRunIDs.slice(index, index + 100) },
+        signal,
+      },
+      true,
+    ));
+  }
+  return (await Promise.all(requests)).flat();
+}
+
 export async function streamActiveConversationRuns(
   accessToken: string,
   options: {
@@ -1231,14 +1266,28 @@ async function postMessageStream<TPayload>(
   options: ConversationStreamOptions,
   cache?: RequestCache,
 ): Promise<SendMessageResult> {
-  const response = await authedFetch(endpoint, {
+  return postMessageStreamRequest(accessToken, endpoint, {
     method: "POST",
-    accessToken,
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
     signal: options.signal,
+  }, options, cache);
+}
+
+async function postMessageStreamRequest(
+  accessToken: string,
+  endpoint: string,
+  request: RequestInit,
+  options: ConversationStreamOptions,
+  cache?: RequestCache,
+): Promise<SendMessageResult> {
+  const { signal, ...requestWithoutSignal } = request;
+  const response = await authedFetch(endpoint, {
+    ...requestWithoutSignal,
+    accessToken,
+    signal: signal ?? undefined,
     cache,
   }, true);
 
@@ -1293,7 +1342,29 @@ export async function streamTemporaryChatMessage(
   accessToken: string,
   payload: TemporaryChatMessageRequest,
   options: ConversationStreamOptions = {},
+  attachments: TemporaryChatRequestAttachment[] = [],
 ): Promise<SendMessageResult> {
+  if (attachments.length > TEMPORARY_CHAT_MAX_ATTACHMENTS) {
+    throw new ApiError(`temporary chat supports at most ${TEMPORARY_CHAT_MAX_ATTACHMENTS} attachments`, 400);
+  }
+  if (attachments.filter((item) => item.kind === "image").length > TEMPORARY_CHAT_MAX_IMAGE_ATTACHMENTS) {
+    throw new ApiError(`temporary chat supports at most ${TEMPORARY_CHAT_MAX_IMAGE_ATTACHMENTS} image attachments`, 400);
+  }
+  if (attachments.length > 0) {
+    const body = new FormData();
+    body.append("payload", JSON.stringify(payload));
+    body.append("attachmentMessageIndexes", JSON.stringify(attachments.map((item) => item.messageIndex)));
+    for (const attachment of attachments) {
+      body.append("attachments", attachment.file, attachment.file.name);
+    }
+    return postMessageStreamRequest(
+      accessToken,
+      "/api/v1/temporary-chat/messages/stream",
+      { method: "POST", body, signal: options.signal },
+      options,
+      "no-store",
+    );
+  }
   return postMessageStream(
     accessToken,
     "/api/v1/temporary-chat/messages/stream",

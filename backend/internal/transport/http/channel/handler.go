@@ -771,7 +771,7 @@ func (h *Handler) TestUpstreamModelRoute(c *gin.Context) {
 
 // ListRemoteModels godoc
 // @Summary 管理员预览上游远程模型
-// @Description 调用上游 models 接口，仅返回可导入预览，不直接落库
+// @Description 调用上游 models 接口，返回可导入模型与目录变更预览，不直接落库
 // @Tags llm
 // @Accept json
 // @Produce json
@@ -809,15 +809,18 @@ func (h *Handler) ListRemoteModels(c *gin.Context) {
 
 // SyncUpstreamModels godoc
 // @Summary 管理员同步上游模型目录
-// @Description 调用上游 models 接口写入上游真实模型清单，不自动绑定平台模型
+// @Description 调用上游 models 接口获取完整目录，原子更新远端管理模型可用状态，不删除平台模型或路由配置
 // @Tags llm
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "上游ID"
+// @Param allow_empty query bool false "确认允许空模型目录对账"
+// @Param expected_snapshot query string false "用户确认的远端目录快照标识"
 // @Success 200 {object} SyncUpstreamModelsResponseDoc
 // @Failure 400 {object} ErrorDoc
 // @Failure 404 {object} ErrorDoc
+// @Failure 409 {object} ErrorDoc
 // @Failure 502 {object} ErrorDoc
 // @Failure 500 {object} ErrorDoc
 // @Router /admin/llm/upstreams/{id}/models/sync [post]
@@ -828,7 +831,10 @@ func (h *Handler) SyncUpstreamModels(c *gin.Context) {
 		return
 	}
 
-	data, err := h.service.SyncUpstreamModels(c.Request.Context(), upstreamID)
+	data, err := h.service.SyncUpstreamModels(c.Request.Context(), upstreamID, appchannel.SyncUpstreamModelsInput{
+		AllowEmpty:       c.Query("allow_empty") == "true",
+		ExpectedSnapshot: c.Query("expected_snapshot"),
+	})
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUpstreamNotFound):
@@ -837,6 +843,10 @@ func (h *Handler) SyncUpstreamModels(c *gin.Context) {
 			response.Error(c, http.StatusBadRequest, "no active api key")
 		case errors.Is(err, appchannel.ErrRemoteModelsUnavailable):
 			response.Error(c, http.StatusBadGateway, "remote models unavailable")
+		case errors.Is(err, appchannel.ErrEmptyRemoteModels):
+			response.ErrorWithCode(c, http.StatusConflict, "llm.remote_models_empty_confirmation_required", "remote models snapshot is empty")
+		case errors.Is(err, appchannel.ErrRemoteModelsSnapshotChanged):
+			response.ErrorWithCode(c, http.StatusConflict, "llm.remote_models_snapshot_changed", "remote models snapshot changed")
 		default:
 			response.Error(c, http.StatusInternalServerError, "sync upstream models failed")
 		}

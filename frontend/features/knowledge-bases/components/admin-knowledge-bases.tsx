@@ -8,19 +8,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -203,6 +204,20 @@ export function AdminKnowledgeBases({ page }: { page: KnowledgeBasesPageModel })
           ))}
         </TableBody>
       </Table>
+      {list.hasMore ? (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-muted-foreground"
+            disabled={list.loadingMore}
+            onClick={() => void list.loadMore()}
+          >
+            {list.loadingMore ? <Spinner className="size-3" /> : t("loadMore")}
+          </Button>
+        </div>
+      ) : null}
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="flex h-[min(78dvh,720px)] max-h-[min(78dvh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[920px]">
@@ -220,12 +235,19 @@ export function AdminKnowledgeBases({ page }: { page: KnowledgeBasesPageModel })
             loadingMore={detail.filesLoadingMore}
             removingFileID={detail.removingFileID}
             toggling={detail.toggling}
+            selectedFileIDs={detail.selectedFileIDs}
+            vectorizingFileIDs={detail.vectorizingFileIDs}
             onBack={() => setDetailOpen(false)}
             onAddFiles={detail.addFiles}
             onLoadMore={detail.loadMoreFiles}
             onRemoveFile={detail.removeFile}
             onToggleEnabled={detail.toggleBuiltinEnabled}
             onPreviewFile={detail.previewFile}
+            onToggleFileSelection={detail.toggleFileSelection}
+            onSelectVectorizableFiles={detail.selectVectorizableFiles}
+            onClearFileSelection={detail.clearFileSelection}
+            onVectorizeFile={detail.vectorizeFile}
+            onVectorizeSelectedFiles={detail.vectorizeSelectedFiles}
           />
         </DialogContent>
       </Dialog>

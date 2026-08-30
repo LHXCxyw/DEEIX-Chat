@@ -6,6 +6,7 @@ import (
 
 	appcompact "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/compact"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/background"
 )
 
 // postBillingCompactionTask 保存主调用结算后执行上下文压缩所需的运行信息。
@@ -92,10 +93,10 @@ func (s *Service) runPostBillingTasks(input SendMessageBillingInput) {
 		// 异步任务只读取请求完成时的快照，不能继续持有 handler 正在返回的结果对象。
 		result := *input.Result
 		input.Result = &result
-		go func() {
+		background.Go(s.logger, "post_billing_compaction", func() {
 			s.runPostBillingCompaction(task, &result.AssistantMessage)
 			s.scheduleConversationMetadataAfterBilling(input)
-		}()
+		})
 		return
 	}
 	s.runPostBillingCompaction(task, &input.Result.AssistantMessage)

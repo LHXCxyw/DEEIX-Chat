@@ -505,6 +505,25 @@
       "title": "Billing mode",
       "value": "Self-use mode"
     },
+    "activity": {
+      "title": "Activity over the past year",
+      "tokens": "Tokens",
+      "requests": "Requests",
+      "peakDayTokens": "Highest daily tokens",
+      "currentStreak": "Current streak",
+      "longestStreak": "Longest streak",
+      "totalActiveDays": "Active days",
+      "dayCount": "{count, plural, one {# day} other {# days}}",
+      "totalRequests": "Made {count} model requests in the past year",
+      "less": "Less",
+      "more": "More",
+      "empty": "No activity in the past year",
+      "loadFailed": "Failed to load activity",
+      "tooltip": {
+        "requests": "Requests",
+        "tokens": "Tokens"
+      }
+    },
     "usageTrend": {
       "dailyTitle": "Daily usage trend",
       "monthlyTitle": "Monthly usage trend",

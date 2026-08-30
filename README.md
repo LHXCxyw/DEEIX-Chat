@@ -49,7 +49,7 @@ This repository is a personal fork and secondary development project based on [D
 - **In-chat code editing**: Opened files become editor tabs next to the chat tab, powered by Monaco with syntax highlighting, language-service completion, word wrap, localized context menus, and per-round change cards with merged cumulative diffs.
 - **Sandboxed HTML preview**: Render HTML/SVG files in an isolated iframe with workspace-relative assets inlined, while scripts stay unable to touch application data.
 
-![DEEIX Chat workspace](./frontend/public/DEEIX-Chat.jpg)
+![DEEIX Chat workspace](./docs/assets/screenshots/DEEIX-Chat.jpg)
 
 ## Features
 

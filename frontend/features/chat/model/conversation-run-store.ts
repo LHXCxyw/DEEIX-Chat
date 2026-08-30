@@ -3,9 +3,15 @@ export type ConversationRunSnapshot = {
   conversationPublicID: string;
 };
 
+// local 记录连续缺席权威快照超过该时长后视为失效并移除。
+// 需大于「本地注册到服务端登记完成」的竞态窗口，小于用户可感知的卡死时长。
+const LOCAL_RUN_SNAPSHOT_MISS_TTL_MS = 15_000;
+
 type ConversationRunRecord = {
   conversationPublicID: string;
   status: "local" | "detached" | "server" | "settled";
+  // local 记录首次缺席权威快照的时间戳；再次命中快照后清除。
+  missingFromSnapshotSince?: number;
 };
 
 type Listener = () => void;
@@ -148,6 +154,7 @@ export class ConversationRunStore {
       }
     }
 
+    const now = Date.now();
     this.mutate(() => {
       for (const [runID, record] of this.records) {
         const serverOwner = snapshotRunOwners.get(runID);
@@ -169,7 +176,30 @@ export class ConversationRunStore {
           continue;
         }
         if (record.status === "detached" && serverOwner) {
-          this.records.set(runID, { ...record, status: "server" });
+          this.records.set(runID, {
+            conversationPublicID: record.conversationPublicID,
+            status: "server",
+          });
+          continue;
+        }
+        if (record.status === "local") {
+          if (serverOwner) {
+            if (record.missingFromSnapshotSince !== undefined) {
+              this.records.set(runID, {
+                conversationPublicID: record.conversationPublicID,
+                status: "local",
+              });
+            }
+            continue;
+          }
+          // 服务端从未登记该运行（提交失败、流挂死等）时，本地记录会持续缺席快照。
+          // 超时后移除，避免侧边栏加载指示永久卡住；竞态窗口内的缺席不受影响。
+          const missingSince = record.missingFromSnapshotSince ?? now;
+          if (now - missingSince >= LOCAL_RUN_SNAPSHOT_MISS_TTL_MS) {
+            this.records.delete(runID);
+          } else if (record.missingFromSnapshotSince === undefined) {
+            this.records.set(runID, { ...record, missingFromSnapshotSince: now });
+          }
         }
       }
 

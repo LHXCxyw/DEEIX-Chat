@@ -18,6 +18,7 @@ type CreateConversationProjectRequest struct {
 	Name                    string   `json:"name" binding:"required,max=80"`
 	Description             string   `json:"description,omitempty" binding:"max=255"`
 	SystemPrompt            string   `json:"systemPrompt,omitempty" binding:"max=12000"`
+	DefaultModel            string   `json:"defaultModel,omitempty" binding:"max=128"`
 	MCPDefaultMode          string   `json:"mcpDefaultMode,omitempty" binding:"omitempty,oneof=inherit custom"`
 	DefaultMCPToolIDs       []uint   `json:"defaultMCPToolIDs,omitempty" binding:"max=128"`
 	DefaultSkillIDs         []uint   `json:"defaultSkillIDs,omitempty" binding:"max=128"`
@@ -31,6 +32,7 @@ type UpdateConversationProjectRequest struct {
 	Name                    *string   `json:"name,omitempty" binding:"omitempty,max=80"`
 	Description             *string   `json:"description,omitempty" binding:"omitempty,max=255"`
 	SystemPrompt            *string   `json:"systemPrompt,omitempty" binding:"omitempty,max=12000"`
+	DefaultModel            *string   `json:"defaultModel,omitempty" binding:"omitempty,max=128"`
 	MCPDefaultMode          *string   `json:"mcpDefaultMode,omitempty" binding:"omitempty,oneof=inherit custom"`
 	DefaultMCPToolIDs       *[]uint   `json:"defaultMCPToolIDs,omitempty" binding:"omitempty,max=128"`
 	DefaultSkillIDs         *[]uint   `json:"defaultSkillIDs,omitempty" binding:"omitempty,max=128"`
@@ -97,6 +99,21 @@ type UpdateFileRequest struct {
 	RagOptOut *bool   `json:"ragOptOut,omitempty"`
 }
 
+// GetFileProcessingStatusesRequest 批量文件处理状态查询请求。
+type GetFileProcessingStatusesRequest struct {
+	FileIDs []string `json:"fileIDs" binding:"required,min=1,max=100,dive,required,max=64"`
+}
+
+// SubmitFileEmbeddingsRequest 批量提交文件向量化请求。
+type SubmitFileEmbeddingsRequest struct {
+	FileIDs []string `json:"fileIDs" binding:"required,min=1,max=100,dive,required,max=64"`
+}
+
+// GetConversationRunStatusesRequest 批量运行状态查询请求。
+type GetConversationRunStatusesRequest struct {
+	RunIDs []string `json:"runIDs" binding:"required,min=1,max=100,dive,required,max=64"`
+}
+
 // SendMessageRequest 发送消息请求。
 type SendMessageRequest struct {
 	ContentType             string                 `json:"contentType" binding:"required,oneof=text markdown image file mixed"`
@@ -117,7 +134,7 @@ type SendMessageRequest struct {
 }
 
 // TemporaryChatMessageRequest 是仅在当前页面内维护的临时对话请求。
-// 历史正文由浏览器逐轮提交，服务端不创建会话或消息记录。
+// 历史正文和请求级附件由浏览器逐轮提交，服务端不创建会话、消息或文件记录。
 type TemporaryChatMessageRequest struct {
 	SessionID        string                        `json:"sessionID" binding:"required,max=64"`
 	ClientRunID      string                        `json:"clientRunID" binding:"required,max=64"`
@@ -130,10 +147,10 @@ type TemporaryChatMessageRequest struct {
 	Messages         []TemporaryChatHistoryMessage `json:"messages" binding:"required,min=1,max=100,dive"`
 }
 
-// TemporaryChatHistoryMessage 是临时对话可提交的纯文本消息。
+// TemporaryChatHistoryMessage 是临时对话可提交的消息。
 type TemporaryChatHistoryMessage struct {
 	Role    string `json:"role" binding:"required,oneof=user assistant"`
-	Content string `json:"content" binding:"required,max=200000"`
+	Content string `json:"content" binding:"max=200000"`
 }
 
 // MediaImageRequest 图片生成/编辑请求。

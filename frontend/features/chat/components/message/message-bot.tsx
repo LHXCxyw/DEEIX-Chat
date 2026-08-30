@@ -1,9 +1,9 @@
 "use client";
 
 import { ChevronDown, CircleAlert, FileCode2, FileDiff, Film, FolderArchive, GalleryHorizontalEnd, Trash2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import * as React from "react";
-import { GrainientBackground } from "@/components/reactbits/backgrounds/grainient";
 import {
   Accordion,
   AccordionContent,
@@ -37,9 +37,9 @@ import { projectChanges, type ProjectChange } from "@/features/chat/components/s
 import { isUpstreamStreamingDebugBody, summarizeUpstreamError } from "@/features/chat/utils/chat-runtime";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cn } from "@/lib/utils";
-import { type FileContentResult, fetchFileContent } from "@/shared/api/file";
+import { fetchFileContent } from "@/shared/api/file";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import type { PreviewDialogFile } from "@/shared/components/file-preview/preview-dialog";
+import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
 import { PreviewMedia } from "@/shared/components/file-preview/preview-media";
 import { type MarkdownArtifactActions, MarkdownImage } from "@/shared/components/markdown/streamdown-components";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
@@ -47,7 +47,11 @@ import { MediaActionBar, MediaActionButton } from "@/shared/components/media-act
 import { useBranding } from "@/shared/config/branding-provider";
 import type { BillingDisplayCurrency } from "@/shared/lib/billing-display";
 
-const EMPTY_TRACE_EVENTS: NonNullable<ChatAreaMessage["processTrace"]>["events"] = [];
+const EMPTY_TRACE_EVENTS: NonNullable<NonNullable<ChatAreaMessage["processTrace"]>["events"]> = [];
+const GrainientBackground = dynamic(
+  () => import("@/components/reactbits/backgrounds/grainient").then((mod) => mod.GrainientBackground),
+  { ssr: false, loading: () => null },
+);
 
 function isEditableImageAttachment(attachment: MessageAttachment): boolean {
   const mimeType = attachment.mimeType.toLowerCase();
@@ -157,7 +161,7 @@ type ChatMessageBotProps = {
   billingDisplayCurrency?: BillingDisplayCurrency;
   billingDisplayUsdToCnyRate?: number | null;
   readOnly?: boolean;
-  attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
+  attachmentContentLoader?: FileContentLoader;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onExtendVideoAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onOpenProjectChange?: (change: ProjectChange) => void;
@@ -684,7 +688,12 @@ export function AssistantImageGenerationSkeleton({
         <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-muted border-t-foreground/50" />
         {label?.trim() || t("processing")}
       </div>
-      <div className={cn("relative w-full overflow-hidden rounded-xl bg-muted/20 text-primary", aspectClassName)}>
+      <div
+        className={cn(
+          "relative w-full overflow-hidden rounded-xl bg-[linear-gradient(135deg,#BAE6FD_0%,#60A5FA_52%,#A78BFA_100%)] text-primary",
+          aspectClassName,
+        )}
+      >
         <GrainientBackground
           className="absolute inset-0 text-primary/75"
           color1="#BAE6FD"
@@ -715,7 +724,7 @@ export function AssistantVideoGenerationSkeleton({ label }: { label?: string }) 
         <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-muted border-t-foreground/50" />
         {label?.trim() || t("processing")}
       </div>
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-muted/20 text-primary">
+      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-[linear-gradient(135deg,#FDE68A_0%,#FDA4AF_52%,#FB7185_100%)] text-primary">
         <GrainientBackground
           className="absolute inset-0 text-primary/75"
           color1="#FDE68A"
@@ -759,7 +768,7 @@ function MessageInlineVideoPreview({
   onExtend,
 }: {
   attachment: MessageAttachment;
-  loadContent?: (file: PreviewDialogFile) => Promise<FileContentResult>;
+  loadContent?: FileContentLoader;
   onExtend?: () => void;
 }) {
   const tPreview = useTranslations("files.previewDialog");
@@ -791,6 +800,7 @@ function MessageInlineVideoPreview({
 
   React.useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     revokeObjectURL();
 
     if (previewURL) {
@@ -812,18 +822,18 @@ function MessageInlineVideoPreview({
           sizeBytes,
         };
         const result = loadContent
-          ? await loadContent(file)
+          ? await loadContent(file, controller.signal)
           : await (async () => {
               const token = await resolveAccessToken();
               if (!token) {
                 throw new Error(tPreview("sessionExpired"));
               }
-              return fetchFileContent(token, fileID);
+              return fetchFileContent(token, fileID, controller.signal);
             })();
         const objectURL = URL.createObjectURL(result.blob);
         objectURLRef.current = objectURL;
 
-        if (cancelled) {
+        if (cancelled || controller.signal.aborted) {
           URL.revokeObjectURL(objectURL);
           if (objectURLRef.current === objectURL) {
             objectURLRef.current = null;
@@ -837,7 +847,7 @@ function MessageInlineVideoPreview({
           contentType: result.contentType || detectedMime || mimeType,
         });
       } catch (error) {
-        if (cancelled) {
+        if (cancelled || controller.signal.aborted) {
           return;
         }
         setState({ status: "error", message: resolveErrorMessage(error, tPreview("loadFailed")) });
@@ -846,6 +856,7 @@ function MessageInlineVideoPreview({
 
     return () => {
       cancelled = true;
+      controller.abort();
       revokeObjectURL();
     };
   }, [

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	appembedding "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/embedding"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
@@ -50,6 +51,25 @@ func (s *Service) ListFiles(
 	sortBy string,
 ) (*appupload.ListFilesResult, error) {
 	return s.uploadSvc.ListFiles(ctx, userID, page, pageSize, searchQuery, filterKind, sortBy)
+}
+
+// SubmitFileEmbeddings 提交当前用户指定文件的向量化任务。
+func (s *Service) SubmitFileEmbeddings(ctx context.Context, userID uint, fileIDs []string) (appembedding.TargetedSubmissionResult, error) {
+	if s.processingSvc == nil {
+		return appembedding.TargetedSubmissionResult{}, appembedding.ErrEmbeddingServiceNotConfigured
+	}
+	return s.processingSvc.SubmitFileEmbeddings(ctx, userID, fileIDs)
+}
+
+// ResolveFileVectorizationCapabilities 返回文件显式向量化能力的后端事实状态。
+func (s *Service) ResolveFileVectorizationCapabilities(
+	ctx context.Context,
+	files []model.FileObject,
+) map[string]appembedding.FileVectorizationCapability {
+	if s.processingSvc == nil {
+		return map[string]appembedding.FileVectorizationCapability{}
+	}
+	return s.processingSvc.ResolveFileVectorizationCapabilities(ctx, files)
 }
 
 // UploadFile 上传文件并扣减用户配额。

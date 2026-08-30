@@ -49,7 +49,7 @@ DEEIX Chat 是一款开源可部署的 AI 平台，面向需要长期、稳定�
 - **对话内代码编辑**：打开的文件以标签页形式与聊天标签并列，基于 Monaco 提供语法高亮、语言服务补全、自动换行、本地化右键菜单，并配合每轮变更卡片展示同文件多次修改的累计合并 Diff。
 - **沙箱 HTML 预览**：HTML/SVG 文件可在隔离 iframe 中实时预览，工作区相对路径资源自动内联，预览脚本无法访问应用数据。
 
-![DEEIX Chat 工作区](../frontend/public/DEEIX-Chat.jpg)
+![DEEIX Chat 工作区](./assets/screenshots/DEEIX-Chat.jpg)
 
 ## 核心能力
 

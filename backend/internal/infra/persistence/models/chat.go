@@ -37,6 +37,7 @@ type ConversationProject struct {
 	Name           string `gorm:"size:80;not null;default:'';comment:项目名称"`
 	Description    string `gorm:"size:255;not null;default:'';comment:项目描述"`
 	SystemPrompt   string `gorm:"type:text;not null;default:'';comment:项目级系统提示词"`
+	DefaultModel   string `gorm:"size:128;not null;default:'';comment:项目新会话默认平台模型；空值表示继承全局默认"`
 	MCPDefaultMode string `gorm:"size:16;not null;default:'inherit';comment:MCP默认模式(inherit/custom)"`
 	Color          string `gorm:"size:32;not null;default:'';comment:项目颜色"`
 	Icon           string `gorm:"size:32;not null;default:'';comment:项目图标"`
@@ -217,7 +218,7 @@ type FileObject struct {
 	OCRUsed                bool       `gorm:"not null;default:false;comment:是否使用OCR"`
 	RAGReady               bool       `gorm:"not null;default:false;comment:RAG是否就绪"`
 	RAGReason              string     `gorm:"size:255;not null;default:'';comment:RAG处理说明"`
-	EmbedStatus            string     `gorm:"size:16;not null;default:'none';index:idx_file_objects_embed_status;comment:向量嵌入状态(none/processing/ready/stale/failed)"`
+	EmbedStatus            string     `gorm:"size:16;not null;default:'none';index:idx_file_objects_embed_status;comment:向量嵌入状态(none/queued/processing/ready/stale/failed)"`
 	EmbedSignature         string     `gorm:"size:64;not null;default:'';index:idx_file_objects_embed_signature;comment:当前向量任务所属空间签名"`
 	EmbedError             string     `gorm:"type:text;not null;default:'';comment:嵌入失败原因"`
 	PageCount              int        `gorm:"not null;default:0;comment:PDF页数"`
@@ -225,6 +226,7 @@ type FileObject struct {
 	ExtractorVersion       string     `gorm:"size:32;not null;default:'';comment:提取器版本"`
 	ExtractedAt            *time.Time `gorm:"comment:文本提取完成时间"`
 	ProcessingPayloadJSON  string     `gorm:"type:text;not null;default:'';comment:文件处理扩展负载JSON"`
+	ProcessingAttemptID    string     `gorm:"size:64;not null;default:'';comment:当前文件处理执行令牌"`
 	ProcessingStartedAt    *time.Time `gorm:"comment:处理开始时间"`
 	ProcessingCompletedAt  *time.Time `gorm:"comment:处理完成时间"`
 	RagOptOut              bool       `gorm:"not null;default:false;comment:用户是否关闭此文件的RAG检索"`
@@ -337,6 +339,8 @@ type ChatRunEvent struct {
 	Seq              int        `gorm:"not null;default:0;index:idx_chat_run_events_seq;comment:事件顺序"`
 	ToolCallID       string     `gorm:"size:255;not null;default:'';index:idx_chat_run_events_tool_call_id;comment:工具调用ID"`
 	ToolName         string     `gorm:"size:128;not null;default:'';index:idx_chat_run_events_tool_name;comment:工具名称"`
+	MCPServerID      uint       `gorm:"not null;default:0;comment:MCP服务器ID快照(非MCP调用为0)"`
+	MCPServerName    string     `gorm:"size:128;not null;default:'';comment:MCP服务器名称快照"`
 	LatencyMS        int64      `gorm:"not null;default:0;comment:调用时长毫秒"`
 	InputJSON        string     `gorm:"type:text;not null;default:'';comment:输入JSON"`
 	OutputJSON       string     `gorm:"type:text;not null;default:'';comment:输出JSON"`

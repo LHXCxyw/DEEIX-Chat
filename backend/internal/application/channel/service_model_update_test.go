@@ -9,6 +9,7 @@ import (
 	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/cache/memory"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
@@ -632,6 +633,129 @@ func modelProtocolSource(routeID uint, upstreamID uint, upstreamModelID uint, pr
 	}
 }
 
+func TestReconcileRemoteModelSnapshotSoftlyReconcilesManagedCatalog(t *testing.T) {
+	repo := &modelUpdateRepo{upstreamModels: map[string]domainchannel.UpstreamModel{
+		"returning": {
+			ID: 1, UpstreamID: 9, BindingCode: "returning-code", UpstreamModelName: "returning", Status: "inactive", Source: "import",
+		},
+		"manual-model": {
+			ID: 2, UpstreamID: 9, BindingCode: "manual-code", UpstreamModelName: "manual-model", Status: "inactive", Source: "manual",
+		},
+		"removed": {
+			ID: 3, UpstreamID: 9, BindingCode: "removed-code", UpstreamModelName: "removed", Status: "active", Source: "sync",
+		},
+	}}
+	service := NewService(config.Config{}, repo, repo, nil, nil)
+	result, err := service.reconcileRemoteModelSnapshot(t.Context(), &domainchannel.Upstream{
+		ID: 9, Name: "test", Compatible: "openai", BaseURL: "https://example.com",
+	}, []llm.ModelItem{
+		{ID: " new-model ", OwnedBy: "openai"},
+		{ID: "returning", OwnedBy: "openai"},
+		{ID: "manual-model", OwnedBy: "custom"},
+		{ID: "new-model", OwnedBy: "duplicate"},
+		{ID: " "},
+	}, false)
+	if err != nil {
+		t.Fatalf("reconcile snapshot: %v", err)
+	}
+	if result.TotalUpstream != 3 || result.CreatedUpstreamModels != 1 || result.ExistingUpstreamModels != 2 {
+		t.Fatalf("unexpected sync counts: %+v", result)
+	}
+	if result.ReactivatedModels != 1 || result.ProtectedUpstreamModels != 1 || result.InactivatedModels != 1 {
+		t.Fatalf("unexpected availability counts: %+v", result)
+	}
+	if result.UpdatedUpstreamModels != 0 || result.UnchangedUpstreamModels != 0 {
+		t.Fatalf("expected exclusive catalog categories, got %+v", result)
+	}
+	if categorized := result.CreatedUpstreamModels + result.UpdatedUpstreamModels + result.ReactivatedModels + result.UnchangedUpstreamModels + result.ProtectedUpstreamModels; categorized != result.TotalUpstream {
+		t.Fatalf("categorized remote models = %d, want %d", categorized, result.TotalUpstream)
+	}
+	if got := repo.upstreamModels["returning"]; got.Status != "active" || got.Source != "sync" {
+		t.Fatalf("expected legacy imported model to be restored and migrated, got %+v", got)
+	}
+	if got := repo.upstreamModels["manual-model"]; got.Status != "inactive" || got.Source != "manual" {
+		t.Fatalf("expected manual model to remain untouched, got %+v", got)
+	}
+	if got := repo.upstreamModels["removed"]; got.Status != "inactive" {
+		t.Fatalf("expected missing managed model to be inactive, got %+v", got)
+	}
+}
+
+func TestReconcileRemoteModelSnapshotRequiresConfirmationForEmptyCatalog(t *testing.T) {
+	repo := &modelUpdateRepo{upstreamModels: map[string]domainchannel.UpstreamModel{
+		"existing": {ID: 1, UpstreamID: 9, UpstreamModelName: "existing", Status: "active", Source: "sync"},
+	}}
+	service := NewService(config.Config{}, repo, repo, nil, nil)
+	upstream := &domainchannel.Upstream{ID: 9}
+
+	if _, err := service.reconcileRemoteModelSnapshot(t.Context(), upstream, nil, false); !errors.Is(err, ErrEmptyRemoteModels) {
+		t.Fatalf("expected empty snapshot error, got %v", err)
+	}
+	if repo.catalogApplyCalls != 0 {
+		t.Fatalf("empty snapshot changed data without confirmation")
+	}
+
+	result, err := service.reconcileRemoteModelSnapshot(t.Context(), upstream, nil, true)
+	if err != nil {
+		t.Fatalf("confirmed empty snapshot: %v", err)
+	}
+	if result.InactivatedModels != 1 || repo.upstreamModels["existing"].Status != "inactive" {
+		t.Fatalf("expected confirmed empty snapshot to deactivate managed catalog, got %+v", result)
+	}
+}
+
+func TestBuildUpstreamModelSyncPlanSeparatesCatalogActions(t *testing.T) {
+	upstream := &domainchannel.Upstream{ID: 9, Name: "test", Compatible: "openai", BaseURL: "https://example.com"}
+	unchangedItem := llm.ModelItem{ID: "unchanged", OwnedBy: "openai"}
+	unchangedKinds := inferKindsJSON(unchangedItem.ID)
+	unchangedProtocol, err := resolveRouteProtocol("", upstream.Compatible, upstream.ProtocolDefaultsJSON, unchangedKinds)
+	if err != nil {
+		t.Fatalf("resolve unchanged protocol: %v", err)
+	}
+	unchanged := *syncedUpstreamModel(upstream, unchangedItem, "unchanged-code", nil, unchangedProtocol, unchangedKinds)
+	unchanged.ID = 1
+	updated := unchanged
+	updated.ID = 2
+	updated.BindingCode = "updated-code"
+	updated.UpstreamModelName = "updated"
+	updated.Vendor = "stale-vendor"
+	updated.RawJSON = `{}`
+
+	plan, err := buildUpstreamModelSyncPlan(
+		upstream,
+		[]llm.ModelItem{
+			{ID: "added", OwnedBy: "openai"},
+			{ID: "manual", OwnedBy: "custom"},
+			{ID: "reactivated", OwnedBy: "openai"},
+			unchangedItem,
+			{ID: "updated", OwnedBy: "openai"},
+		},
+		[]domainchannel.UpstreamModel{
+			unchanged,
+			updated,
+			{ID: 3, UpstreamID: 9, BindingCode: "reactivated-code", UpstreamModelName: "reactivated", Status: "inactive", Source: "sync"},
+			{ID: 4, UpstreamID: 9, BindingCode: "removed-code", UpstreamModelName: "removed", Status: "active", Source: "sync"},
+		},
+		map[string]repositoryUpstreamModelSnapshot{
+			"manual": {BindingCode: "manual-code", Status: "active"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("build sync plan: %v", err)
+	}
+	if !reflect.DeepEqual(plan.AddedModels, []string{"added"}) ||
+		!reflect.DeepEqual(plan.UpdatedModels, []string{"updated"}) ||
+		!reflect.DeepEqual(plan.ReactivatedModels, []string{"reactivated"}) ||
+		!reflect.DeepEqual(plan.InactivatedModels, []string{"removed"}) ||
+		!reflect.DeepEqual(plan.UnchangedModels, []string{"unchanged"}) ||
+		!reflect.DeepEqual(plan.ProtectedModels, []string{"manual"}) {
+		t.Fatalf("unexpected sync plan: %+v", plan)
+	}
+	if remoteModelsSnapshotID([]llm.ModelItem{{ID: "a"}}) == remoteModelsSnapshotID([]llm.ModelItem{{ID: "b"}}) {
+		t.Fatal("different remote snapshots produced the same identifier")
+	}
+}
+
 type modelUpdateRepo struct {
 	model                    domainchannel.PlatformModel
 	upstream                 domainchannel.Upstream
@@ -654,6 +778,8 @@ type modelUpdateRepo struct {
 	breakerDefaults          domainchannel.BreakerDefaults
 	llmSetting               domainchannel.LLMSetting
 	upsertLLMSettingErr      error
+	upstreamModels           map[string]domainchannel.UpstreamModel
+	catalogApplyCalls        int
 }
 
 func (r *modelUpdateRepo) WithinTransaction(ctx context.Context, fn func(repository.ChannelRepository) error) error {
@@ -788,11 +914,24 @@ func (r *modelUpdateRepo) GetActiveModelByName(context.Context, string) (*domain
 	return nil, repository.ErrNotFound
 }
 
+func (r *modelUpdateRepo) GetActiveRoutableModelKindsJSON(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
+
 func (r *modelUpdateRepo) ListModels(context.Context, repository.ListChannelModelsInput) ([]repository.ChannelModelListRow, int64, error) {
 	return r.modelRows, int64(len(r.modelRows)), nil
 }
 
-func (r *modelUpdateRepo) UpsertUpstreamModel(context.Context, *domainchannel.UpstreamModel) error {
+func (r *modelUpdateRepo) UpsertUpstreamModel(_ context.Context, item *domainchannel.UpstreamModel) error {
+	if r.upstreamModels != nil {
+		stored := *item
+		if existing, ok := r.upstreamModels[item.UpstreamModelName]; ok {
+			stored.ID = existing.ID
+		} else if stored.ID == 0 {
+			stored.ID = uint(len(r.upstreamModels) + 1)
+		}
+		r.upstreamModels[item.UpstreamModelName] = stored
+	}
 	return nil
 }
 
@@ -804,24 +943,71 @@ func (r *modelUpdateRepo) GetUpstreamModelByID(context.Context, uint, uint) (*do
 	return nil, repository.ErrNotFound
 }
 
-func (r *modelUpdateRepo) GetUpstreamModelByUpstreamName(context.Context, uint, string) (*domainchannel.UpstreamModel, error) {
-	return nil, repository.ErrNotFound
+func (r *modelUpdateRepo) GetUpstreamModelByUpstreamName(_ context.Context, upstreamID uint, name string) (*domainchannel.UpstreamModel, error) {
+	if item, ok := r.upstreamModels[name]; ok && item.UpstreamID == upstreamID {
+		result := item
+		return &result, nil
+	}
+	return nil, ErrUpstreamModelNotFound
 }
 
 func (r *modelUpdateRepo) DeleteUpstreamModel(context.Context, uint, uint) error {
 	return nil
 }
 
-func (r *modelUpdateRepo) MarkMissingSyncedUpstreamModelsInactive(context.Context, uint, []string) (int64, error) {
-	return 0, nil
+func (r *modelUpdateRepo) ListManagedUpstreamModels(_ context.Context, upstreamID uint) ([]domainchannel.UpstreamModel, error) {
+	items := make([]domainchannel.UpstreamModel, 0)
+	for _, item := range r.upstreamModels {
+		if item.UpstreamID == upstreamID && (item.Source == "sync" || item.Source == "import") {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
+func (r *modelUpdateRepo) ApplyUpstreamModelCatalogChanges(_ context.Context, upstreamID uint, input repository.ApplyUpstreamModelCatalogChangesInput) (int64, error) {
+	r.catalogApplyCalls++
+	for _, item := range input.Create {
+		stored := item
+		if stored.ID == 0 {
+			stored.ID = uint(len(r.upstreamModels) + 1)
+		}
+		r.upstreamModels[stored.UpstreamModelName] = stored
+	}
+	for _, item := range input.Update {
+		r.upstreamModels[item.UpstreamModelName] = item
+	}
+	inactiveIDs := make(map[uint]struct{}, len(input.InactivateIDs))
+	for _, id := range input.InactivateIDs {
+		inactiveIDs[id] = struct{}{}
+	}
+	var count int64
+	for name, item := range r.upstreamModels {
+		if item.UpstreamID != upstreamID || item.Status != "active" || (item.Source != "sync" && item.Source != "import") {
+			continue
+		}
+		if _, exists := inactiveIDs[item.ID]; !exists {
+			continue
+		}
+		item.Status = "inactive"
+		r.upstreamModels[name] = item
+		count++
+	}
+	return count, nil
 }
 
 func (r *modelUpdateRepo) ListUpstreamModels(context.Context, uint, repository.ListChannelUpstreamModelsInput) ([]repository.ChannelUpstreamModelListRow, int64, error) {
 	return nil, 0, nil
 }
 
-func (r *modelUpdateRepo) ListUpstreamModelsByNames(context.Context, uint, []string) ([]repository.ChannelUpstreamModelListRow, error) {
-	return nil, nil
+func (r *modelUpdateRepo) ListUpstreamModelsByNames(_ context.Context, upstreamID uint, names []string) ([]repository.ChannelUpstreamModelListRow, error) {
+	items := make([]repository.ChannelUpstreamModelListRow, 0)
+	for _, name := range names {
+		if item, exists := r.upstreamModels[name]; exists && item.UpstreamID == upstreamID {
+			items = append(items, repository.ChannelUpstreamModelListRow{UpstreamModel: item})
+		}
+	}
+	return items, nil
 }
 
 func (r *modelUpdateRepo) GetUpstreamModelRouteByID(context.Context, uint, uint) (*repository.ChannelUpstreamModelListRow, error) {

@@ -927,7 +927,7 @@ export function ModelsTable({
       });
 
       if (!inlineSourcesRef.current[item.id]) {
-        const loadingEntry = { items: [], loading: true };
+        const loadingEntry: InlineSourceEntry = { items: [], loading: true };
         inlineSourcesRef.current = {
           ...inlineSourcesRef.current,
           [item.id]: loadingEntry,
@@ -939,7 +939,7 @@ export function ModelsTable({
         try {
           await refreshInlineSources(item.id);
         } catch {
-          const failedEntry = { items: [], loading: false };
+          const failedEntry: InlineSourceEntry = { items: [], loading: false };
           inlineSourcesRef.current = {
             ...inlineSourcesRef.current,
             [item.id]: failedEntry,

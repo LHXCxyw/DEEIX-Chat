@@ -33,6 +33,9 @@ const (
 	defaultHTTPReadTimeoutSeconds       = 120
 	defaultHTTPIdleTimeoutSeconds       = 120
 	defaultHTTPMaxHeaderBytes           = 1 << 20
+	// defaultHTTPShutdownTimeoutSeconds 是优雅关停排空 in-flight 请求的默认窗口。
+	// 容器编排下应小于 terminationGracePeriodSeconds，为强断兜底与资源释放留余量。
+	defaultHTTPShutdownTimeoutSeconds = 10
 	// DefaultFileFullContextMaxBytes 是全文注入的默认提取文本大小上限（2 MiB）。
 	DefaultFileFullContextMaxBytes int64 = 2 * 1024 * 1024
 
@@ -237,6 +240,7 @@ type yamlConfig struct {
 		ReadTimeoutSeconds       int    `yaml:"read_timeout_seconds"`
 		IdleTimeoutSeconds       int    `yaml:"idle_timeout_seconds"`
 		MaxHeaderBytes           int    `yaml:"max_header_bytes"`
+		ShutdownTimeoutSeconds   int    `yaml:"shutdown_timeout_seconds"`
 	} `yaml:"server"`
 	Security struct {
 		JWTSecret              string `yaml:"jwt_secret"`
@@ -339,6 +343,7 @@ type Config struct {
 	HTTPReadTimeoutSeconds       int
 	HTTPIdleTimeoutSeconds       int
 	HTTPMaxHeaderBytes           int
+	HTTPShutdownTimeoutSeconds   int
 	JWTSecret                    string
 	DataEncryptionKey            string
 	SSRFProtectionEnabled        bool
@@ -590,6 +595,7 @@ func Load() Config {
 		HTTPReadTimeoutSeconds:       envOrInt("HTTP_READ_TIMEOUT_SECONDS", yc.Server.ReadTimeoutSeconds, defaultHTTPReadTimeoutSeconds),
 		HTTPIdleTimeoutSeconds:       envOrInt("HTTP_IDLE_TIMEOUT_SECONDS", yc.Server.IdleTimeoutSeconds, defaultHTTPIdleTimeoutSeconds),
 		HTTPMaxHeaderBytes:           envOrInt("HTTP_MAX_HEADER_BYTES", yc.Server.MaxHeaderBytes, defaultHTTPMaxHeaderBytes),
+		HTTPShutdownTimeoutSeconds:   envOrInt("HTTP_SHUTDOWN_TIMEOUT_SECONDS", yc.Server.ShutdownTimeoutSeconds, defaultHTTPShutdownTimeoutSeconds),
 		JWTSecret:                    envOr("JWT_SECRET", yc.Security.JWTSecret, defaultJWTSecret),
 		DataEncryptionKey:            envOr("DATA_ENCRYPTION_KEY", yc.Security.DataEncryptionKey, defaultDataEncryptionKey),
 		SSRFProtectionEnabled:        envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, false),

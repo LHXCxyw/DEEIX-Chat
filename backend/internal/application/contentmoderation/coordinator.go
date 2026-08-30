@@ -154,12 +154,57 @@ func (c *RunCoordinator) EnqueueInputImages(ctx context.Context, fileIDs []strin
 	if len(raw) == 0 {
 		return
 	}
+	c.enqueueInputImageSources(raw, keptFiles, selected)
+}
+
+// EnqueueInputImageSources queues request-scoped image bytes without requiring
+// persisted file records. Ephemeral chat uses this path so its images follow the
+// same moderation policy while remaining outside the user file library.
+func (c *RunCoordinator) EnqueueInputImageSources(images []OutputImageSource) {
+	if c == nil {
+		return
+	}
+	selected := c.cfg.Policy.CategoriesFor(domaincm.DirectionInput, domaincm.ModalityImage)
+	if len(selected) == 0 || len(images) == 0 {
+		return
+	}
+	seenSHA := make(map[string]struct{})
+	raw := make([]OutputImageSource, 0, len(images))
+	fileIDs := make([]string, 0, len(images))
+	for _, image := range images {
+		if len(image.Data) == 0 {
+			c.recordSurfaceFailure(domaincm.DirectionInput, domaincm.ModalityImage, image.FileID, ErrModerationInvalidResp)
+			continue
+		}
+		sha := strings.TrimSpace(image.SHA256)
+		if sha != "" {
+			if _, exists := seenSHA[sha]; exists {
+				continue
+			}
+			seenSHA[sha] = struct{}{}
+		}
+		fileID := strings.TrimSpace(image.FileID)
+		raw = append(raw, OutputImageSource{
+			FileID:   fileID,
+			Data:     append([]byte(nil), image.Data...),
+			MimeType: strings.TrimSpace(image.MimeType),
+			SHA256:   sha,
+		})
+		fileIDs = append(fileIDs, fileID)
+	}
+	if len(raw) == 0 {
+		return
+	}
+	c.enqueueInputImageSources(raw, fileIDs, selected)
+}
+
+func (c *RunCoordinator) enqueueInputImageSources(raw []OutputImageSource, fileIDs []string, selected []string) {
 	c.startTask(&moderationTask{
 		Coord:     c,
 		Direction: domaincm.DirectionInput,
 		Modality:  domaincm.ModalityImage,
 		RawImages: raw,
-		FileIDs:   keptFiles,
+		FileIDs:   fileIDs,
 		Selected:  selected,
 		Location:  domaincm.ContentLocation{Field: "user_attachments"},
 		// Input hits must isolate but not revoke user library files.

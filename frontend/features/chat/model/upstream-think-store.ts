@@ -160,6 +160,6 @@ export function useLiveUpstreamThinkTrace(runID: string | null | undefined) {
   return React.useSyncExternalStore(
     React.useCallback((listener) => subscribe(key, listener), [key]),
     React.useCallback(() => readLiveUpstreamThinkTrace(key), [key]),
-    () => undefined,
+    (): undefined => undefined,
   );
 }

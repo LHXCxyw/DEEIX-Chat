@@ -220,6 +220,7 @@ func TestConversationProjectDefaultsRoundTripAndDelete(t *testing.T) {
 		UserID:                  1,
 		PublicID:                "project_defaults",
 		Name:                    "Project defaults",
+		DefaultModel:            "model-a",
 		MCPDefaultMode:          domainconversation.ConversationProjectMCPDefaultModeCustom,
 		DefaultMCPToolIDs:       []uint{7, 3},
 		DefaultSkillIDs:         []uint{11, 5},
@@ -239,7 +240,8 @@ func TestConversationProjectDefaultsRoundTripAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConversationProjectByPublicID() error = %v", err)
 	}
-	if loaded.MCPDefaultMode != domainconversation.ConversationProjectMCPDefaultModeCustom ||
+	if loaded.DefaultModel != "model-a" ||
+		loaded.MCPDefaultMode != domainconversation.ConversationProjectMCPDefaultModeCustom ||
 		!reflect.DeepEqual(loaded.DefaultMCPToolIDs, []uint{7, 3}) ||
 		!reflect.DeepEqual(loaded.DefaultSkillIDs, []uint{11, 5}) ||
 		!reflect.DeepEqual(loaded.DefaultKnowledgeBaseIDs, []string{"kb_default_two", "kb_default_one"}) {
@@ -269,8 +271,10 @@ func TestConversationProjectDefaultsRoundTripAndDelete(t *testing.T) {
 	nextMCPToolIDs := []uint{}
 	nextSkillIDs := []uint{5}
 	nextKnowledgeBaseIDs := []string{"kb_default_one"}
+	nextDefaultModel := "model-b"
 	inheritMode := domainconversation.ConversationProjectMCPDefaultModeInherit
 	updated, err := repo.UpdateConversationProjectMetadataByPublicID(ctx, 1, project.PublicID, domainconversation.ConversationProjectPatch{
+		DefaultModel:            &nextDefaultModel,
 		MCPDefaultMode:          &inheritMode,
 		DefaultMCPToolIDs:       &nextMCPToolIDs,
 		DefaultSkillIDs:         &nextSkillIDs,
@@ -279,7 +283,7 @@ func TestConversationProjectDefaultsRoundTripAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateConversationProjectMetadataByPublicID() error = %v", err)
 	}
-	if updated.MCPDefaultMode != inheritMode || len(updated.DefaultMCPToolIDs) != 0 ||
+	if updated.DefaultModel != nextDefaultModel || updated.MCPDefaultMode != inheritMode || len(updated.DefaultMCPToolIDs) != 0 ||
 		!reflect.DeepEqual(updated.DefaultSkillIDs, nextSkillIDs) ||
 		!reflect.DeepEqual(updated.DefaultKnowledgeBaseIDs, nextKnowledgeBaseIDs) {
 		t.Fatalf("updated project defaults = %#v", updated)

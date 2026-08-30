@@ -2,6 +2,7 @@ package channel
 
 import (
 	"errors"
+	"time"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
@@ -15,6 +16,8 @@ var (
 	ErrRouteNotFound = errors.New("route not found")
 	// ErrAllRoutesUnavailable 所有候选路由暂时不可用。
 	ErrAllRoutesUnavailable = errors.New("all routes unavailable")
+	// ErrAllRoutesRateLimited 所有可用候选路由都处于短期限流退避中。
+	ErrAllRoutesRateLimited = errors.New("all routes rate limited")
 	// ErrCircuitBreakerDisabled 全局模型熔断功能未开启。
 	ErrCircuitBreakerDisabled = errors.New("circuit breaker is disabled")
 	// ErrDuplicatePlatformModelName 平台模型名重复。
@@ -93,6 +96,10 @@ var (
 	ErrUpstreamSourceUnavailable = errors.New("upstream source unavailable")
 	// ErrRemoteModelsUnavailable 上游远程模型目录不可用。
 	ErrRemoteModelsUnavailable = errors.New("remote models unavailable")
+	// ErrEmptyRemoteModels 上游返回空模型目录，必须显式确认后才允许对账。
+	ErrEmptyRemoteModels = errors.New("remote models snapshot is empty")
+	// ErrRemoteModelsSnapshotChanged 表示确认后远端目录已变化，必须重新预览。
+	ErrRemoteModelsSnapshotChanged = errors.New("remote models snapshot changed")
 	// ErrNoActiveKey 无可用密钥。
 	ErrNoActiveKey = errors.New("no active api key")
 	// ErrLLMSettingNotFound LLM 全局设置不存在。
@@ -105,3 +112,16 @@ var (
 	ErrInvalidBaseURL            = errors.New("无效的BaseURL格式")
 	ErrAPIKeysRequired           = errors.New("至少需要一个API Key")
 )
+
+// RoutesRateLimitedError 携带全部候选路由恢复前的最短等待时间。
+type RoutesRateLimitedError struct {
+	RetryAfter time.Duration
+}
+
+func (e *RoutesRateLimitedError) Error() string {
+	return ErrAllRoutesRateLimited.Error()
+}
+
+func (e *RoutesRateLimitedError) Unwrap() error {
+	return ErrAllRoutesRateLimited
+}

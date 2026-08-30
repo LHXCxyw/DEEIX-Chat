@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, Check, Search } from "lucide-react";
+import { BookOpen, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { listAllVisibleKnowledgeBases } from "@/shared/api/knowledge-bases";
+import { listVisibleKnowledgeBases } from "@/shared/api/knowledge-bases";
 import type { KnowledgeBaseDTO } from "@/shared/api/knowledge-bases.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
@@ -19,12 +19,14 @@ const MAX_SELECTED_KNOWLEDGE_BASES = 8;
 
 export function ChatKnowledgeBases({
   selectedIDs,
+  placementPreference,
   disabled,
   available,
   unavailableReason,
   onChange,
 }: {
   selectedIDs: string[];
+  placementPreference: "top" | "bottom";
   disabled: boolean;
   available: boolean | null;
   unavailableReason: string;
@@ -33,12 +35,14 @@ export function ChatKnowledgeBases({
   const t = useTranslations("chat.composer");
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  const [loadingMore, setLoadingMore] = React.useState(false);
   const [items, setItems] = React.useState<KnowledgeBaseDTO[]>([]);
+  const [page, setPage] = React.useState(1);
+  const [total, setTotal] = React.useState(0);
   const [query, setQuery] = React.useState("");
-  const mountedRef = React.useRef(true);
   const openRef = React.useRef(open);
-  const loadingRef = React.useRef(false);
-  const loadedRef = React.useRef(false);
+  const requestVersionRef = React.useRef(0);
+  const requestControllerRef = React.useRef<AbortController | null>(null);
   const selectedIDsRef = React.useRef(selectedIDs);
   const onChangeRef = React.useRef(onChange);
   const translationRef = React.useRef(t);
@@ -48,44 +52,78 @@ export function ChatKnowledgeBases({
   onChangeRef.current = onChange;
   translationRef.current = t;
 
-  const loadCatalog = React.useCallback(async (force = false) => {
-    if (loadingRef.current || (loadedRef.current && !force)) return;
-    loadingRef.current = true;
-    setLoading(true);
+  const loadCatalog = React.useCallback(async (nextQuery: string, nextPage = 1) => {
+    const requestVersion = ++requestVersionRef.current;
+    requestControllerRef.current?.abort();
+    const requestController = new AbortController();
+    requestControllerRef.current = requestController;
+    if (nextPage === 1) setLoading(true);
+    else setLoadingMore(true);
     try {
       const token = await resolveAccessToken();
+      if (requestController.signal.aborted) return;
       if (!token) throw new Error("missing access token");
-      const results = await listAllVisibleKnowledgeBases(token);
-      if (!mountedRef.current) return;
-      loadedRef.current = true;
-      setItems(results);
+      const [catalog, selected] = await Promise.all([
+        listVisibleKnowledgeBases(token, {
+          query: nextQuery,
+          page: nextPage,
+          pageSize: 50,
+        }, requestController.signal),
+        nextPage === 1 && selectedIDsRef.current.length > 0
+          ? listVisibleKnowledgeBases(token, {
+              ids: selectedIDsRef.current.slice(0, MAX_SELECTED_KNOWLEDGE_BASES),
+              pageSize: MAX_SELECTED_KNOWLEDGE_BASES,
+            }, requestController.signal)
+          : Promise.resolve({ results: [], total: 0 }),
+      ]);
+      if (requestController.signal.aborted || requestVersionRef.current !== requestVersion) return;
+      setItems((current) => {
+        const next = nextPage === 1 ? catalog.results.slice() : [...current, ...catalog.results];
+        const seen = new Set(next.map((item) => item.publicID));
+        for (const item of selected.results) {
+          if (!seen.has(item.publicID)) next.push(item);
+        }
+        return next;
+      });
+      setPage(nextPage);
+      setTotal(catalog.total);
 
       const readyIDs = new Set(
-        results.filter((item) => item.readyFileCount > 0).map((item) => item.publicID),
+        selected.results.filter((item) => item.readyFileCount > 0).map((item) => item.publicID),
       );
       const currentIDs = selectedIDsRef.current;
-      const nextIDs = currentIDs.filter((id) => readyIDs.has(id));
-      if (nextIDs.length !== currentIDs.length) onChangeRef.current(nextIDs);
+      if (nextPage === 1 && currentIDs.length > 0) {
+        const nextIDs = currentIDs.filter((id) => readyIDs.has(id));
+        if (nextIDs.length !== currentIDs.length) onChangeRef.current(nextIDs);
+      }
     } catch {
-      if (mountedRef.current && openRef.current) {
+      if (!requestController.signal.aborted && openRef.current && requestVersionRef.current === requestVersion) {
         toast.error(translationRef.current("knowledgeBaseLoadFailed"));
       }
     } finally {
-      if (mountedRef.current) setLoading(false);
-      loadingRef.current = false;
+      if (requestControllerRef.current === requestController) {
+        requestControllerRef.current = null;
+      }
+      if (!requestController.signal.aborted && requestVersionRef.current === requestVersion) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, []);
 
   React.useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
+    return () => requestControllerRef.current?.abort();
   }, []);
 
   React.useEffect(() => {
-    if (selectedIDs.length > 0) void loadCatalog();
-  }, [loadCatalog, selectedIDs.length]);
+    if (!open) return;
+    setLoading(true);
+    const timer = window.setTimeout((): void => void loadCatalog(query.trim(), 1), 200);
+    return () => {
+      window.clearTimeout(timer);
+      requestControllerRef.current?.abort();
+    };
+  }, [loadCatalog, open, query]);
 
   React.useEffect(() => {
     if (available === false && selectedIDs.length > 0) {
@@ -94,7 +132,7 @@ export function ChatKnowledgeBases({
   }, [available, onChange, selectedIDs.length]);
 
   const selectedSet = React.useMemo(() => new Set(selectedIDs), [selectedIDs]);
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredItems = normalizedQuery
     ? items.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(normalizedQuery))
     : items;
@@ -125,8 +163,9 @@ export function ChatKnowledgeBases({
     <Popover open={open} onOpenChange={(nextOpen) => {
       setOpen(nextOpen);
       openRef.current = nextOpen;
-      if (nextOpen) void loadCatalog(true);
       if (!nextOpen) {
+        requestControllerRef.current?.abort();
+        requestControllerRef.current = null;
         setQuery("");
       }
     }}>
@@ -162,8 +201,31 @@ export function ChatKnowledgeBases({
         </TooltipContent>
       </Tooltip>
 
-      <PopoverContent side="bottom" align="start" sideOffset={8} className="w-[min(22rem,calc(100vw-2rem))] p-1.5">
-        <div className="flex items-center justify-between gap-3 px-2 pb-1.5 text-[11px] font-medium text-foreground/70">
+      <PopoverContent
+        side={placementPreference}
+        align="start"
+        sideOffset={8}
+        avoidCollisions={false}
+        collisionPadding={8}
+        data-knowledge-bases-popover-content
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-1rem))] flex-col p-1.5"
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDownOutside={(event) => {
+          const target = event.target as HTMLElement | null;
+          if (target?.closest("[data-knowledge-bases-popover-content]")) {
+            event.preventDefault();
+          }
+        }}
+        onFocusOutside={(event) => {
+          const target = event.target as HTMLElement | null;
+          if (target?.closest("[data-knowledge-bases-popover-content]")) {
+            event.preventDefault();
+          }
+        }}
+      >
+        <div className="flex h-7 shrink-0 items-center justify-between gap-3 px-2 text-[11px] font-medium text-foreground/70">
           <span>{t("knowledgeBases")}</span>
           {selectedIDs.length > 0 ? (
             <button
@@ -176,22 +238,22 @@ export function ChatKnowledgeBases({
           ) : null}
         </div>
         {available === false ? (
-          <p className="mb-1.5 rounded-md bg-muted/55 px-2 py-2 text-[11px] leading-4 text-muted-foreground">
+          <p className="mx-1 mb-1 shrink-0 rounded-md bg-muted/45 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground dark:bg-muted/35">
             {unavailableDescription}
           </p>
         ) : null}
-        <div className="relative mx-1 mb-1.5">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" strokeWidth={1.7} />
+        <div className="mx-1 mb-1 shrink-0">
           <Input
             value={query}
             placeholder={t("searchKnowledgeBases")}
-            className="h-8 pl-8 text-xs"
+            className="h-7 border-0 bg-muted/45 px-2.5 text-xs shadow-none dark:bg-muted/35"
             onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => event.stopPropagation()}
           />
         </div>
-        <div className="max-h-64 space-y-0.5 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-8"><Spinner className="size-4" /></div>
+        <div className="min-h-0 max-h-72 space-y-0.5 overflow-y-auto px-0.5">
+          {loading && items.length === 0 ? (
+            <div className="flex items-center justify-center py-6"><Spinner className="size-4" /></div>
           ) : filteredItems.length > 0 ? filteredItems.map((item) => {
             const selected = selectedSet.has(item.publicID);
             const ready = item.readyFileCount > 0;
@@ -199,8 +261,10 @@ export function ChatKnowledgeBases({
               <button
                 key={item.publicID}
                 type="button"
-                className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+                data-selected={selected}
+                className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-foreground/80 transition-colors hover:bg-accent hover:text-accent-foreground data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
                 disabled={available === false || (!ready && !selected)}
+                aria-pressed={selected}
                 onClick={() => {
                   if (selected) {
                     onChange(selectedIDs.filter((id) => id !== item.publicID));
@@ -213,21 +277,34 @@ export function ChatKnowledgeBases({
                   onChange([...selectedIDs, item.publicID]);
                 }}
               >
-                <BookOpen className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.6} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium">{item.name}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {ready
-                      ? t("knowledgeBaseReadyFiles", { count: item.readyFileCount })
-                      : t("knowledgeBaseNotReady")}
-                  </span>
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  {selected ? (
+                    <Check className="size-3.5 shrink-0 text-primary" strokeWidth={1.8} />
+                  ) : (
+                    <BookOpen className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.6} />
+                  )}
+                  <span className="truncate text-xs font-medium text-current" title={item.name}>{item.name}</span>
                 </span>
-                <Check className={cn("size-3.5 shrink-0", selected ? "opacity-100" : "opacity-0")} strokeWidth={1.8} />
+                <span className="shrink-0 text-[10px] leading-none tabular-nums text-muted-foreground">
+                  {ready
+                    ? t("knowledgeBaseReadyFiles", { count: item.readyFileCount })
+                    : t("knowledgeBaseNotReady")}
+                </span>
               </button>
             );
           }) : (
-            <p className="px-2 py-8 text-center text-xs text-muted-foreground">{t("knowledgeBaseEmpty")}</p>
+            <p className="px-2 py-6 text-center text-xs text-muted-foreground">{t("knowledgeBaseEmpty")}</p>
           )}
+          {page * 50 < total ? (
+            <button
+              type="button"
+              className="flex h-7 w-full items-center justify-center rounded-md text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none"
+              disabled={loadingMore}
+              onClick={() => void loadCatalog(query.trim(), page + 1)}
+            >
+              {loadingMore ? <Spinner className="size-3" /> : t("knowledgeBaseLoadMore")}
+            </button>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>

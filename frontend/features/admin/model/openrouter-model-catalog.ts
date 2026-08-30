@@ -97,10 +97,11 @@ export function resolveAutomaticModelContextWindow(
   platformModelName: string,
   vendor: string,
 ): number | null {
-  const matchedItem = matchOpenRouterModelCatalogItem(items, platformModelName, vendor);
-  const contextLength = (matchedItem as (AdminOfficialPricingCatalogItemDTO & { contextLength?: number }) | null)
-    ?.contextLength;
-  return Number.isSafeInteger(contextLength) && contextLength >= 4_096 && contextLength <= 16_000_000
+  const contextLength = matchOpenRouterModelCatalogItem(items, platformModelName, vendor)?.contextLength;
+  return typeof contextLength === "number" &&
+    Number.isSafeInteger(contextLength) &&
+    contextLength >= 4_096 &&
+    contextLength <= 16_000_000
     ? contextLength
     : null;
 }

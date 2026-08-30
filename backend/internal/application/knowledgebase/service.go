@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	appembedding "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/embedding"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainknowledgebase "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/knowledgebase"
@@ -29,6 +30,7 @@ type Service struct {
 	fileCleaner  fileCleaner
 	fileOpener   fileContentOpener
 	fileUploader fileUploader
+	fileEmbedder fileEmbeddingSubmitter
 	logger       *zap.Logger
 }
 
@@ -46,6 +48,11 @@ type fileContentOpener interface {
 
 type fileUploader interface {
 	UploadFile(ctx context.Context, input appupload.UploadFileInput) (*appupload.UploadFileResult, error)
+}
+
+type fileEmbeddingSubmitter interface {
+	SubmitFileEmbeddings(ctx context.Context, userID uint, fileIDs []string) (appembedding.TargetedSubmissionResult, error)
+	ResolveFileVectorizationCapabilities(ctx context.Context, files []domainconversation.FileObject) map[string]appembedding.FileVectorizationCapability
 }
 
 // DeleteResult 描述知识库删除及其可选文件清理结果。
@@ -78,9 +85,37 @@ func (s *Service) SetFileUploader(uploader fileUploader) {
 	s.fileUploader = uploader
 }
 
+// SetFileEmbeddingSubmitter 注入平台资料使用的统一向量化队列。
+func (s *Service) SetFileEmbeddingSubmitter(submitter fileEmbeddingSubmitter) {
+	s.fileEmbedder = submitter
+}
+
 // SetLogger 注入结构化日志记录器。
 func (s *Service) SetLogger(logger *zap.Logger) {
 	s.logger = logger
+}
+
+// SubmitPlatformFileEmbeddings 提交指定平台资料的向量化任务。
+// 管理员路由负责角色校验，owner 固定为 0，避免触碰个人文件。
+func (s *Service) SubmitPlatformFileEmbeddings(ctx context.Context, actorUserID uint, fileIDs []string) (appembedding.TargetedSubmissionResult, error) {
+	if actorUserID == 0 {
+		return appembedding.TargetedSubmissionResult{}, ErrInvalidKnowledgeBase
+	}
+	if s.fileEmbedder == nil {
+		return appembedding.TargetedSubmissionResult{}, appembedding.ErrEmbeddingServiceNotConfigured
+	}
+	return s.fileEmbedder.SubmitFileEmbeddings(ctx, 0, fileIDs)
+}
+
+// ResolveFileVectorizationCapabilities 返回知识库文件显式向量化能力的后端事实状态。
+func (s *Service) ResolveFileVectorizationCapabilities(
+	ctx context.Context,
+	files []domainconversation.FileObject,
+) map[string]appembedding.FileVectorizationCapability {
+	if s.fileEmbedder == nil {
+		return map[string]appembedding.FileVectorizationCapability{}
+	}
+	return s.fileEmbedder.ResolveFileVectorizationCapabilities(ctx, files)
 }
 
 // AuditInput 描述知识库审计写入。
@@ -106,6 +141,8 @@ func (s *Service) RecordAudit(ctx context.Context, input AuditInput) {
 // ListInput 定义知识库列表入参。
 type ListInput struct {
 	Query    string
+	Sort     string
+	IDs      []string
 	Enabled  *bool
 	Page     int
 	PageSize int
@@ -133,8 +170,12 @@ func (s *Service) ListVisible(ctx context.Context, userID uint, input ListInput)
 		return nil, 0, ErrInvalidKnowledgeBase
 	}
 	offset, limit := normalizePage(input.Page, input.PageSize)
+	publicIDs := normalizePublicIDs(input.IDs, maxKnowledgeBasesPerRequest)
+	if len(input.IDs) > 0 && len(publicIDs) == 0 {
+		return []domainknowledgebase.KnowledgeBase{}, 0, nil
+	}
 	return s.repo.ListKnowledgeBases(ctx, repository.KnowledgeBaseListFilter{
-		Query: strings.TrimSpace(input.Query), VisibleUserID: &userID,
+		Query: strings.TrimSpace(input.Query), Sort: strings.TrimSpace(input.Sort), PublicIDs: publicIDs, VisibleUserID: &userID,
 	}, offset, limit)
 }
 
@@ -144,16 +185,24 @@ func (s *Service) ListMine(ctx context.Context, userID uint, input ListInput) ([
 		return nil, 0, ErrInvalidKnowledgeBase
 	}
 	offset, limit := normalizePage(input.Page, input.PageSize)
+	publicIDs := normalizePublicIDs(input.IDs, maxKnowledgeBasesPerRequest)
+	if len(input.IDs) > 0 && len(publicIDs) == 0 {
+		return []domainknowledgebase.KnowledgeBase{}, 0, nil
+	}
 	return s.repo.ListKnowledgeBases(ctx, repository.KnowledgeBaseListFilter{
-		Query: strings.TrimSpace(input.Query), Scope: domainknowledgebase.ScopeUser, OwnerUserID: &userID, Enabled: input.Enabled,
+		Query: strings.TrimSpace(input.Query), Sort: strings.TrimSpace(input.Sort), PublicIDs: publicIDs, Scope: domainknowledgebase.ScopeUser, OwnerUserID: &userID, Enabled: input.Enabled,
 	}, offset, limit)
 }
 
 // ListAdminBuiltin 查询管理员内置知识库。
 func (s *Service) ListAdminBuiltin(ctx context.Context, input ListInput) ([]domainknowledgebase.KnowledgeBase, int64, error) {
 	offset, limit := normalizePage(input.Page, input.PageSize)
+	publicIDs := normalizePublicIDs(input.IDs, maxKnowledgeBasesPerRequest)
+	if len(input.IDs) > 0 && len(publicIDs) == 0 {
+		return []domainknowledgebase.KnowledgeBase{}, 0, nil
+	}
 	return s.repo.ListKnowledgeBases(ctx, repository.KnowledgeBaseListFilter{
-		Query: strings.TrimSpace(input.Query), Scope: domainknowledgebase.ScopeBuiltin, Enabled: input.Enabled,
+		Query: strings.TrimSpace(input.Query), Sort: strings.TrimSpace(input.Sort), PublicIDs: publicIDs, Scope: domainknowledgebase.ScopeBuiltin, Enabled: input.Enabled,
 	}, offset, limit)
 }
 
@@ -166,7 +215,19 @@ func (s *Service) GetVisible(ctx context.Context, userID uint, publicID string) 
 	if err != nil {
 		return nil, err
 	}
-	if !item.Enabled || (item.Scope != domainknowledgebase.ScopeBuiltin && (item.Scope != domainknowledgebase.ScopeUser || item.OwnerUserID != userID)) {
+	if !isVisibleToUser(item, userID) {
+		return nil, ErrKnowledgeBaseNotFound
+	}
+	return item, nil
+}
+
+// GetAdmin 查询管理员可管理的内置知识库。
+func (s *Service) GetAdmin(ctx context.Context, publicID string) (*domainknowledgebase.KnowledgeBase, error) {
+	item, err := s.get(ctx, publicID)
+	if err != nil {
+		return nil, err
+	}
+	if item.Scope != domainknowledgebase.ScopeBuiltin {
 		return nil, ErrKnowledgeBaseNotFound
 	}
 	return item, nil
@@ -308,6 +369,87 @@ func (s *Service) ListAdminFiles(ctx context.Context, publicID string, page int,
 	}
 	offset, limit := normalizePage(page, pageSize)
 	return s.repo.ListKnowledgeBaseFiles(ctx, item.ID, offset, limit)
+}
+
+// GetVisibleFileProcessingStatuses 批量查询当前用户可见知识库内的文件处理状态。
+func (s *Service) GetVisibleFileProcessingStatuses(ctx context.Context, userID uint, publicID string, fileIDs []string) ([]domainconversation.FileObject, error) {
+	if userID == 0 {
+		return nil, ErrInvalidKnowledgeBase
+	}
+	item, err := s.getForAccess(ctx, publicID)
+	if err != nil {
+		return nil, err
+	}
+	if !isVisibleToUser(item, userID) {
+		return nil, ErrKnowledgeBaseNotFound
+	}
+	return s.getFileProcessingStatuses(ctx, item.ID, fileIDs)
+}
+
+// GetVisibleFileProcessingSnapshot 查询当前用户可见知识库的处理状态快照。
+func (s *Service) GetVisibleFileProcessingSnapshot(ctx context.Context, userID uint, publicID string, fileIDs []string) (*domainknowledgebase.KnowledgeBase, []domainconversation.FileObject, error) {
+	if userID == 0 {
+		return nil, nil, ErrInvalidKnowledgeBase
+	}
+	item, err := s.getForAccess(ctx, publicID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !isVisibleToUser(item, userID) {
+		return nil, nil, ErrKnowledgeBaseNotFound
+	}
+	return s.getFileProcessingSnapshot(ctx, item, fileIDs)
+}
+
+// GetAdminFileProcessingStatuses 批量查询内置知识库内的文件处理状态。
+func (s *Service) GetAdminFileProcessingStatuses(ctx context.Context, publicID string, fileIDs []string) ([]domainconversation.FileObject, error) {
+	item, err := s.getForAccess(ctx, publicID)
+	if err != nil {
+		return nil, err
+	}
+	if item.Scope != domainknowledgebase.ScopeBuiltin {
+		return nil, ErrKnowledgeBaseNotFound
+	}
+	return s.getFileProcessingStatuses(ctx, item.ID, fileIDs)
+}
+
+// GetAdminFileProcessingSnapshot 查询内置知识库的处理状态快照。
+func (s *Service) GetAdminFileProcessingSnapshot(ctx context.Context, publicID string, fileIDs []string) (*domainknowledgebase.KnowledgeBase, []domainconversation.FileObject, error) {
+	item, err := s.getForAccess(ctx, publicID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if item.Scope != domainknowledgebase.ScopeBuiltin {
+		return nil, nil, ErrKnowledgeBaseNotFound
+	}
+	return s.getFileProcessingSnapshot(ctx, item, fileIDs)
+}
+
+func (s *Service) getFileProcessingSnapshot(ctx context.Context, item *domainknowledgebase.KnowledgeBase, fileIDs []string) (*domainknowledgebase.KnowledgeBase, []domainconversation.FileObject, error) {
+	ids := normalizePublicIDs(fileIDs, maxFilesPerAddRequest)
+	if len(fileIDs) > 0 && len(ids) == 0 {
+		return nil, nil, ErrInvalidKnowledgeBase
+	}
+	snapshot, err := s.repo.GetKnowledgeBaseFileProcessingSnapshot(ctx, item.ID, ids)
+	if err != nil {
+		return nil, nil, mapRepositoryError(err)
+	}
+	item.FileCount = snapshot.FileCount
+	item.ReadyFileCount = snapshot.ReadyFileCount
+	item.ProcessingFileCount = snapshot.ProcessingFileCount
+	return item, snapshot.Files, nil
+}
+
+func (s *Service) getFileProcessingStatuses(ctx context.Context, knowledgeBaseID uint, fileIDs []string) ([]domainconversation.FileObject, error) {
+	ids := normalizePublicIDs(fileIDs, maxFilesPerAddRequest)
+	if len(ids) == 0 {
+		return nil, ErrInvalidKnowledgeBase
+	}
+	items, err := s.repo.GetKnowledgeBaseFileProcessingStatuses(ctx, knowledgeBaseID, ids)
+	if err != nil {
+		return nil, mapRepositoryError(err)
+	}
+	return items, nil
 }
 
 // ListPlatformFiles 查询平台资料池中的全部有效文件。
@@ -520,6 +662,21 @@ func (s *Service) get(ctx context.Context, publicID string) (*domainknowledgebas
 	return item, nil
 }
 
+func (s *Service) getForAccess(ctx context.Context, publicID string) (*domainknowledgebase.KnowledgeBase, error) {
+	if strings.TrimSpace(publicID) == "" {
+		return nil, ErrInvalidKnowledgeBase
+	}
+	item, err := s.repo.GetKnowledgeBaseAccessByPublicID(ctx, strings.TrimSpace(publicID))
+	if err != nil {
+		return nil, mapRepositoryError(err)
+	}
+	return item, nil
+}
+
+func isVisibleToUser(item *domainknowledgebase.KnowledgeBase, userID uint) bool {
+	return item != nil && item.Enabled && (item.Scope == domainknowledgebase.ScopeBuiltin || (item.Scope == domainknowledgebase.ScopeUser && item.OwnerUserID == userID))
+}
+
 func (s *Service) create(ctx context.Context, item *domainknowledgebase.KnowledgeBase) (*domainknowledgebase.KnowledgeBase, error) {
 	result, err := s.repo.CreateKnowledgeBase(ctx, item)
 	if err != nil {
@@ -598,8 +755,8 @@ func normalizePage(page int, pageSize int) (int, int) {
 	if pageSize <= 0 {
 		pageSize = 20
 	}
-	if pageSize > 100 {
-		pageSize = 100
+	if pageSize > 1000 {
+		pageSize = 1000
 	}
 	return (page - 1) * pageSize, pageSize
 }

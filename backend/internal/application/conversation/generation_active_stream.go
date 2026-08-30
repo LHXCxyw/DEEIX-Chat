@@ -52,6 +52,18 @@ func (s *Service) SubscribeActiveMessageGenerations(
 	return s.generationStreams.subscribeActive(ctx, userID)
 }
 
+// ListActiveMessageGenerations 返回用户当前活跃生成的权威快照。
+// 供长连接周期对账使用：增量事件丢失时客户端可据此自愈失效的运行状态。
+func (s *Service) ListActiveMessageGenerations(
+	ctx context.Context,
+	userID uint,
+) ([]ActiveMessageGeneration, error) {
+	if s == nil || s.generationStreams == nil || userID == 0 {
+		return []ActiveMessageGeneration{}, nil
+	}
+	return s.generationStreams.listActive(ctx, userID)
+}
+
 func (r *generationStreamRegistry) listActive(ctx context.Context, userID uint) ([]ActiveMessageGeneration, error) {
 	if r == nil || r.store == nil || userID == 0 {
 		return []ActiveMessageGeneration{}, nil

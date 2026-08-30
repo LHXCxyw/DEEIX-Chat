@@ -27,7 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { ChatContentWidth } from "@/shared/model/chat-content-width";
-import { useAppearancePreferencesPersistence } from "@/features/settings/hooks/use-appearance-preferences-persistence";
+import { useSettingsAppearancePersistence } from "@/features/settings/hooks/use-settings-appearance-persistence";
 import { useSettingsChat } from "@/features/settings/hooks/use-settings-chat";
 import {
   type ChatFontOption,
@@ -434,7 +434,7 @@ export function SettingsChat() {
   const billingEnabled = billingMode !== "self";
   const chatFont = useChatFontPreference();
   const chatFontWeight = useChatFontWeightPreference();
-  const persistAppearancePreferences = useAppearancePreferencesPersistence();
+  const persistAppearancePreferences = useSettingsAppearancePersistence();
   const [modifierLabel, setModifierLabel] = React.useState<"Command" | "Ctrl">("Ctrl");
   const [modifierShortcut, setModifierShortcut] = React.useState<Exclude<SendShortcut, "enter">>("ctrl_enter");
   const modelOptions = React.useMemo<ModelOption[]>(

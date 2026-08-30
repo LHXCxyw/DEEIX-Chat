@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strings"
@@ -20,10 +21,9 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/userview"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/geoip"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/identityprovider"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/conv"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/token"
+	idpport "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/identityprovider"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/requestmeta"
 	"github.com/google/uuid"
@@ -39,14 +39,26 @@ const accessTokenSessionClockSkew = 2 * time.Minute
 type Service struct {
 	cfg                  *config.Runtime
 	repo                 repository.AuthRepository
-	geoResolver          *geoip.Client
+	geoResolver          GeoResolver
 	subscriptionResolver subscriptionResolver
-	providerHTTPClient   *identityprovider.Client
+	providerHTTPClient   identityProviderClient
 	logger               *zap.Logger
 	storeProvider        appstorage.Provider
 	auditWriter          auditWriter
 	avatarFileValidator  avatarFileValidator
 	providerAuthBridge   repository.ProviderAuthBridgeRepository
+}
+
+// GeoResolver 解析客户端 IP 的地理与网络归属信息。
+// 导出供组合根声明变量：GeoIP 关闭时应传 nil 接口，而不是 typed-nil 指针。
+type GeoResolver interface {
+	Lookup(ctx context.Context, rawIP string) (requestmeta.SessionAuditContext, error)
+}
+
+// identityProviderClient 面向可信端点白名单的身份源 HTTP 客户端。
+type identityProviderClient interface {
+	Get(ctx context.Context, targetURL string, trustedEndpoints []string, headers map[string]string) (idpport.Response, error)
+	PostForm(ctx context.Context, targetURL string, trustedEndpoints []string, form url.Values, headers map[string]string) (idpport.Response, error)
 }
 
 type subscriptionResolver interface {
@@ -69,8 +81,8 @@ type avatarFileValidator interface {
 func NewServiceWithRuntime(
 	cfg *config.Runtime,
 	repo repository.AuthRepository,
-	geoResolver *geoip.Client,
-	providerHTTPClient *identityprovider.Client,
+	geoResolver GeoResolver,
+	providerHTTPClient identityProviderClient,
 ) *Service {
 	return &Service{
 		cfg:                cfg,
@@ -631,9 +643,36 @@ func (s *Service) resolveSessionAuditContext(
 
 	enriched, err := s.geoResolver.Lookup(ctx, normalized.ClientIP)
 	if err != nil {
+		s.warnGeoLookupFailure("audit_context", normalized.ClientIP, err)
 		return normalized
 	}
 	return mergeSessionAuditContext(normalized, enriched)
+}
+
+func (s *Service) warnGeoLookupFailure(stage string, rawIP string, err error) {
+	if err == nil {
+		return
+	}
+	clientIP, parseErr := netip.ParseAddr(strings.TrimSpace(rawIP))
+	if parseErr != nil ||
+		!clientIP.IsGlobalUnicast() ||
+		clientIP.IsPrivate() ||
+		clientIP.IsLoopback() ||
+		clientIP.IsLinkLocalUnicast() {
+		return
+	}
+	reason := "lookup_failed"
+	if errors.Is(err, context.Canceled) {
+		reason = "request_canceled"
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		reason = "timeout"
+	}
+	s.warn(
+		"session_geo_lookup_failed",
+		zap.String("stage", stage),
+		zap.String("reason", reason),
+		zap.String("error_type", fmt.Sprintf("%T", err)),
+	)
 }
 
 // mergeSessionAuditContext 将 enriched 中的地理信息补填到 base 中，仅覆盖 base 的空字段。
@@ -670,24 +709,31 @@ func mergeSessionAuditContext(
 	return result
 }
 
-func sessionActivityInputFromSnapshot(snapshot sessionAuditSnapshot, lastSeenAt time.Time) repository.UpdateSessionActivityInput {
-	return repository.UpdateSessionActivityInput{
-		LastSeenAt:   &lastSeenAt,
-		ClientIP:     &snapshot.ClientIP,
-		UserAgent:    &snapshot.UserAgent,
-		DeviceName:   &snapshot.DeviceName,
-		BrowserName:  &snapshot.BrowserName,
-		OSName:       &snapshot.OSName,
-		DeviceType:   &snapshot.DeviceType,
-		GeoSource:    &snapshot.GeoSource,
-		GeoAccuracy:  &snapshot.GeoAccuracy,
-		CountryCode:  &snapshot.CountryCode,
-		RegionName:   &snapshot.RegionName,
-		CityName:     &snapshot.CityName,
-		TimezoneName: &snapshot.TimezoneName,
-		IPLatitude:   &snapshot.IPLatitude,
-		IPLongitude:  &snapshot.IPLongitude,
+func sessionActivityInputFromSnapshot(
+	snapshot sessionAuditSnapshot,
+	lastSeenAt time.Time,
+	includeGeo bool,
+) repository.UpdateSessionActivityInput {
+	input := repository.UpdateSessionActivityInput{
+		LastSeenAt:  &lastSeenAt,
+		ClientIP:    &snapshot.ClientIP,
+		UserAgent:   &snapshot.UserAgent,
+		DeviceName:  &snapshot.DeviceName,
+		BrowserName: &snapshot.BrowserName,
+		OSName:      &snapshot.OSName,
+		DeviceType:  &snapshot.DeviceType,
 	}
+	if includeGeo {
+		input.GeoSource = &snapshot.GeoSource
+		input.GeoAccuracy = &snapshot.GeoAccuracy
+		input.CountryCode = &snapshot.CountryCode
+		input.RegionName = &snapshot.RegionName
+		input.CityName = &snapshot.CityName
+		input.TimezoneName = &snapshot.TimezoneName
+		input.IPLatitude = &snapshot.IPLatitude
+		input.IPLongitude = &snapshot.IPLongitude
+	}
+	return input
 }
 
 // UpdateProfile 更新当前用户资料。
@@ -871,17 +917,17 @@ func (s *Service) DeleteAccount(
 		return ErrAccountDeleteVerificationRequired
 	}
 	if !containsSecurityVerificationMethod(methods, method) {
-		return fmt.Errorf("verification method is unavailable")
+		return ErrSecurityVerificationMethodUnavailable
 	}
 	normalizedEmail := ""
 	if method == SecurityVerificationMethodEmail {
 		normalizedEmail, err = normalizeRegistrationEmail(item.Email)
 		if err != nil {
-			return fmt.Errorf("user email is invalid")
+			return ErrSecurityVerificationEmailInvalid
 		}
 	}
 	if err = s.verifySecurityCodeWithMethod(ctx, item, method, domainuser.ContactVerificationPurposeAccountDelete, normalizedEmail, code, time.Now()); err != nil {
-		return fmt.Errorf("verification code is invalid or expired")
+		return ErrSecurityVerificationCodeInvalid
 	}
 
 	normalizedAuditCtx := s.resolveSessionAuditContext(ctx, auditCtx)
@@ -1105,8 +1151,9 @@ func (s *Service) Refresh(
 		return nil, err
 	}
 
-	sessionSnapshot := buildSessionAuditSnapshot(normalizedAuditCtx)
-	if err = s.repo.TouchSessionActivity(ctx, userItem.ID, claims.SessionID, sessionActivityInputFromSnapshot(sessionSnapshot, now)); err != nil {
+	sessionSnapshot := buildSessionAuditSnapshotForSession(session, normalizedAuditCtx)
+	includeGeo := sessionClientIPChanged(session, normalizedAuditCtx) || sessionAuditContextHasGeo(normalizedAuditCtx)
+	if err = s.repo.TouchSessionActivity(ctx, userItem.ID, claims.SessionID, sessionActivityInputFromSnapshot(sessionSnapshot, now, includeGeo)); err != nil {
 		return nil, err
 	}
 
@@ -1226,9 +1273,11 @@ func (s *Service) ValidateAccessSession(
 	}
 
 	now := time.Now()
-	sessionSnapshot := buildSessionAuditSnapshot(auditCtx)
+	normalizedAuditCtx := auditCtx.Normalize()
+	sessionSnapshot := buildSessionAuditSnapshotForSession(session, normalizedAuditCtx)
 	if shouldTouchSessionActivity(session, sessionSnapshot, now) {
-		if err = s.repo.TouchSessionActivity(ctx, userID, strings.TrimSpace(sessionID), sessionActivityInputFromSnapshot(sessionSnapshot, now)); err != nil {
+		includeGeo := sessionClientIPChanged(session, normalizedAuditCtx) || sessionAuditContextHasGeo(normalizedAuditCtx)
+		if err = s.repo.TouchSessionActivity(ctx, userID, strings.TrimSpace(sessionID), sessionActivityInputFromSnapshot(sessionSnapshot, now, includeGeo)); err != nil {
 			return err
 		}
 	}
@@ -1307,6 +1356,7 @@ func (s *Service) ensureSessionGeoResolved(
 
 	enriched, err := s.geoResolver.Lookup(ctx, session.ClientIP)
 	if err != nil {
+		s.warnGeoLookupFailure("active_session_enrichment", session.ClientIP, err)
 		return session, err
 	}
 	merged := mergeSessionAuditContext(

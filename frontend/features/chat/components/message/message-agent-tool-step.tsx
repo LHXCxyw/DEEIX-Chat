@@ -7,9 +7,9 @@ import { ArrowUpRight, Check, Copy, Wrench } from "lucide-react";
 import { AgentTraceStep } from "@/features/chat/components/message/message-agent-trace-step";
 import { useCopyAction } from "@/shared/components/copy-action";
 import { useAutoExpandDisclosure } from "@/shared/hooks/use-auto-expand-disclosure";
-import { useElapsedDurationMS } from "@/features/chat/hooks/use-elapsed-duration";
+import { useChatElapsedDurationMS } from "@/features/chat/hooks/use-chat-elapsed-duration";
 import type { ChatTraceBlock } from "@/features/chat/types/messages";
-import type { ProcessTraceLabels } from "@/features/chat/hooks/use-process-trace-labels";
+import type { ProcessTraceLabels } from "@/features/chat/hooks/use-chat-trace-labels";
 import { cn } from "@/lib/utils";
 import { formatDurationMS } from "@/features/chat/model/duration";
 import type { TraceDisplayEvent } from "@/features/chat/model/message-process-trace";
@@ -862,7 +862,7 @@ export function AgentToolStepRow({
   const failed = step.failed;
   const statusText = isToolStepDone(step) ? "" : toolStatusLabel(step.toolCall?.status ?? step.toolStatus, labels);
   const expandable = Boolean(step.toolCall || step.detail);
-  const liveDurationMS = useElapsedDurationMS(active, step.startedAt);
+  const liveDurationMS = useChatElapsedDurationMS(active, step.startedAt);
   const durationText = formatDurationMS(active ? liveDurationMS : step.latencyMS);
 
   return (

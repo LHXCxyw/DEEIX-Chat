@@ -11,7 +11,7 @@ import (
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
 	domainsettings "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/settings"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	mineruextract "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/extract/mineru"
+	extractport "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/extract"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
 )
@@ -593,10 +593,10 @@ func validatePatchItem(item PatchItem) error {
 		}
 	case "extract:mineru_source":
 		switch value {
-		case mineruextract.SourceCloud, mineruextract.SourceSelfHosted:
+		case extractport.MinerUSourceCloud, extractport.MinerUSourceSelfHosted:
 			return nil
 		default:
-			return fmt.Errorf("%s must be one of: %s, %s", key, mineruextract.SourceCloud, mineruextract.SourceSelfHosted)
+			return fmt.Errorf("%s must be one of: %s, %s", key, extractport.MinerUSourceCloud, extractport.MinerUSourceSelfHosted)
 		}
 	case "extract:mineru_file_types":
 		return validateMinerUFileTypes(value, key)

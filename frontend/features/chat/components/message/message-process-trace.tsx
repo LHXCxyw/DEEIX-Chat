@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/accordion";
 import { Marker, MarkerContent } from "@/components/ui/marker";
 import type { ChatMessageProcessTrace } from "@/features/chat/types/messages";
-import { useProcessTraceLabels } from "@/features/chat/hooks/use-process-trace-labels";
+import { useChatTraceLabels } from "@/features/chat/hooks/use-chat-trace-labels";
 import { cn } from "@/lib/utils";
 import {
   RAGCitationList,
@@ -47,7 +47,7 @@ export function MessageProcessTrace({
   active?: boolean;
   autoCollapseReady?: boolean;
 }) {
-  const labels = useProcessTraceLabels();
+  const labels = useChatTraceLabels();
   const processStreaming = Boolean(active && trace?.process?.status === "streaming");
   const [accordionValue, setAccordionValue] = React.useState(() => (processStreaming ? "message-process-trace" : ""));
 

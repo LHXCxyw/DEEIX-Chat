@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -1354,11 +1355,7 @@ func applyAnthropicStreamEvent(
 }
 
 func anthropicContentBlockIndex(parsed map[string]interface{}) int {
-	index := int(toInt64(parsed["index"]))
-	if index < 0 {
-		return 0
-	}
-	return index
+	return streamToolCallIndex(parsed["index"], 0)
 }
 
 func upsertAnthropicStreamToolCall(result *GenerateOutput, index int, item ToolCall) ToolCall {
@@ -1592,53 +1589,75 @@ func compactAnthropicStreamServerToolCalls(result *GenerateOutput) {
 //
 //	{"data":[{"id":"claude-opus-4-5","display_name":"...","type":"model"},...]}
 func (c *Client) listModelsAnthropic(ctx context.Context, route RouteConfig) ([]ModelItem, error) {
-	requestURL := buildAnthropicModelsURL(route.BaseURL)
-	if requestURL == "" {
+	baseRequestURL := buildAnthropicModelsURL(route.BaseURL)
+	if baseRequestURL == "" {
 		return nil, fmt.Errorf("invalid base url")
 	}
 
 	requestCtx, cancel := context.WithTimeout(ctx, resolveReadTimeout(route.ReadTimeoutMS))
 	defer cancel()
 
-	req, err := c.newAnthropicRequest(requestCtx, http.MethodGet, requestURL, nil, route, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.doRouteRequest(route, req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	body, err := readUpstreamBody(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, parseAnthropicError(resp.StatusCode, body, upstreamDebugSnapshot(req, nil, resp, body))
-	}
-
-	parsed := struct {
-		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-		} `json:"data"`
-	}{}
-	if err = json.Unmarshal(body, &parsed); err != nil {
-		return nil, err
-	}
-
-	results := make([]ModelItem, 0, len(parsed.Data))
-	for _, item := range parsed.Data {
-		modelID := strings.TrimSpace(item.ID)
-		if modelID == "" {
-			continue
+	results := make([]ModelItem, 0)
+	afterID := ""
+	seenAfterIDs := make(map[string]struct{})
+	for {
+		pageURL, err := url.Parse(baseRequestURL)
+		if err != nil {
+			return nil, err
 		}
-		results = append(results, ModelItem{
-			ID:      modelID,
-			OwnedBy: "anthropic",
-		})
+		query := pageURL.Query()
+		query.Set("limit", "1000")
+		if afterID != "" {
+			query.Set("after_id", afterID)
+		}
+		pageURL.RawQuery = query.Encode()
+
+		req, err := c.newAnthropicRequest(requestCtx, http.MethodGet, pageURL.String(), nil, route, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.doRouteRequest(route, req)
+		if err != nil {
+			return nil, err
+		}
+		body, readErr := readUpstreamBody(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, parseAnthropicError(resp.StatusCode, body, upstreamDebugSnapshot(req, nil, resp, body))
+		}
+
+		parsed := struct {
+			Data []struct {
+				ID          string `json:"id"`
+				DisplayName string `json:"display_name"`
+			} `json:"data"`
+			HasMore bool   `json:"has_more"`
+			LastID  string `json:"last_id"`
+		}{}
+		if err = json.Unmarshal(body, &parsed); err != nil {
+			return nil, err
+		}
+		for _, item := range parsed.Data {
+			modelID := strings.TrimSpace(item.ID)
+			if modelID == "" {
+				continue
+			}
+			results = append(results, ModelItem{ID: modelID, OwnedBy: "anthropic"})
+		}
+		if !parsed.HasMore {
+			return results, nil
+		}
+		nextAfterID := strings.TrimSpace(parsed.LastID)
+		if nextAfterID == "" {
+			return nil, fmt.Errorf("invalid anthropic models pagination cursor")
+		}
+		if _, exists := seenAfterIDs[nextAfterID]; exists {
+			return nil, fmt.Errorf("repeated anthropic models pagination cursor")
+		}
+		seenAfterIDs[nextAfterID] = struct{}{}
+		afterID = nextAfterID
 	}
-	return results, nil
 }

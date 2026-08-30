@@ -39,6 +39,7 @@ import type {
   PublicSharedConversationResponse,
   PublicSharedMessageResponse,
   RevokeConversationSharesResponse,
+  ConversationRunStatusResponse,
   RunResponse,
   SendMessageResponse,
 } from "@deeix/api-contract";
@@ -96,6 +97,8 @@ export type MessageDTO = Omit<
 };
 
 export type ConversationRunDTO = Omit<RunResponse, "taskType">;
+
+export type ConversationRunStatusDTO = ConversationRunStatusResponse;
 
 export type ConversationExportDTO = Omit<
   ConversationExportResponse,
@@ -244,9 +247,9 @@ export type SendMessageResult = Omit<SendMessageResponse, "assistantMessage" | "
   metadataRefreshHint?: "pending" | "not_needed" | "skipped_no_titleable_content" | string;
 };
 
-export type TemporaryChatHistoryMessage = {
-  content: string;
+export type TemporaryChatHistoryMessage = Omit<ContractTemporaryChatHistoryMessage, "content" | "role"> & {
   role: "user" | "assistant";
+  content: string;
 };
 
 export type TemporaryChatMessageRequest = {
@@ -354,6 +357,7 @@ export type StreamMessageEvent =
   | {
       type: "error";
       seq?: number;
+      status?: number;
       message: string;
       errorCode?: string;
       debug?: UpstreamDebugInfo;

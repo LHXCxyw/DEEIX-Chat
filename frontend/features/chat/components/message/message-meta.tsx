@@ -37,7 +37,7 @@ import {
   firstDurationMS,
   formatDurationMS,
 } from "@/features/chat/model/duration";
-import { useElapsedDurationMS } from "@/features/chat/hooks/use-elapsed-duration";
+import { useChatElapsedDurationMS } from "@/features/chat/hooks/use-chat-elapsed-duration";
 import { resolvePersistedPublicID } from "@/features/chat/model/message-submit";
 import type { ChatBillingCost, ChatMessageBranchNavigator } from "@/features/chat/types/messages";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
@@ -408,7 +408,7 @@ function TokenMetric({ label, value, icon }: { label: string; value: number; ico
 function LatencyBadge({ item }: { item: ChatMetaMessage }) {
   const t = useTranslations("chat.meta");
   const isLive = Boolean(item.isPending || item.isStreaming);
-  const liveLatencyMS = useElapsedDurationMS(isLive, item.createdAt);
+  const liveLatencyMS = useChatElapsedDurationMS(isLive, item.createdAt);
   const calculatedLatencyMS = durationBetweenMS(item.createdAt, item.updatedAt);
   const latencyMS = isLive
     ? firstDurationMS(liveLatencyMS, calculatedLatencyMS, item.latencyMS)
@@ -482,8 +482,18 @@ function ModelBadge({ label }: { label: string }) {
   );
 }
 
+type BillingServiceItemSnapshot = {
+  service_code?: string;
+  service_name?: string;
+  pricing_mode?: string;
+  call_count?: number;
+  call_nanousd_per_call?: number;
+  billed_nanousd?: number;
+};
+
 type BillingSnapshot = {
   pricing_mode?: "token" | "call" | "duration" | "tiered" | string;
+  service_items?: BillingServiceItemSnapshot[];
   provider_protocol?: string;
   cache_timeout?: string;
   fast_mode?: boolean;
@@ -654,6 +664,43 @@ function formatTotalLine(amount: string, labels: BillingMetaLabels): BillingTool
   return { type: "row", left: labels.total, right: amount };
 }
 
+type BillingServiceItemEntry = {
+  label: string;
+  callCount: number;
+  rateNanousd: number;
+  billedNanousd: number;
+};
+
+// billingServiceItemEntries 提取快照中的服务项（如 MCP 工具按次计费），保证明细行与总额对得上。
+function billingServiceItemEntries(snapshot: BillingSnapshot): BillingServiceItemEntry[] {
+  const items = Array.isArray(snapshot.service_items) ? snapshot.service_items : [];
+  const entries: BillingServiceItemEntry[] = [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const billed = typeof item.billed_nanousd === "number" && Number.isFinite(item.billed_nanousd) ? item.billed_nanousd : 0;
+    if (billed <= 0) continue;
+    const label = (item.service_name ?? "").trim() || (item.service_code ?? "").trim();
+    if (!label) continue;
+    const callCount = typeof item.call_count === "number" && Number.isFinite(item.call_count) && item.call_count > 0 ? item.call_count : 1;
+    const rate = typeof item.call_nanousd_per_call === "number" && Number.isFinite(item.call_nanousd_per_call) && item.call_nanousd_per_call > 0 ? item.call_nanousd_per_call : Math.round(billed / callCount);
+    entries.push({ label, callCount, rateNanousd: rate, billedNanousd: billed });
+  }
+  return entries;
+}
+
+function billingServiceItemLines(entries: BillingServiceItemEntry[], labels: BillingMetaLabels, billingDisplay: BillingDisplayOptions): BillingTooltipLine[] {
+  return entries.map((entry) => formatCountLine(entry.label, entry.callCount, labels.callUnit, entry.rateNanousd, entry.billedNanousd, billingDisplay));
+}
+
+function billingServiceItemTableRows(entries: BillingServiceItemEntry[], labels: BillingMetaLabels, billingDisplay: BillingDisplayOptions): BillingTieredTableRow[] {
+  return entries.map((entry) => ({
+    item: entry.label,
+    tokens: `${entry.callCount.toLocaleString("en-US")} ${labels.callUnit}`,
+    unitPrice: `${formatTooltipUnitPrice(nanousdToUSD(entry.rateNanousd), billingDisplay)} / ${labels.callUnit}`,
+    amount: formatTooltipBillingCost(nanousdToUSD(entry.billedNanousd), billingDisplay),
+  }));
+}
+
 function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels, billingDisplay: BillingDisplayOptions): BillingTooltipLine[] {
   const cost = item.billingCost;
   if (!cost) {
@@ -661,20 +708,26 @@ function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels, b
   }
   const snapshot = parseBillingSnapshot(cost.pricingSnapshotJSON);
   const pricingMode = snapshot.pricing_mode === "call" || snapshot.pricing_mode === "duration" || snapshot.pricing_mode === "tiered" ? snapshot.pricing_mode : "token";
-  const totalLine = snapshot.is_free_model
+  const serviceEntries = billingServiceItemEntries(snapshot);
+  const serviceLines = billingServiceItemLines(serviceEntries, labels, billingDisplay);
+  // 工具服务项与模型计费之间用分隔线隔开。
+  const serviceSection: BillingTooltipLine[] = serviceLines.length > 0 ? [{ type: "divider" }, ...serviceLines] : [];
+  // 免费模型也可能因 MCP 等服务项产生费用，只有整单为 0 才按免费展示。
+  const freeOfCharge = snapshot.is_free_model === true && !(cost.billedNanousd > 0);
+  const totalLine = freeOfCharge
     ? formatTotalLine(`${formatTooltipBillingCost(0, billingDisplay)} (${labels.freeModelNoBilling})`, labels)
     : formatTotalLine(formatTooltipBillingCost(nanousdToUSD(cost.billedNanousd), billingDisplay), labels);
 
   if (pricingMode === "call") {
     const rate = readBillingNumber(snapshot, "call_nanousd_per_call");
     const billed = readBillingNumber(snapshot, "call_billed_nanousd") || rate;
-    return [formatCountLine(labels.perCall, 1, labels.callUnit, rate, billed, billingDisplay), { type: "divider" }, totalLine];
+    return [formatCountLine(labels.perCall, 1, labels.callUnit, rate, billed, billingDisplay), ...serviceSection, { type: "divider" }, totalLine];
   }
 
   if (pricingMode === "duration") {
     const rate = readBillingNumber(snapshot, "duration_nanousd_per_second");
     const billed = readBillingNumber(snapshot, "duration_billed_nanousd");
-    return [formatCountLine(labels.perSecond, 1, labels.secondUnit, rate, billed, billingDisplay), { type: "divider" }, totalLine];
+    return [formatCountLine(labels.perSecond, 1, labels.secondUnit, rate, billed, billingDisplay), ...serviceSection, { type: "divider" }, totalLine];
   }
 
   const inputRate = readBillingNumber(snapshot, "input_nanousd_per_m_tokens");
@@ -697,6 +750,7 @@ function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels, b
       formatTieredTableRow(labels.output, billedOutputTokens, outputRate, readBillingNumber(snapshot, "output_billed_nanousd"), billingDisplay),
       formatTieredTableRow(labels.cacheRead, cacheReadTokens, cacheReadRate, readBillingNumber(snapshot, "cache_read_billed_nanousd"), billingDisplay),
       formatTieredTableRow(cacheWriteLabel, cacheWriteTokens, cacheWriteRate, readBillingNumber(snapshot, "cache_write_billed_nanousd"), billingDisplay),
+      ...billingServiceItemTableRows(serviceEntries, labels, billingDisplay),
     ];
     const lines: BillingTooltipLine[] = [];
     if (rateMultiplierNote || cacheWriteNote) {
@@ -713,7 +767,7 @@ function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels, b
         type: "tiered-table",
         rangeLabel: formatTieredRangeLabel(snapshot.tiered_from_tokens, snapshot.tiered_up_to_tokens, labels),
         rows: tieredRows,
-        totalAmount: snapshot.is_free_model ? `${formatTooltipBillingCost(0, billingDisplay)} (${labels.freeModelNoBilling})` : formatTooltipBillingCost(nanousdToUSD(cost.billedNanousd), billingDisplay),
+        totalAmount: freeOfCharge ? `${formatTooltipBillingCost(0, billingDisplay)} (${labels.freeModelNoBilling})` : formatTooltipBillingCost(nanousdToUSD(cost.billedNanousd), billingDisplay),
       });
       return lines;
     }
@@ -724,6 +778,7 @@ function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels, b
     formatBillingFormulaLine(labels.output, billedOutputTokens, outputRate, readBillingNumber(snapshot, "output_billed_nanousd") || calcTokenBilledNanousd(billedOutputTokens, outputRate), billingDisplay),
     formatBillingFormulaLine(labels.cacheRead, cacheReadTokens, cacheReadRate, readBillingNumber(snapshot, "cache_read_billed_nanousd") || calcTokenBilledNanousd(cacheReadTokens, cacheReadRate), billingDisplay),
     formatBillingFormulaLine(cacheWriteLabel, cacheWriteTokens, cacheWriteRate, readBillingNumber(snapshot, "cache_write_billed_nanousd") || calcTokenBilledNanousd(cacheWriteTokens, cacheWriteRate), billingDisplay),
+    ...serviceSection,
     { type: "divider" },
     totalLine,
   ];
@@ -751,7 +806,7 @@ function BillingCostBadge({ item, billingDisplay }: { item: ChatMetaMessage; bil
   if (lines.length === 0) {
     return null;
   }
-  const freeModel = parseBillingSnapshot(cost.pricingSnapshotJSON).is_free_model === true;
+  const freeModel = parseBillingSnapshot(cost.pricingSnapshotJSON).is_free_model === true && !(cost.billedNanousd > 0);
 
   return (
     <Tooltip>
@@ -1075,7 +1130,7 @@ export function AssistantMessageMeta({
                     <Forward className="size-3.5" strokeWidth={1.8} />
                   </MetaIconButton>
                 ) : null}
-                {canFork ? (
+                {canFork && onFork ? (
                   <ForkMessageButton
                     label={t("forkMessage")}
                     onFork={onFork}

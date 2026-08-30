@@ -4,9 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 )
 
 func TestMessageUsageAccumulatorCombinesObservedAndUnobservedInput(t *testing.T) {
@@ -218,7 +219,7 @@ func TestResolveToolResultTokenBudgetUsesRemainingModelContext(t *testing.T) {
 		capabilities,
 		128_000,
 	)
-	effectiveBudget := int64(llm.EffectiveContextBudgetFromCapabilitiesWithFallback("custom-model", capabilities, config.DefaultContextWindowFallbackTokens))
+	effectiveBudget := int64(domainchannel.EffectiveContextBudgetFromCapabilitiesWithFallback("custom-model", capabilities, config.DefaultContextWindowFallbackTokens))
 	if shortBudget <= 0 || shortBudget >= effectiveBudget {
 		t.Fatalf("expected short prompt to leave a bounded tool budget, got %d of %d", shortBudget, effectiveBudget)
 	}
@@ -252,7 +253,7 @@ func TestResolveToolResultTokenBudgetDoesNotExceedRemainingContext(t *testing.T)
 		}},
 	}
 	capabilities := `{"contextWindow":32000,"maxOutputTokens":4000}`
-	effectiveBudget := int64(llm.EffectiveContextBudgetFromCapabilitiesWithFallback("custom-model", capabilities, config.DefaultContextWindowFallbackTokens))
+	effectiveBudget := int64(domainchannel.EffectiveContextBudgetFromCapabilitiesWithFallback("custom-model", capabilities, config.DefaultContextWindowFallbackTokens))
 	baseBudget := resolveToolResultTokenBudget(
 		llm.GenerateInput{},
 		[]llm.Message{{Role: "user", Content: "summarize this video"}},
@@ -365,7 +366,7 @@ func TestRebalanceToolFollowUpResultsFitsCurrentRoundWithinContext(t *testing.T)
 	if !changed {
 		t.Fatal("expected oversized current tool round to be rebalanced")
 	}
-	effectiveBudget := int64(llm.EffectiveContextBudgetFromCapabilitiesWithFallback("custom-model", capabilities, config.DefaultContextWindowFallbackTokens))
+	effectiveBudget := int64(domainchannel.EffectiveContextBudgetFromCapabilitiesWithFallback("custom-model", capabilities, config.DefaultContextWindowFallbackTokens))
 	if tokens := estimateToolFollowUpInputTokens(llm.GenerateInput{}, rebalanced); tokens > effectiveBudget {
 		t.Fatalf("expected rebalanced follow-up within context, got %d > %d", tokens, effectiveBudget)
 	}
@@ -408,7 +409,7 @@ func TestTrimToolFollowUpHistoryRemovesOldCompleteTurns(t *testing.T) {
 		t.Fatalf("expected system prefix and current turn only, got %#v", trimmed)
 	}
 	if tokens := estimateToolFollowUpInputTokens(llm.GenerateInput{}, trimmed); tokens >
-		int64(llm.EffectiveContextBudgetFromCapabilitiesWithFallback("custom-model", capabilities, config.DefaultContextWindowFallbackTokens)) {
+		int64(domainchannel.EffectiveContextBudgetFromCapabilitiesWithFallback("custom-model", capabilities, config.DefaultContextWindowFallbackTokens)) {
 		t.Fatalf("expected trimmed follow-up within effective model budget, got %d tokens", tokens)
 	}
 }

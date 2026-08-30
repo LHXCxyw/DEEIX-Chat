@@ -7,8 +7,7 @@ import (
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/mcp"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 )
 
 func TestExecuteToolCallRejectsToolsNotEnabledForRun(t *testing.T) {
@@ -63,9 +62,9 @@ func TestExecuteAssistantToolCallsEphemeralSkipsToolCallPersistence(t *testing.T
 			ToolName:      "search",
 			ArgumentsJSON: `{"query":"privacy"}`,
 		}},
-		MCPConfigs: map[string]mcp.CallConfig{"search": {}},
-		Ledger:     ledger,
-		Ephemeral:  true,
+		MCPBindings: map[string]mcpToolCallBinding{"search": {}},
+		Ledger:      ledger,
+		Ephemeral:   true,
 	})
 
 	if len(result.Rows) != 1 || result.Rows[0].Status != "reused" {

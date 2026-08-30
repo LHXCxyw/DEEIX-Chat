@@ -65,12 +65,14 @@ type FileEmbeddingArtifactsRepository interface {
 type EmbeddingRepository interface {
 	VectorStoreAvailable(ctx context.Context) (bool, error)
 	GetActiveFileObjectByID(ctx context.Context, userID uint, fileID string) (*domainconversation.FileObject, error)
+	GetActiveFileObjectsByIDs(ctx context.Context, userID uint, fileIDs []string) ([]domainconversation.FileObject, error)
 	GetFileObjectProcessingByObjectID(ctx context.Context, fileObjID uint) (*domainconversation.FileObjectProcessing, error)
+	QueueFileEmbedding(ctx context.Context, userID uint, fileID string, embeddingSignature string) (bool, error)
 	ClaimFileEmbedding(ctx context.Context, userID uint, fileID string, embeddingSignature string) (bool, error)
 	UpdateFileObjectEmbedStatus(ctx context.Context, userID uint, fileID string, embeddingSignature string, status string, embedErr string) (bool, error)
 	UpdateFileObjectChunkCount(ctx context.Context, fileObjID uint, embeddingSignature string, chunkCount int) (bool, error)
 	ReplaceFileChunks(ctx context.Context, fileObjID uint, embeddingSignature string, chunks []domainconversation.FileChunk, embeddings [][]float32) (bool, error)
-	// MarkEmbeddedFilesStale 将缺少当前向量空间签名分片的 ready/processing 文件标记为 stale。
+	// MarkEmbeddedFilesStale 将缺少当前向量空间签名分片的 queued/processing/ready 文件标记为 stale。
 	// 在 Embedding 配置变更及服务启动时调用，使旧向量失效并等待重建。
 	// 返回被标记的文件数量。
 	MarkEmbeddedFilesStale(ctx context.Context, activeSignature string) (int64, error)
@@ -92,33 +94,17 @@ type RAGRepository interface {
 type FileProcessingRepository interface {
 	GetActiveFileObjectByID(ctx context.Context, userID uint, fileID string) (*domainconversation.FileObject, error)
 	UpdateFileObjectProcessingState(ctx context.Context, item *domainconversation.FileObjectProcessing) error
+	UpdateClaimedFileObjectProcessingState(ctx context.Context, item *domainconversation.FileObjectProcessing, attemptID string) (bool, error)
 	GetFileObjectProcessingByObjectID(ctx context.Context, fileObjID uint) (*domainconversation.FileObjectProcessing, error)
 	CloneFileObjectProcessingState(ctx context.Context, sourceFileObjID uint, targetFileObjID uint, userID uint) error
-	UpdateFileObjectProcessing(ctx context.Context, userID uint, fileID string, input UpdateFileObjectProcessingInput) error
+	TryClaimFileObjectProcessing(ctx context.Context, userID uint, fileID string, allowRecovery bool, extractorVersion string, attemptID string) (bool, error)
+	ResetFileObjectProcessingForRetry(ctx context.Context, userID uint, fileID string, attemptID string) (bool, error)
 }
 
-// UpdateFileObjectProcessingInput 定义文件处理状态更新字段。
-type UpdateFileObjectProcessingInput struct {
-	ProcessingStatus       *string
-	ProcessingReady        *bool
-	ProcessingErrorCode    *string
-	ProcessingErrorMessage *string
-	ExtractStatus          *string
-	PageCount              *int
-	ExtractorVersion       *string
-	ExtractedAt            **time.Time
-}
-
-// IsZero 判断是否没有任何文件处理状态更新字段。
-func (input UpdateFileObjectProcessingInput) IsZero() bool {
-	return input.ProcessingStatus == nil &&
-		input.ProcessingReady == nil &&
-		input.ProcessingErrorCode == nil &&
-		input.ProcessingErrorMessage == nil &&
-		input.ExtractStatus == nil &&
-		input.PageCount == nil &&
-		input.ExtractorVersion == nil &&
-		input.ExtractedAt == nil
+// FileProcessingStatusRepository 封装单个与批量文件处理状态读取能力。
+type FileProcessingStatusRepository interface {
+	FileProcessingRepository
+	GetActiveFileProcessingStatusesByIDs(ctx context.Context, userID uint, fileIDs []string) ([]domainconversation.FileObject, error)
 }
 
 // ConversationSettingsRepository 封装会话域设置读取能力。

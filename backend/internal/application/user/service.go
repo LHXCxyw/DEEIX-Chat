@@ -25,6 +25,7 @@ type Service struct {
 	repo                repository.UserRepository
 	avatarContentOpener avatarContentOpener
 	avatarFileValidator avatarFileValidator
+	activityStatsRepo   activityStatsRepository
 }
 
 type avatarContentOpener interface {

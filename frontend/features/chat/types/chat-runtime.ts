@@ -74,6 +74,7 @@ export type PendingAttachment = {
   ragReason?: string;
   ocrUsed?: boolean;
   ragOptOut?: boolean;
+  localFile?: File;
 };
 
 export type UploadingAttachment = {

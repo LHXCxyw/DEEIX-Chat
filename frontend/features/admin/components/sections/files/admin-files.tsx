@@ -1,58 +1,11 @@
 "use client";
 
-import * as React from "react";
 import { Save } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import {
-  SettingsFieldEditor,
-  type ServiceRuntimeActionName,
-  type SettingsFieldServiceRuntime,
-} from "../shared/settings-runtime-panel";
 import { Button } from "@/components/ui/button";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import {
-  SettingsFieldInset,
-  SettingsFieldItem,
-  SettingsFieldList,
-  SettingsPage,
-  SettingsSection,
-  SettingsSectionSeparator,
-} from "@/shared/components/settings-layout";
-import {
-  applySettingsDefaults,
-  denormalizeMBValue,
-  EMBEDDING_MODES,
-  EXTRACT_ENGINE_POLICIES,
-  flattenSettings,
-  INITIAL_SERVICE_STATES,
-  isEmbeddingServiceConfigured,
-  isServiceDirty,
-  isSettingsValueField,
-  mergeAllowedMIMETypes,
-  normalizeMinerUFileTypes,
-  OCR_ENGINES,
-  resolveMissingMinerUMIMETypes,
-  resolveActiveServices,
-  resolveFieldID,
-  resolveMinerUFileTypeFormats,
-  resolveMinerUSource,
-  resolveOCREngine,
-  resolveVisibleFieldBlocks,
-  resolveVisibleFields,
-  SERVICE_LABELS,
-  SERVICE_NAMES,
-  SETTINGS_GROUPS,
-  TIKA_SERVICE_SOURCES,
-  usesTika,
-  type ServiceName,
-  type ServiceRuntimeData,
-  type ServiceState,
-  type SettingsField,
-  type SettingsGroup,
-} from "@/features/admin/model/files-settings";
 import {
   type AdminEmbeddingIndexStatus,
   getAdminDoclingRuntime,
@@ -66,10 +19,54 @@ import {
   patchAdminSettings,
   triggerAdminEmbeddingReindex,
 } from "@/features/admin/api";
+import {
+  applySettingsDefaults,
+  denormalizeMBValue,
+  EMBEDDING_MODES,
+  EXTRACT_ENGINE_POLICIES,
+  flattenSettings,
+  INITIAL_SERVICE_STATES,
+  isEmbeddingServiceConfigured,
+  isServiceDirty,
+  isSettingsValueField,
+  mergeAllowedMIMETypes,
+  normalizeMinerUFileTypes,
+  OCR_ENGINES,
+  resolveFieldID,
+  resolveMinerUFileTypeFormats,
+  resolveMinerUSource,
+  resolveMissingMinerUMIMETypes,
+  resolveOCREngine,
+  resolveVisibleFieldBlocks,
+  resolveVisibleFields,
+  SERVICE_LABELS,
+  SETTINGS_GROUPS,
+  type ServiceName,
+  type ServiceRuntimeData,
+  type ServiceState,
+  type SettingsField,
+  type SettingsGroup,
+  TIKA_SERVICE_SOURCES,
+  usesTika,
+} from "@/features/admin/model/files-settings";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { cn } from "@/lib/utils";
 import type { PatchSettingItem } from "@/shared/api/settings.types";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import {
+  SettingsFieldInset,
+  SettingsFieldItem,
+  SettingsFieldList,
+  SettingsPage,
+  SettingsSection,
+  SettingsSectionSeparator,
+} from "@/shared/components/settings-layout";
 import { configuredSettingsMap, settingHasValue } from "@/shared/lib/settings-meta";
+import {
+  type ServiceRuntimeActionName,
+  SettingsFieldEditor,
+  type SettingsFieldServiceRuntime,
+} from "../shared/settings-runtime-panel";
 
 const SERVICE_LOADERS: Record<ServiceName, (token: string) => Promise<ServiceRuntimeData>> = {
   tika: getAdminTikaRuntime,
@@ -122,22 +119,60 @@ export function AdminFilesSettingsPage() {
   const [embeddingStatus, setEmbeddingStatus] = React.useState<AdminEmbeddingIndexStatus | null>(null);
   const [embeddingStatusLoading, setEmbeddingStatusLoading] = React.useState(false);
   const [reindexing, setReindexing] = React.useState(false);
+  const embeddingRefreshTimerRef = React.useRef<number | null>(null);
+  const embeddingStatusRequestRef = React.useRef<AbortController | null>(null);
+  const embeddingStatusRequestVersionRef = React.useRef(0);
+
+  const cancelEmbeddingStatusRefresh = React.useCallback(() => {
+    if (embeddingRefreshTimerRef.current !== null) {
+      window.clearTimeout(embeddingRefreshTimerRef.current);
+      embeddingRefreshTimerRef.current = null;
+    }
+    embeddingStatusRequestVersionRef.current += 1;
+    embeddingStatusRequestRef.current?.abort();
+    embeddingStatusRequestRef.current = null;
+  }, []);
+
+  const clearEmbeddingStatus = React.useCallback(() => {
+    cancelEmbeddingStatusRefresh();
+    setEmbeddingStatus(null);
+    setEmbeddingStatusLoading(false);
+  }, [cancelEmbeddingStatusRefresh]);
+
+  React.useEffect(
+    () => cancelEmbeddingStatusRefresh,
+    [cancelEmbeddingStatusRefresh],
+  );
 
   const loadEmbeddingStatus = React.useCallback(async () => {
+    cancelEmbeddingStatusRefresh();
+    const requestVersion = embeddingStatusRequestVersionRef.current;
+    const requestController = new AbortController();
+    embeddingStatusRequestRef.current = requestController;
     setEmbeddingStatusLoading(true);
     try {
       const token = await resolveAccessToken();
-      if (!token) return;
-      const status = await getAdminEmbeddingStatus(token);
+      if (!token || requestController.signal.aborted) return;
+      const status = await getAdminEmbeddingStatus(token, requestController.signal);
+      if (embeddingStatusRequestVersionRef.current !== requestVersion) return;
       setEmbeddingStatus(status);
     } catch {
-      setEmbeddingStatus(null);
+      if (
+        !requestController.signal.aborted &&
+        embeddingStatusRequestVersionRef.current === requestVersion
+      ) setEmbeddingStatus(null);
     } finally {
-      setEmbeddingStatusLoading(false);
+      if (embeddingStatusRequestRef.current === requestController) {
+        embeddingStatusRequestRef.current = null;
+      }
+      if (embeddingStatusRequestVersionRef.current === requestVersion) {
+        setEmbeddingStatusLoading(false);
+      }
     }
-  }, []);
+  }, [cancelEmbeddingStatusRefresh]);
 
   const handleReindex = React.useCallback(async () => {
+    const refreshVersion = embeddingStatusRequestVersionRef.current;
     setReindexing(true);
     try {
       const token = await resolveAccessToken();
@@ -149,7 +184,14 @@ export function AdminFilesSettingsPage() {
       toast.success(t("toast.reindexSubmitted"), {
         description: t("toast.reindexSubmittedDescription", { count: result.submitted }),
       });
-      setTimeout(() => { void loadEmbeddingStatus(); }, 1500);
+      if (embeddingStatusRequestVersionRef.current !== refreshVersion) return;
+      if (embeddingRefreshTimerRef.current !== null) {
+        window.clearTimeout(embeddingRefreshTimerRef.current);
+      }
+      embeddingRefreshTimerRef.current = window.setTimeout(() => {
+        embeddingRefreshTimerRef.current = null;
+        void loadEmbeddingStatus();
+      }, 1500);
     } catch (error) {
       toast.error(t("toast.reindexFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
@@ -185,20 +227,6 @@ export function AdminFilesSettingsPage() {
     [loadServiceRuntime, t],
   );
 
-  const syncServiceRuntimes = React.useCallback(
-    (flattened: Record<string, string>) => {
-      const active = resolveActiveServices(flattened);
-      for (const name of SERVICE_NAMES) {
-        if (active.has(name)) {
-          void loadServiceRuntime(name);
-        } else {
-          setServiceStates((prev) => ({ ...prev, [name]: { ...prev[name], data: null } }));
-        }
-      }
-    },
-    [loadServiceRuntime],
-  );
-
   const loadSettings = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -212,18 +240,18 @@ export function AdminFilesSettingsPage() {
       setConfiguredMap(configuredSettingsMap(grouped));
       setSettingsMap(flattened);
       setSavedMap(flattened);
-      syncServiceRuntimes(flattened);
+      setServiceStates(INITIAL_SERVICE_STATES);
       if (flattened["file.embedding_enabled"] === EMBEDDING_MODES.ON) {
         void loadEmbeddingStatus();
       } else {
-        setEmbeddingStatus(null);
+        clearEmbeddingStatus();
       }
     } catch (error) {
       toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setLoading(false);
     }
-  }, [loadEmbeddingStatus, syncServiceRuntimes, t]);
+  }, [clearEmbeddingStatus, loadEmbeddingStatus, t]);
 
   React.useEffect(() => {
     void loadSettings();
@@ -243,6 +271,9 @@ export function AdminFilesSettingsPage() {
   }, [savedMap, settingsMap]);
 
   const handleFieldChange = React.useCallback((fieldID: string, value: string) => {
+    if (fieldID === "file.embedding_enabled" && value !== EMBEDDING_MODES.ON) {
+      clearEmbeddingStatus();
+    }
     setSettingsMap((prev) => {
       let next = { ...prev, [fieldID]: value };
       if (fieldID === "extract.engine" && value === EXTRACT_ENGINE_POLICIES.MINERU) {
@@ -290,7 +321,7 @@ export function AdminFilesSettingsPage() {
       }
       return next;
     });
-  }, [t]);
+  }, [clearEmbeddingStatus, t]);
 
   const handleSaveAllowedMIMETypes = React.useCallback(
     async (nextValue: string) => {
@@ -312,7 +343,7 @@ export function AdminFilesSettingsPage() {
           "file.allowed_mime_types": savedValue,
         }));
         setSavedMap(flattened);
-        syncServiceRuntimes(flattened);
+        setServiceStates(INITIAL_SERVICE_STATES);
         toast.success(t("toast.mimeTypesUpdated"));
       } catch (error) {
         toast.error(t("toast.saveFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
@@ -320,7 +351,7 @@ export function AdminFilesSettingsPage() {
         setSaving(false);
       }
     },
-    [syncServiceRuntimes, t],
+    [t],
   );
 
   const resolveServiceRuntime = React.useCallback(
@@ -547,25 +578,26 @@ export function AdminFilesSettingsPage() {
         setConfiguredMap(configuredSettingsMap(grouped));
         setSettingsMap(flattened);
         setSavedMap(flattened);
-        syncServiceRuntimes(flattened);
+        setServiceStates(INITIAL_SERVICE_STATES);
         if (embeddingModelWillChange) {
           toast.warning(t("toast.embeddingModelChanged"), {
             description: t("toast.embeddingModelChangedDescription"),
             duration: 8000,
           });
+        } else {
+          toast.success(t("toast.groupUpdated", { group: t(`groups.${group.key}.title`) }));
+        }
+        if (
+          embeddingModelWillChange ||
+          group.fields.some((field) =>
+            field.namespace === "file" &&
+            (field.key === "embedding_enabled" || field.key === "rag_model" || field.key === "embedding_host")
+          )
+        ) {
           if (flattened["file.embedding_enabled"] === EMBEDDING_MODES.ON) {
             void loadEmbeddingStatus();
           } else {
-            setEmbeddingStatus(null);
-          }
-        } else {
-          toast.success(t("toast.groupUpdated", { group: t(`groups.${group.key}.title`) }));
-          if (group.fields.some((f) => f.namespace === "file" && (f.key === "embedding_enabled" || f.key === "rag_model" || f.key === "embedding_host"))) {
-            if (flattened["file.embedding_enabled"] === EMBEDDING_MODES.ON) {
-              void loadEmbeddingStatus();
-            } else {
-              setEmbeddingStatus(null);
-            }
+            clearEmbeddingStatus();
           }
         }
       } catch (error) {
@@ -574,7 +606,7 @@ export function AdminFilesSettingsPage() {
         setSaving(false);
       }
     },
-    [configuredMap, dirtyFieldIDs, loadEmbeddingStatus, savedMap, settingsMap, syncServiceRuntimes, t],
+    [clearEmbeddingStatus, configuredMap, dirtyFieldIDs, loadEmbeddingStatus, savedMap, settingsMap, t],
   );
 
   const requestSaveGroup = React.useCallback((group: SettingsGroup) => {

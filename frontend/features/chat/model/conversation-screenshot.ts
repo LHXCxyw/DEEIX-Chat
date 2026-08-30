@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, destroyContext, domToBlob, type Context, type Options } from "modern-screenshot";
+import type { Context, Options } from "modern-screenshot";
 
 import { SCREENSHOT_STYLE_PROPERTIES } from "@/features/chat/model/conversation-screenshot-style-properties";
 import { screenshotWorkerPath } from "@/shared/generated/screenshot-worker";
@@ -15,6 +15,10 @@ const MIN_SCREENSHOT_SCALE = 1;
 const SCREENSHOT_CLONE_YIELD_INTERVAL = 128;
 const SCREENSHOT_CLONE_FRAME_BUDGET_MS = 16;
 const SCREENSHOT_RESOURCE_WORKER_COUNT = 2;
+
+type ScreenshotRenderer = typeof import("modern-screenshot");
+
+let screenshotRendererPromise: Promise<ScreenshotRenderer> | null = null;
 
 const SCREENSHOT_OMIT_SELECTOR = [
   "[data-screenshot-exclude='true']",
@@ -106,19 +110,24 @@ function stopCaptureContext(context: Context<HTMLElement>, error?: Error) {
   });
 }
 
-function releaseCaptureContext(context: Context<HTMLElement>) {
-  stopCaptureContext(context);
-  destroyContext(context);
-}
-
 function screenshotWorkerURL(element: HTMLElement) {
   return new URL(screenshotWorkerPath, element.ownerDocument.baseURI).href;
+}
+
+export function loadConversationScreenshotRenderer(): Promise<ScreenshotRenderer> {
+  screenshotRendererPromise ??= import("modern-screenshot").catch((error) => {
+    screenshotRendererPromise = null;
+    throw error;
+  });
+  return screenshotRendererPromise;
 }
 
 export async function captureElementToPngBlob(
   element: HTMLElement,
   { signal }: CaptureElementOptions = {},
 ): Promise<Blob> {
+  throwIfCaptureAborted(signal);
+  const { createContext, destroyContext, domToBlob } = await loadConversationScreenshotRenderer();
   throwIfCaptureAborted(signal);
 
   const padding = SCREENSHOT_PADDING;
@@ -192,6 +201,7 @@ export async function captureElementToPngBlob(
   } finally {
     signal?.removeEventListener("abort", abortCapture);
     rejectOnAbort = null;
-    releaseCaptureContext(context);
+    stopCaptureContext(context);
+    destroyContext(context);
   }
 }

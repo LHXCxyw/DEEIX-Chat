@@ -4,9 +4,10 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import {
-  captureElementToPngBlob,
   ConversationScreenshotTooLargeError,
+  captureElementToPngBlob,
   isScreenshotCaptureAbort,
+  loadConversationScreenshotRenderer,
   MAX_SCREENSHOT_MESSAGES,
 } from "@/features/chat/model/conversation-screenshot";
 import {
@@ -299,12 +300,13 @@ export function useChatScreenshot({
           throw new Error("Message content is not available");
         }
 
+        const rendererReady = loadConversationScreenshotRenderer();
         preparedDom = prepareConversationScreenshotDom(target, {
           selectedOnly,
           selectedIDs: selected,
         });
 
-        await nextAnimationFrame();
+        await Promise.all([rendererReady, nextAnimationFrame()]);
         controller.signal.throwIfAborted();
 
         const blob = await captureElementToPngBlob(target, { signal: controller.signal });

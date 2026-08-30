@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import type { ChatSettings } from "@/features/settings/types/settings";
@@ -10,13 +10,13 @@ import {
   groupModelsForPresentation,
   parseChatSettings,
 } from "@/features/settings/utils/chat-settings";
-import { useAuthSession } from "@/shared/auth/auth-session-context";
-import { listPublicModels } from "@/shared/api/model";
-import { getBillingConfig } from "@/shared/api/billing";
-import { getChatContextPolicy } from "@/shared/api/settings";
-import type { PublicModelDTO } from "@/shared/api/model.types";
-import type { BillingMode } from "@/shared/api/billing.types";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { getBillingConfig } from "@/shared/api/billing";
+import type { BillingMode } from "@/shared/api/billing.types";
+import { listPublicModels } from "@/shared/api/model";
+import type { PublicModelDTO } from "@/shared/api/model.types";
+import { getChatContextPolicy } from "@/shared/api/settings";
+import { useAuthSession } from "@/shared/auth/auth-session-context";
 import {
   updateUserSettings,
   useUserSettings,
@@ -50,7 +50,7 @@ export function useSettingsChat(): UseSettingsChatResult {
       try {
         const [modelList, billingConfig, contextPolicy] = await Promise.all([
           listPublicModels(accessToken).catch((): PublicModelDTO[] => []),
-          getBillingConfig(accessToken).catch(() => null),
+          getBillingConfig(accessToken).catch((): null => null),
           getChatContextPolicy(accessToken).catch(() => ({ contextCompactEnabled: false })),
         ]);
 

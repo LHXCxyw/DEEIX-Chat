@@ -2,6 +2,7 @@
   "newChat": "New chat",
   "untitledConversation": "New chat",
   "modelListLoadFailed": "Could not load models.",
+  "projectDefaultModelUnavailable": "The project default model \"{model}\" is currently unavailable. Global model defaults will be used instead.",
   "placeholder": "Message DEEIX Chat",
   "projectMode": "Project mode",
   "projectModeTooltip": "In this mode, new chats are created in the current project. Project instructions apply only to chat model requests; image generation, image editing, and other non-chat capabilities do not use them.",
@@ -137,6 +138,14 @@
     "downloadImage": "Download image",
     "scrollableTable": "Scrollable data table",
     "scrollableTableHint": "Scroll horizontally to view more columns.",
+    "table": {
+      "download": "Download",
+      "downloadAsCsv": "Download CSV",
+      "downloadAsMarkdown": "Download Markdown",
+      "formatCsv": "CSV",
+      "formatMarkdown": "Markdown",
+      "downloadFailed": "Could not download table"
+    },
     "copyLatex": "Copy formula source",
     "latexCopied": "Formula source copied",
     "latexCopyFailed": "Could not copy formula source",
@@ -147,10 +156,6 @@
       "copy": "Copy link",
       "copied": "Link copied",
       "copyFailed": "Could not copy link"
-    },
-    "codeBlock": {
-      "collapse": "Collapse",
-      "expand": "Expand {count} lines"
     },
     "artifact": {
       "openPreview": "Preview",
@@ -170,10 +175,16 @@
       "done": "Thinking complete"
     },
     "diagram": {
-      "downloadDiagram": "Download diagram",
+      "downloadDiagram": "Download",
       "downloadDiagramAsSvg": "Download diagram as SVG",
       "downloadDiagramAsPng": "Download diagram as PNG",
-      "downloadDiagramAsMmd": "Download diagram as MMD"
+      "downloadDiagramAsMmd": "Download diagram as MMD",
+      "copyDiagram": "Copy",
+      "viewFullscreen": "Fullscreen",
+      "exitFullscreen": "Exit",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "resetView": "Reset view"
     }
   },
   "artifacts": {
@@ -288,6 +299,7 @@
     "dropTitle": "Drop files to attach",
     "duplicateReused": "Duplicate file detected and reused",
     "partialUploadFailed": "Some files failed to upload",
+    "temporaryVideoUnsupported": "Temporary chats currently support image and document attachments, but not video attachments.",
     "retryFailedFiles": "Please retry the failed files.",
     "retryLater": "Please try again later.",
     "screenshotUnsupported": "This browser does not support screenshots",
@@ -334,6 +346,8 @@
     },
     "generationInterrupted": "Generation interrupted",
     "sendFailed": "Send failed",
+    "queuedParentFailed": "Queued messages canceled",
+    "queuedParentFailedDescription": "The previous message did not complete successfully, so its dependent queued messages were canceled.",
     "continueGenerationPrompt": "Continue from the previous interrupted reply without repeating content that was already generated.",
     "continueReplyFailed": "Unable to continue generation",
     "continueReplyUnavailable": "This reply cannot be continued right now.",
@@ -415,6 +429,7 @@
     "knowledgeBaseNotReady": "No searchable files yet",
     "knowledgeBaseEmpty": "No knowledge bases available",
     "knowledgeBaseLoadFailed": "Failed to load knowledge bases",
+    "knowledgeBaseLoadMore": "Load more",
     "knowledgeBaseUnavailable": "Knowledge base retrieval is unavailable",
     "knowledgeBaseUnavailableDescription": "Ask an administrator to check the RAG and embedding configuration.",
     "knowledgeBaseUnavailableRAGDisabled": "RAG retrieval is disabled. Ask an administrator to enable RAG.",
@@ -456,6 +471,7 @@
     "closeHint": "Close hint",
     "previewAttachment": "Preview attachment {name}",
     "removeAttachment": "Remove attachment {name}",
+    "uploading": "Uploading",
     "uploadingAttachment": "Uploading {name}",
     "ragDisabledTitle": "This file has RAG disabled and will be injected as full context. It may use more tokens.",
     "ragOff": "RAG off",
@@ -473,6 +489,8 @@
     "mcpToolLimitTitle": "Tool limit reached",
     "mcpToolLimitDescription": "A message can use up to {limit} MCP tools. Clear some tools before selecting more.",
     "mcpImageProcessor": "Image attachment processor",
+    "mcpPaidTool": "Billed per call at {price}.",
+    "mcpPaidToolNote": "Only successfully executed tool calls are billed; failed calls are not billed.",
     "mcpImageProcessorLimitTitle": "Only one image processor can be selected",
     "mcpImageProcessorLimitDescription": "One MCP image attachment processor can handle images for a message. Clear the current one first.",
     "skillLimitTitle": "Skill limit reached",

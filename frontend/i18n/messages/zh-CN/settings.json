@@ -505,6 +505,25 @@
       "title": "计费模式",
       "value": "自用模式"
     },
+    "activity": {
+      "title": "过去一年活跃概览",
+      "tokens": "Tokens",
+      "requests": "请求",
+      "peakDayTokens": "单日最高 Tokens",
+      "currentStreak": "当前连续活跃",
+      "longestStreak": "最长连续活跃",
+      "totalActiveDays": "活跃天数",
+      "dayCount": "{count} 天",
+      "totalRequests": "过去一年共发起 {count} 次模型请求",
+      "less": "较少",
+      "more": "较多",
+      "empty": "过去一年还没有活跃记录",
+      "loadFailed": "活跃度加载失败",
+      "tooltip": {
+        "requests": "请求",
+        "tokens": "Tokens"
+      }
+    },
     "usageTrend": {
       "dailyTitle": "按天用量趋势",
       "monthlyTitle": "按月用量趋势",

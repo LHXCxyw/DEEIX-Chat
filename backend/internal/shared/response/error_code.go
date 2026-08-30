@@ -34,6 +34,7 @@ const (
 	CodeFileNotReady             = "file.not_ready"
 	CodeFileTypeBlocked          = "file.type_blocked"
 	CodeUpstreamUnavailable      = "upstream.unavailable"
+	CodeUpstreamRateLimited      = "upstream.rate_limited"
 	CodeServiceUnavailable       = "service.unavailable"
 	CodeInternal                 = "internal.error"
 )
@@ -76,6 +77,7 @@ var exactErrorSpecs = map[string]errorSpec{
 	"email verification is disabled":                                        {Code: "auth.email_verification_disabled", Message: "email verification is disabled"},
 	"email already exists":                                                  {Code: "auth.email_already_exists", Message: "email already exists"},
 	"user email is invalid":                                                 {Code: "auth.invalid_email", Message: "invalid email"},
+	"verification method is unavailable":                                    {Code: "auth.verification_method_unavailable", Message: "verification method is unavailable"},
 	"admin email is invalid":                                                {Code: "auth.invalid_email", Message: "invalid email"},
 	"invalid email":                                                         {Code: "auth.invalid_email", Message: "invalid email"},
 	"user email is not verified":                                            {Code: "auth.email_not_verified", Message: "email is not verified"},
@@ -142,6 +144,7 @@ var exactErrorSpecs = map[string]errorSpec{
 
 	"invalid conversation title":                              {Code: "conversation.invalid_title", Message: "invalid conversation title"},
 	"conversation has no titleable content":                   {Code: "conversation.no_titleable_content", Message: "conversation has no titleable content"},
+	"conversation project limit exceeded":                     {Code: "conversation.project_limit_exceeded", Message: "conversation project limit exceeded"},
 	"invalid conversation share":                              {Code: "conversation_share.invalid", Message: "invalid conversation share"},
 	"conversation share schema outdated":                      {Code: "conversation_share.schema_outdated", Message: "conversation share schema is outdated"},
 	"conversation share schema is outdated, rebuild database": {Code: "conversation_share.schema_outdated", Message: "conversation share schema is outdated"},
@@ -287,6 +290,8 @@ var exactErrorSpecs = map[string]errorSpec{
 	"mineru runtime service unavailable":    {Code: "runtime.mineru_unavailable", Message: "mineru runtime service unavailable"},
 
 	"memory_key is required":          {Code: "memory.key_required", Message: "memory_key is required"},
+	"user memory limit exceeded":      {Code: "memory.limit_exceeded", Message: "user memory limit exceeded"},
+	"mcp server limit exceeded":       {Code: "mcp.server_limit_exceeded", Message: "mcp server limit exceeded"},
 	"invalid mcp server id":           {Code: "mcp.server.invalid_id", Message: "invalid mcp server id"},
 	"invalid mcp tool id":             {Code: "mcp.tool.invalid_id", Message: "invalid mcp tool id"},
 	"invalid mcp server name":         {Code: "mcp.invalid_server_name", Message: "invalid mcp server name"},
@@ -389,37 +394,13 @@ func InferErrorCode(status int, msg string) string {
 	}
 }
 
-// PublicErrorMessage normalizes legacy handler messages into a safe API fallback.
-// It intentionally preserves client-side validation context while hiding 5xx
-// internals behind requestId + server logs.
+// PublicErrorMessage 返回可对外展示的错误文案：命中白名单则用规范文本，否则用该状态码的通用文案。
 func PublicErrorMessage(status int, code string, msg string) string {
 	msg = strings.TrimSpace(msg)
 	if spec, ok := resolveErrorSpec(status, msg); ok {
 		return spec.Message
 	}
-	if msg == "" {
-		msg = fallbackMessage(status, code)
-	}
-
-	switch {
-	case status >= http.StatusInternalServerError:
-		return fallbackMessage(status, code)
-	case status == http.StatusBadGateway:
-		return fallbackMessage(status, code)
-	case status == http.StatusServiceUnavailable:
-		return fallbackMessage(status, code)
-	}
-
-	switch code {
-	case CodeAuthUnauthorized:
-		return "unauthorized"
-	case CodeAuthForbidden:
-		return "forbidden"
-	case CodeRateLimitExceeded:
-		return "rate limit exceeded"
-	default:
-		return msg
-	}
+	return fallbackMessage(status, code)
 }
 
 func fallbackMessage(status int, code string) string {
@@ -475,6 +456,8 @@ func fallbackMessage(status int, code string) string {
 		return "file type is not allowed"
 	case CodeUpstreamUnavailable:
 		return "upstream service unavailable"
+	case CodeUpstreamRateLimited:
+		return "upstream rate limited"
 	case CodeServiceUnavailable:
 		return "service unavailable"
 	}
@@ -652,6 +635,8 @@ var fallbackMessages = map[string]string{
 	"settings.extract_invalid":                          "invalid file extraction settings",
 	"embedding.service_unavailable":                     "embedding service is not available",
 	"embedding.service_not_configured":                  "embedding service is not configured",
+	"embedding.submit_failed":                           "failed to submit embedding jobs",
+	"embedding.too_many_files":                          "too many files for embedding",
 	"user_settings.unknown_key":                         "unknown setting key",
 	"user_settings.invalid_value":                       "invalid user setting value",
 	"memory.key_required":                               "memory_key is required",

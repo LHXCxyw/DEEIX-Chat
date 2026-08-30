@@ -149,7 +149,9 @@
   },
   "embedding": {
     "serviceNotConfigured": "请先启用并配置 Embedding 服务。",
-    "serviceUnavailable": "向量服务不可用。"
+    "serviceUnavailable": "向量服务不可用。",
+    "submitFailed": "向量化任务提交失败，请稍后重试。",
+    "tooManyFiles": "单次最多提交 100 个文件进行向量化。"
   },
   "file": {
     "embeddingUnavailable": "当前文件暂不支持向量处理。",
@@ -214,6 +216,8 @@
     "platformModelNameExists": "平台模型名称已存在。",
     "platformModelNameRequired": "平台模型名称不能为空。",
     "protocolRequired": "协议不能为空。",
+    "remoteModelsEmptyConfirmationRequired": "上游返回了空模型目录，请刷新后确认是否继续同步。",
+    "remoteModelsSnapshotChanged": "上游模型目录在预览后发生了变化，已重新加载，请确认最新变更。",
     "remoteModelsUnavailable": "远程模型列表暂不可用。",
     "routeConflict": "该上游模型已存在相同平台模型和协议的绑定，请删除重复绑定后再保存。",
     "routesUnavailable": "所有模型路由都不可用。"
@@ -324,6 +328,7 @@
     "smtpInvalid": "SMTP 设置无效。"
   },
   "upstream": {
+    "rateLimited": "上游请求正在限流，请稍后重试。",
     "unavailable": "上游服务不可用。"
   },
   "upstreamEmptyResponse": "上游返回了空响应，请稍后重试或联系管理员检查模型路由。",

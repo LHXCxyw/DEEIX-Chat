@@ -3,13 +3,13 @@
 import dynamic from "next/dynamic";
 
 import { AdminKnowledgeBases } from "@/features/knowledge-bases/components/admin-knowledge-bases";
+import { KnowledgeBaseDetail } from "@/features/knowledge-bases/components/knowledge-base-detail";
 import {
   AddKnowledgeBaseFilesDialog,
   BulkDeleteKnowledgeBasesDialog,
   DeleteKnowledgeBaseDialog,
   KnowledgeBaseEditorDialog,
 } from "@/features/knowledge-bases/components/knowledge-base-dialogs";
-import { KnowledgeBaseDetail } from "@/features/knowledge-bases/components/knowledge-base-detail";
 import { KnowledgeBaseSidebar } from "@/features/knowledge-bases/components/knowledge-base-sidebar";
 import { useKnowledgeBasesPage } from "@/features/knowledge-bases/hooks/use-knowledge-bases-page";
 import type { KnowledgeBaseMode } from "@/features/knowledge-bases/types/knowledge-bases";
@@ -33,6 +33,8 @@ export function AppKnowledgeBases({ mode = "user" }: { mode?: KnowledgeBaseMode 
         mode={mode}
         items={list.items}
         loading={list.loading}
+        loadingMore={list.loadingMore}
+        hasMore={list.hasMore}
         mobileView={list.mobileView}
         collapsed={sidebarCollapsed}
         showCollapseButton={!isMobileViewport}
@@ -43,6 +45,7 @@ export function AppKnowledgeBases({ mode = "user" }: { mode?: KnowledgeBaseMode 
         searchOpen={list.searchOpen}
         bulkDeleting={list.bulkDeleting}
         onToggleCollapsed={list.toggleSidebarCollapsed}
+        onLoadMore={() => void list.loadMore()}
         onToggleSearch={list.toggleSearch}
         onQueryChange={list.changeQuery}
         onCreate={list.create}
@@ -65,12 +68,19 @@ export function AppKnowledgeBases({ mode = "user" }: { mode?: KnowledgeBaseMode 
         loadingMore={detail.filesLoadingMore}
         removingFileID={detail.removingFileID}
         toggling={detail.toggling}
+        selectedFileIDs={detail.selectedFileIDs}
+        vectorizingFileIDs={detail.vectorizingFileIDs}
         onBack={detail.back}
         onAddFiles={detail.addFiles}
         onLoadMore={detail.loadMoreFiles}
         onRemoveFile={detail.removeFile}
         onToggleEnabled={detail.toggleBuiltinEnabled}
         onPreviewFile={detail.previewFile}
+        onToggleFileSelection={detail.toggleFileSelection}
+        onSelectVectorizableFiles={detail.selectVectorizableFiles}
+        onClearFileSelection={detail.clearFileSelection}
+        onVectorizeFile={detail.vectorizeFile}
+        onVectorizeSelectedFiles={detail.vectorizeSelectedFiles}
       />
       </>}
 

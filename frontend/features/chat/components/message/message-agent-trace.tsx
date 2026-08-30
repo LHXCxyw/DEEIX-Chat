@@ -15,9 +15,9 @@ import {
 import { Marker, MarkerContent } from "@/components/ui/marker";
 import type { ChatTraceBlock, ChatTraceEvent } from "@/features/chat/types/messages";
 import {
-  useProcessTraceLabels,
+  useChatTraceLabels,
   type ProcessTraceLabels,
-} from "@/features/chat/hooks/use-process-trace-labels";
+} from "@/features/chat/hooks/use-chat-trace-labels";
 import {
   AgentToolStepRow,
   buildToolGroupSteps,
@@ -28,7 +28,7 @@ import { StreamdownRender } from "@/shared/components/markdown/streamdown-render
 import { useAutoExpandDisclosure } from "@/shared/hooks/use-auto-expand-disclosure";
 import { cn } from "@/lib/utils";
 import { TRACE_ROOT_CLASS } from "@/features/chat/components/shared/message-process-trace-shared";
-import { useElapsedDurationMS } from "@/features/chat/hooks/use-elapsed-duration";
+import { useChatElapsedDurationMS } from "@/features/chat/hooks/use-chat-elapsed-duration";
 import {
   durationBetweenMS,
   formatDurationMS,
@@ -282,7 +282,7 @@ function TraceThinkRow({
     autoExpand,
   });
 
-  const liveDurationMS = useElapsedDurationMS(streaming, block.startedAt);
+  const liveDurationMS = useChatElapsedDurationMS(streaming, block.startedAt);
   const durationText = formatDurationMS(streaming ? liveDurationMS : durationMS);
 
   return (
@@ -365,7 +365,7 @@ export function MessageAgentTrace({
   autoExpandThinking?: boolean;
   autoExpandToolCalls?: boolean;
 }) {
-  const labels = useProcessTraceLabels();
+  const labels = useChatTraceLabels();
   const displayEvents = React.useMemo(() => buildTraceDisplayEvents(traceEvents), [traceEvents]);
   const groups = React.useMemo(
     () => groupTraceDisplayEvents(displayEvents, activeThinkBlock, activeToolBlock),

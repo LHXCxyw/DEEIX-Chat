@@ -1,26 +1,15 @@
-import type { LucideIcon } from "lucide-react";
-import {
-  AudioLines,
-  Bot,
-  Clapperboard,
-  ImageIcon,
-  Paintbrush,
-  Video,
-} from "lucide-react";
 import type { AdminLLMAdapter } from "@/features/admin/api/llm.types";
 import { COMPATIBLE_PRESETS, PROTOCOL_PRESETS } from "@/shared/lib/llm-presets";
 
-export const MODEL_KIND_META: Record<
-  string,
-  { label: string; shortLabel: string; icon: LucideIcon }
-> = {
-  chat: { label: "Chat", shortLabel: "Chat", icon: Bot },
-  audio: { label: "Audio", shortLabel: "Audio", icon: AudioLines },
-  image_gen: { label: "Image generation", shortLabel: "Image generation", icon: ImageIcon },
-  image_edit: { label: "Image editing", shortLabel: "Image editing", icon: Paintbrush },
-  video_gen: { label: "Video generation", shortLabel: "Video generation", icon: Video },
-  video_extension: { label: "Video extension", shortLabel: "Video extension", icon: Clapperboard },
-};
+// 模型类型枚举；展示文案统一走 i18n（adminModels/adminUpstreams 命名空间下的 kinds.*），此处不维护英文 label。
+export const MODEL_KINDS = [
+  "chat",
+  "audio",
+  "image_gen",
+  "image_edit",
+  "video_gen",
+  "video_extension",
+] as const;
 
 export const COMPATIBLE_OPTIONS = COMPATIBLE_PRESETS;
 
@@ -53,23 +42,7 @@ const VIDEO_ROUTE_PROTOCOL_PAIRS: ReadonlyArray<readonly [AdminLLMAdapter, Admin
   ["xai_video", "xai_video_extensions"],
 ];
 
-const LLM_STATUS_LABELS: Record<string, string> = {
-  active: "Enabled",
-  inactive: "Disabled",
-};
-
-const BINDING_STATUS_LABELS: Record<string, string> = {
-  available: "Ready to import",
-  mapped: "Bound",
-  existing: "Existing",
-  created: "Created",
-  failed: "Failed",
-};
-
-export function resolveKindLabel(kind: string): string {
-  return MODEL_KIND_META[kind]?.shortLabel ?? kind;
-}
-
+// 协议名为技术专有名词（对应上游 API 端点），保持英文展示，不参与翻译。
 export function resolveProtocolLabel(protocol: string): string {
   return PROTOCOL_LABELS[protocol] ?? protocol;
 }
@@ -139,17 +112,4 @@ export function resolveKindsDisplayForProtocols(
 
 export function resolveCompatibleLabel(compatible: string): string {
   return COMPATIBLE_OPTIONS.find((item) => item.value === compatible)?.label ?? (compatible || "-");
-}
-
-export function resolveLLMStatusLabel(status: string | null | undefined): string {
-  const key = status?.trim() ?? "";
-  return LLM_STATUS_LABELS[key] ?? (status?.trim() || "-");
-}
-
-export function resolveBindingStatusLabel(status: string | null | undefined, alreadyBound = false): string {
-  const key = status?.trim() ?? "";
-  if (!key && alreadyBound) {
-    return "Bound";
-  }
-  return BINDING_STATUS_LABELS[key] ?? (key || "Ready to import");
 }

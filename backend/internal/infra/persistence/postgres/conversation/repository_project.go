@@ -12,6 +12,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// maxConversationProjectsPerUser 单用户会话项目数量上限；列表接口为全量加载，需要写入侧兜底有界。
+const maxConversationProjectsPerUser = 200
+
 // CreateConversationProject 创建会话项目分组。
 func (r *Repo) CreateConversationProject(ctx context.Context, item *domainconversation.ConversationProject) error {
 	entity := toConversationProjectModel(item)
@@ -19,6 +22,15 @@ func (r *Repo) CreateConversationProject(ctx context.Context, item *domainconver
 	skillIDs := append([]uint(nil), item.DefaultSkillIDs...)
 	knowledgeBaseIDs := append([]string(nil), item.DefaultKnowledgeBaseIDs...)
 	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&models.ConversationProject{}).
+			Where("user_id = ?", entity.UserID).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count >= maxConversationProjectsPerUser {
+			return repository.ErrConversationProjectLimitExceeded
+		}
 		if err := tx.Create(&entity).Error; err != nil {
 			return err
 		}
@@ -98,6 +110,9 @@ func (r *Repo) UpdateConversationProjectMetadataByPublicID(
 	}
 	if patch.SystemPrompt != nil {
 		updates["system_prompt"] = *patch.SystemPrompt
+	}
+	if patch.DefaultModel != nil {
+		updates["default_model"] = *patch.DefaultModel
 	}
 	if patch.MCPDefaultMode != nil {
 		updates["mcp_default_mode"] = *patch.MCPDefaultMode
@@ -283,6 +298,7 @@ func toConversationProjectDomain(item models.ConversationProject) domainconversa
 		Name:           item.Name,
 		Description:    item.Description,
 		SystemPrompt:   item.SystemPrompt,
+		DefaultModel:   item.DefaultModel,
 		MCPDefaultMode: mcpDefaultMode,
 		Color:          item.Color,
 		Icon:           item.Icon,
@@ -311,6 +327,7 @@ func toConversationProjectModel(item *domainconversation.ConversationProject) mo
 		Name:           item.Name,
 		Description:    item.Description,
 		SystemPrompt:   item.SystemPrompt,
+		DefaultModel:   item.DefaultModel,
 		MCPDefaultMode: item.MCPDefaultMode,
 		Color:          item.Color,
 		Icon:           item.Icon,

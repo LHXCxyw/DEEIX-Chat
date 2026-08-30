@@ -2264,6 +2264,8 @@ definitions:
         items:
           type: integer
         type: array
+      defaultModel:
+        type: string
       defaultSkillIDs:
         items:
           type: integer
@@ -2291,6 +2293,7 @@ definitions:
     - createdAt
     - defaultKnowledgeBaseIDs
     - defaultMCPToolIDs
+    - defaultModel
     - defaultSkillIDs
     - description
     - icon
@@ -2409,6 +2412,16 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  ConversationRunStatusResponse:
+    properties:
+      runID:
+        type: string
+      status:
+        type: string
+    required:
+    - runID
+    - status
     type: object
   ConversationSearchListResponseDoc:
     properties:
@@ -2602,6 +2615,9 @@ definitions:
           type: integer
         maxItems: 128
         type: array
+      defaultModel:
+        maxLength: 128
+        type: string
       defaultSkillIDs:
         items:
           type: integer
@@ -3129,6 +3145,40 @@ definitions:
     - data
     - errorMsg
     type: object
+  FileEmbeddingSkipResponse:
+    properties:
+      fileID:
+        type: string
+      reason:
+        type: string
+    required:
+    - fileID
+    - reason
+    type: object
+  FileEmbeddingSubmissionResponse:
+    properties:
+      skipped:
+        items:
+          $ref: '#/definitions/FileEmbeddingSkipResponse'
+        type: array
+      submittedFileIDs:
+        items:
+          type: string
+        type: array
+    required:
+    - skipped
+    - submittedFileIDs
+    type: object
+  FileEmbeddingSubmissionResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/FileEmbeddingSubmissionResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   FileListResponse:
     properties:
       quota:
@@ -3156,6 +3206,8 @@ definitions:
     type: object
   FileObjectResponse:
     properties:
+      canVectorize:
+        type: boolean
       chunkCount:
         type: integer
       createdAt:
@@ -3204,7 +3256,10 @@ definitions:
         type: string
       updatedAt:
         type: string
+      vectorizationReason:
+        type: string
     required:
+    - canVectorize
     - chunkCount
     - createdAt
     - detectedMIME
@@ -3227,6 +3282,81 @@ definitions:
     - sizeBytes
     - status
     - updatedAt
+    - vectorizationReason
+    type: object
+  FileProcessingStatusResponse:
+    properties:
+      canVectorize:
+        type: boolean
+      chunkCount:
+        type: integer
+      completedAt:
+        type: string
+        x-nullable: true
+        x-omitempty: false
+      detectedMIME:
+        type: string
+      embedError:
+        type: string
+      embedStatus:
+        type: string
+      errorCode:
+        type: string
+      errorMessage:
+        type: string
+      extractChars:
+        type: integer
+      extractPages:
+        type: integer
+      extractStatus:
+        type: string
+      fileCategory:
+        type: string
+      fileID:
+        type: string
+      ocrUsed:
+        type: boolean
+      previewText:
+        type: string
+      processingReady:
+        type: boolean
+      processingStatus:
+        type: string
+      ragReady:
+        type: boolean
+      ragReason:
+        type: string
+      startedAt:
+        type: string
+        x-nullable: true
+        x-omitempty: false
+      updatedAt:
+        type: string
+      vectorizationReason:
+        type: string
+    required:
+    - canVectorize
+    - chunkCount
+    - completedAt
+    - detectedMIME
+    - embedError
+    - embedStatus
+    - errorCode
+    - errorMessage
+    - extractChars
+    - extractPages
+    - extractStatus
+    - fileCategory
+    - fileID
+    - ocrUsed
+    - previewText
+    - processingReady
+    - processingStatus
+    - ragReady
+    - ragReason
+    - startedAt
+    - updatedAt
+    - vectorizationReason
     type: object
   FileUpdateResponseDoc:
     properties:
@@ -3250,6 +3380,49 @@ definitions:
     - file
     - quota
     - reused
+    type: object
+  GetConversationRunStatusesRequest:
+    properties:
+      runIDs:
+        items:
+          type: string
+        maxItems: 100
+        minItems: 1
+        type: array
+    required:
+    - runIDs
+    type: object
+  GetFileProcessingStatusesRequest:
+    properties:
+      fileIDs:
+        items:
+          type: string
+        maxItems: 100
+        minItems: 1
+        type: array
+    required:
+    - fileIDs
+    type: object
+  GetKnowledgeBaseFileProcessingSnapshotRequest:
+    properties:
+      fileIDs:
+        items:
+          type: string
+        maxItems: 100
+        type: array
+    required:
+    - fileIDs
+    type: object
+  GetKnowledgeBaseFileProcessingStatusesRequest:
+    properties:
+      fileIDs:
+        items:
+          type: string
+        maxItems: 100
+        minItems: 1
+        type: array
+    required:
+    - fileIDs
     type: object
   GroupModelsResponse:
     properties:
@@ -3637,6 +3810,40 @@ definitions:
     required:
     - file
     type: object
+  KnowledgeBaseFileEmbeddingSkipResponse:
+    properties:
+      fileID:
+        type: string
+      reason:
+        type: string
+    required:
+    - fileID
+    - reason
+    type: object
+  KnowledgeBaseFileEmbeddingSubmissionResponse:
+    properties:
+      skipped:
+        items:
+          $ref: '#/definitions/KnowledgeBaseFileEmbeddingSkipResponse'
+        type: array
+      submittedFileIDs:
+        items:
+          type: string
+        type: array
+    required:
+    - skipped
+    - submittedFileIDs
+    type: object
+  KnowledgeBaseFileEmbeddingSubmissionResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/KnowledgeBaseFileEmbeddingSubmissionResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   KnowledgeBaseFileMutationDataResponse:
     properties:
       updated:
@@ -3674,15 +3881,79 @@ definitions:
     - data
     - errorMsg
     type: object
+  KnowledgeBaseFileProcessingSnapshotResponse:
+    properties:
+      knowledgeBase:
+        $ref: '#/definitions/KnowledgeBaseResponse'
+      statuses:
+        items:
+          $ref: '#/definitions/KnowledgeBaseFileProcessingStatusResponse'
+        type: array
+    required:
+    - knowledgeBase
+    - statuses
+    type: object
+  KnowledgeBaseFileProcessingStatusResponse:
+    properties:
+      canVectorize:
+        type: boolean
+      chunkCount:
+        type: integer
+      detectedMIME:
+        type: string
+      embedError:
+        type: string
+      embedStatus:
+        type: string
+      extractStatus:
+        type: string
+      fileCategory:
+        type: string
+      fileID:
+        type: string
+      processing:
+        type: boolean
+      processingReady:
+        type: boolean
+      processingStatus:
+        type: string
+      ragOptOut:
+        type: boolean
+      updatedAt:
+        type: string
+      vectorizationReason:
+        type: string
+    required:
+    - canVectorize
+    - chunkCount
+    - detectedMIME
+    - embedError
+    - embedStatus
+    - extractStatus
+    - fileCategory
+    - fileID
+    - processing
+    - processingReady
+    - processingStatus
+    - ragOptOut
+    - updatedAt
+    - vectorizationReason
+    type: object
   KnowledgeBaseFileResponse:
     properties:
+      canVectorize:
+        type: boolean
       chunkCount:
         type: integer
       createdAt:
         type: string
       detectedMIME:
         type: string
+      embedError:
+        type: string
       embedStatus:
+        type: string
+      extractStatus:
         type: string
       fileCategory:
         type: string
@@ -3692,6 +3963,8 @@ definitions:
         type: string
       mimeType:
         type: string
+      processing:
+        type: boolean
       processingReady:
         type: boolean
       processingStatus:
@@ -3702,20 +3975,27 @@ definitions:
         type: integer
       updatedAt:
         type: string
+      vectorizationReason:
+        type: string
     required:
+    - canVectorize
     - chunkCount
     - createdAt
     - detectedMIME
+    - embedError
     - embedStatus
+    - extractStatus
     - fileCategory
     - fileID
     - fileName
     - mimeType
+    - processing
     - processingReady
     - processingStatus
     - ragOptOut
     - sizeBytes
     - updatedAt
+    - vectorizationReason
     type: object
   KnowledgeBaseFileResponseDoc:
     properties:
@@ -3759,6 +4039,8 @@ definitions:
         type: integer
       name:
         type: string
+      processingFileCount:
+        type: integer
       publicID:
         type: string
       readyFileCount:
@@ -3780,6 +4062,7 @@ definitions:
     - enabled
     - fileCount
     - name
+    - processingFileCount
     - publicID
     - readyFileCount
     - revision
@@ -6419,6 +6702,102 @@ definitions:
     - data
     - errorMsg
     type: object
+  RedemptionRecordListResponseDoc:
+    properties:
+      data:
+        properties:
+          results:
+            items:
+              $ref: '#/definitions/RedemptionRecordResponse'
+            type: array
+          total:
+            type: integer
+        required:
+        - results
+        - total
+        type: object
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  RedemptionRecordResponse:
+    properties:
+      balanceAfterNanousd:
+        type: integer
+        x-nullable: true
+        x-omitempty: false
+      balanceBeforeNanousd:
+        description: BalanceBeforeNanousd / BalanceAfterNanousd 来自余额流水；订阅类兑换无流水时为
+          null。
+        type: integer
+        x-nullable: true
+        x-omitempty: false
+      codeDescription:
+        type: string
+      codeHint:
+        type: string
+      codeID:
+        type: integer
+      codeStatus:
+        type: string
+      createdAt:
+        type: string
+      creditNanousd:
+        type: integer
+      creditUSD:
+        type: number
+      durationDays:
+        type: integer
+      id:
+        type: integer
+      mode:
+        type: string
+      planID:
+        type: integer
+      planName:
+        type: string
+      refNo:
+        type: string
+      rewardType:
+        type: string
+      snapshotJSON:
+        type: string
+      subscriptionID:
+        type: integer
+      userDisplayName:
+        type: string
+      userID:
+        type: integer
+      userLabel:
+        type: string
+      username:
+        type: string
+    required:
+    - balanceAfterNanousd
+    - balanceBeforeNanousd
+    - codeDescription
+    - codeHint
+    - codeID
+    - codeStatus
+    - createdAt
+    - creditNanousd
+    - creditUSD
+    - durationDays
+    - id
+    - mode
+    - planID
+    - planName
+    - refNo
+    - rewardType
+    - snapshotJSON
+    - subscriptionID
+    - userDisplayName
+    - userID
+    - userLabel
+    - username
+    type: object
   RedemptionResponse:
     properties:
       balanceTransactionID:
@@ -7190,6 +7569,28 @@ definitions:
     - usedBytes
     - userID
     type: object
+  SubmitFileEmbeddingsRequest:
+    properties:
+      fileIDs:
+        items:
+          type: string
+        maxItems: 100
+        minItems: 1
+        type: array
+    required:
+    - fileIDs
+    type: object
+  SubmitPlatformFileEmbeddingsRequest:
+    properties:
+      fileIDs:
+        items:
+          type: string
+        maxItems: 100
+        minItems: 1
+        type: array
+    required:
+    - fileIDs
+    type: object
   SubscribeRequest:
     properties:
       cycles:
@@ -7322,21 +7723,36 @@ definitions:
         type: integer
       inactivatedModels:
         type: integer
+      protectedUpstreamModels:
+        type: integer
+      reactivatedModels:
+        type: integer
       skippedUpstreamModels:
         type: integer
+      snapshotID:
+        type: string
       syncedModels:
         items:
           $ref: '#/definitions/UpstreamSyncModelResponse'
         type: array
       totalUpstream:
         type: integer
+      unchangedUpstreamModels:
+        type: integer
+      updatedUpstreamModels:
+        type: integer
     required:
     - createdUpstreamModels
     - existingUpstreamModels
     - inactivatedModels
+    - protectedUpstreamModels
+    - reactivatedModels
     - skippedUpstreamModels
+    - snapshotID
     - syncedModels
     - totalUpstream
+    - unchangedUpstreamModels
+    - updatedUpstreamModels
     type: object
   SyncUpstreamModelsResponseDoc:
     properties:
@@ -7513,6 +7929,8 @@ definitions:
         type: string
       name:
         type: string
+      priceNanousd:
+        type: integer
       serverID:
         type: integer
       serverName:
@@ -7534,6 +7952,7 @@ definitions:
     - id
     - inputSchemaJSON
     - name
+    - priceNanousd
     - serverID
     - serverName
     - sortOrder
@@ -7626,6 +8045,9 @@ definitions:
           type: integer
         maxItems: 128
         type: array
+      defaultModel:
+        maxLength: 128
+        type: string
       defaultSkillIDs:
         items:
           type: integer
@@ -7862,6 +8284,10 @@ definitions:
         type: string
       displayName:
         type: string
+      priceNanousd:
+        description: PriceNanousd 单次调用价格（nano USD），0 表示不单独计费。
+        minimum: 0
+        type: integer
       status:
         type: string
     type: object
@@ -8352,6 +8778,40 @@ definitions:
     - upstreamModelVendor
     - weight
     type: object
+  UpstreamModelSyncPlanResponse:
+    properties:
+      addedModels:
+        items:
+          type: string
+        type: array
+      inactivatedModels:
+        items:
+          type: string
+        type: array
+      protectedModels:
+        items:
+          type: string
+        type: array
+      reactivatedModels:
+        items:
+          type: string
+        type: array
+      unchangedModels:
+        items:
+          type: string
+        type: array
+      updatedModels:
+        items:
+          type: string
+        type: array
+    required:
+    - addedModels
+    - inactivatedModels
+    - protectedModels
+    - reactivatedModels
+    - unchangedModels
+    - updatedModels
+    type: object
   UpstreamRemoteModelResponse:
     properties:
       alreadyBound:
@@ -8396,10 +8856,16 @@ definitions:
         items:
           $ref: '#/definitions/UpstreamRemoteModelResponse'
         type: array
+      snapshotID:
+        type: string
+      syncPlan:
+        $ref: '#/definitions/UpstreamModelSyncPlanResponse'
       total:
         type: integer
     required:
     - items
+    - snapshotID
+    - syncPlan
     - total
     type: object
   UpstreamRemoteModelsResponseDoc:
@@ -8495,18 +8961,27 @@ definitions:
         type: boolean
       kindsJSON:
         type: string
+      protected:
+        type: boolean
+      reactivated:
+        type: boolean
       status:
         type: string
       suggestedProtocol:
         type: string
+      updated:
+        type: boolean
       upstreamModelName:
         type: string
     required:
     - bindingCode
     - created
     - kindsJSON
+    - protected
+    - reactivated
     - status
     - suggestedProtocol
+    - updated
     - upstreamModelName
     type: object
   UsageDailyListResponseDoc:
@@ -9166,12 +9641,44 @@ definitions:
     - data
     - errorMsg
     type: object
+  UserDailyActivityItem:
+    properties:
+      date:
+        type: string
+      requestCount:
+        type: integer
+      tokenUsage:
+        type: integer
+    required:
+    - date
+    - requestCount
+    - tokenUsage
+    type: object
+  UserDailyActivityListResponseDoc:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/UserDailyActivityItem'
+        type: array
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   UserDataResponse:
     properties:
       user:
         $ref: '#/definitions/AdminUserResponse'
     required:
     - user
+    type: object
+  UserErrorDoc:
+    properties:
+      errorMsg:
+        type: string
+    required:
+    - errorMsg
     type: object
   UserListResponseDoc:
     properties:
@@ -9337,7 +9844,7 @@ info:
   contact: {}
   description: DEEIX Chat 后端 API 文档
   title: DEEIX Chat API
-  version: "0.3.6"
+  version: "0.4.0"
 paths:
   /admin/announcements:
     get:
@@ -10535,6 +11042,17 @@ paths:
         in: query
         name: q
         type: string
+      - description: 排序方式(default/name/created/updated/files)
+        in: query
+        name: sort
+        type: string
+      - collectionFormat: csv
+        description: 知识库ID
+        in: query
+        items:
+          type: string
+        name: id
+        type: array
       - description: 可用状态
         in: query
         name: enabled
@@ -10595,6 +11113,23 @@ paths:
       security:
       - BearerAuth: []
       summary: 删除内置知识库
+      tags:
+      - admin-knowledge-bases
+    get:
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/KnowledgeBaseResponseDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询内置知识库详情
       tags:
       - admin-knowledge-bases
     patch:
@@ -10773,6 +11308,84 @@ paths:
       summary: 获取内置知识库文件内容
       tags:
       - admin-knowledge-bases
+  /admin/knowledge-bases/{id}/files/processing/snapshot:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 知识库公开ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 当前页处理中或待确认的文件ID，最多100个，可为空
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/GetKnowledgeBaseFileProcessingSnapshotRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/KnowledgeBaseFileProcessingSnapshotResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询内置知识库处理快照
+      tags:
+      - admin-knowledge-bases
+  /admin/knowledge-bases/{id}/files/processing/statuses:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 文件ID，最多100个
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/GetKnowledgeBaseFileProcessingStatusesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/KnowledgeBaseFileProcessingStatusResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 批量查询内置知识库文件处理状态
+      tags:
+      - admin-knowledge-bases
   /admin/knowledge-bases/files:
     get:
       description: 分页返回供内置知识库复用的全部平台资料
@@ -10907,6 +11520,42 @@ paths:
       security:
       - BearerAuth: []
       summary: 获取平台资料内容
+      tags:
+      - admin-knowledge-bases
+  /admin/knowledge-bases/files/embeddings:
+    post:
+      consumes:
+      - application/json
+      description: 为管理员选中的平台资料提交向量化任务，最多100个；重复提交会幂等跳过
+      parameters:
+      - description: 平台资料ID，最多100个
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/SubmitPlatformFileEmbeddingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/KnowledgeBaseFileEmbeddingSubmissionResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 批量提交平台资料向量化
       tags:
       - admin-knowledge-bases
   /admin/llm/icon-assets:
@@ -12517,7 +13166,7 @@ paths:
     get:
       consumes:
       - application/json
-      description: 调用上游 models 接口，仅返回可导入预览，不直接落库
+      description: 调用上游 models 接口，返回可导入模型与目录变更预览，不直接落库
       parameters:
       - description: 上游ID
         in: path
@@ -12556,13 +13205,21 @@ paths:
     post:
       consumes:
       - application/json
-      description: 调用上游 models 接口写入上游真实模型清单，不自动绑定平台模型
+      description: 调用上游 models 接口获取完整目录，原子更新远端管理模型可用状态，不删除平台模型或路由配置
       parameters:
       - description: 上游ID
         in: path
         name: id
         required: true
         type: integer
+      - description: 确认允许空模型目录对账
+        in: query
+        name: allow_empty
+        type: boolean
+      - description: 用户确认的远端目录快照标识
+        in: query
+        name: expected_snapshot
+        type: string
       produces:
       - application/json
       responses:
@@ -12576,6 +13233,10 @@ paths:
             $ref: '#/definitions/ChannelErrorDoc'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/ChannelErrorDoc'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/ChannelErrorDoc'
         "500":
@@ -13512,6 +14173,68 @@ paths:
       summary: 管理员更新内置提示词
       tags:
       - admin-prompt-presets
+  /admin/redemptions:
+    get:
+      consumes:
+      - application/json
+      description: 管理员分页查看兑换码兑换明细，含奖励内容与余额变动，已删除兑换码的历史仍可查询
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 搜索兑换流水号、兑换码摘要、兑换码备注
+        in: query
+        name: query
+        type: string
+      - description: 兑换码ID
+        in: query
+        name: code_id
+        type: integer
+      - description: 用户ID
+        in: query
+        name: user_id
+        type: integer
+      - description: 奖励类型(balance/subscription)
+        in: query
+        name: reward_type
+        type: string
+      - description: 兑换时间起点(RFC3339)
+        in: query
+        name: created_from
+        type: string
+      - description: 兑换时间终点(RFC3339)
+        in: query
+        name: created_to
+        type: string
+      - description: 排序方式
+        in: query
+        name: sort
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RedemptionRecordListResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/AdminErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/AdminErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员查询兑换记录
+      tags:
+      - admin
   /admin/settings:
     get:
       description: 按 namespace 分组返回全部动态配置项
@@ -15487,10 +16210,44 @@ paths:
       summary: 恢复流式生成订阅
       tags:
       - chat
+  /conversation-runs/statuses:
+    post:
+      consumes:
+      - application/json
+      description: 按运行 ID 一次查询当前用户多个会话任务的最小状态快照
+      parameters:
+      - description: 运行ID，最多100个
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/GetConversationRunStatusesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/ConversationRunStatusResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 批量查询会话运行状态
+      tags:
+      - chat
   /conversation-runs/stream:
     get:
       description: Sends an authoritative snapshot followed by live user-scoped run
-        state events
+        state events; the snapshot is re-sent periodically for client-side reconciliation
       produces:
       - text/event-stream
       responses:
@@ -16710,6 +17467,76 @@ paths:
       summary: 获取文件内容
       tags:
       - chat
+  /files/embeddings:
+    post:
+      consumes:
+      - application/json
+      description: 为当前用户已完成文本提取的文件提交向量化任务，最多100个；重复提交会幂等跳过
+      parameters:
+      - description: 文件ID，最多100个
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/SubmitFileEmbeddingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/FileEmbeddingSubmissionResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 批量提交指定文件向量化
+      tags:
+      - chat
+  /files/processing/statuses:
+    post:
+      consumes:
+      - application/json
+      description: 一次查询当前用户多个文件的处理状态
+      parameters:
+      - description: 文件ID，最多100个
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/GetFileProcessingStatusesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/FileProcessingStatusResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 批量查询文件处理状态
+      tags:
+      - chat
   /knowledge-bases:
     get:
       parameters:
@@ -16717,6 +17544,17 @@ paths:
         in: query
         name: q
         type: string
+      - description: 排序方式(default/name/created/updated/files)
+        in: query
+        name: sort
+        type: string
+      - collectionFormat: csv
+        description: 知识库ID
+        in: query
+        items:
+          type: string
+        name: id
+        type: array
       - description: 页码
         in: query
         name: page
@@ -16817,6 +17655,84 @@ paths:
       summary: 获取知识库文件内容
       tags:
       - knowledge-bases
+  /knowledge-bases/{id}/files/processing/snapshot:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 知识库公开ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 当前页处理中或待确认的文件ID，最多100个，可为空
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/GetKnowledgeBaseFileProcessingSnapshotRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/KnowledgeBaseFileProcessingSnapshotResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询当前用户可见知识库处理快照
+      tags:
+      - knowledge-bases
+  /knowledge-bases/{id}/files/processing/statuses:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 文件ID，最多100个
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/GetKnowledgeBaseFileProcessingStatusesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/KnowledgeBaseFileProcessingStatusResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/KnowledgebaseErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 批量查询知识库文件处理状态
+      tags:
+      - knowledge-bases
   /knowledge-bases/mine:
     get:
       parameters:
@@ -16824,6 +17740,17 @@ paths:
         in: query
         name: q
         type: string
+      - description: 排序方式(default/name/created/updated/files)
+        in: query
+        name: sort
+        type: string
+      - collectionFormat: csv
+        description: 知识库ID
+        in: query
+        items:
+          type: string
+        name: id
+        type: array
       - description: 可用状态
         in: query
         name: enabled
@@ -18009,7 +18936,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: 由浏览器提交完整纯文本上下文；服务端不创建会话、消息、运行或断线续传记录
+      - multipart/form-data
+      description: 由浏览器提交完整上下文和可选请求级附件；服务端不创建会话、消息、运行、文件或断线续传记录
       parameters:
       - description: 临时对话参数
         in: body
@@ -18087,6 +19015,36 @@ paths:
       summary: 更新当前用户的配置
       tags:
       - user/settings
+  /user/stats/activity:
+    get:
+      consumes:
+      - application/json
+      description: 查询当前用户按计费归属日聚合的模型请求数与 token 消耗，逐日补零
+      parameters:
+      - description: 统计天数(默认365，最大366)
+        in: query
+        name: days
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/UserDailyActivityListResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/UserErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/UserErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询每日活跃度
+      tags:
+      - user
 securityDefinitions:
   BearerAuth:
     in: header

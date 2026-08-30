@@ -67,6 +67,7 @@ import {
   updateAdminLLMModel,
 } from "@/features/admin/api";
 import { getAdminOpenRouterOfficialPricing } from "@/features/admin/api/billing";
+import { listAllAdminPages } from "@/features/admin/api/shared";
 import type { AdminOfficialPricingCatalogItemDTO } from "@/features/admin/api/billing.types";
 import { resolveAutomaticModelContextWindow } from "@/features/admin/model/openrouter-model-catalog";
 import {
@@ -424,13 +425,10 @@ export function ModelSheet({ open, mode, target, models, vendors, displayGroups,
       if (!token) {
         return;
       }
-      const data = await listAdminLLMUpstreams(token, {
-        page: 1,
-        pageSize: 2000,
-        status: "active",
-        sort: "name_asc",
-      });
-      setUpstreams(data.results);
+      const results = await listAllAdminPages((options) =>
+        listAdminLLMUpstreams(token, { ...options, status: "active", sort: "name_asc" }),
+      );
+      setUpstreams(results);
     } catch (error) {
       toast.error(t("toast.upstreamsLoadFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
@@ -453,13 +451,14 @@ export function ModelSheet({ open, mode, target, models, vendors, displayGroups,
       if (!token) {
         return;
       }
-      const data = await listAdminLLMUpstreamModels(token, parsedUpstreamID, {
-        page: 1,
-        pageSize: 2000,
-        upstreamStatus: "active",
-        sort: "upstream_asc",
-      });
-      const items = uniqueUpstreamModels(data.results).filter((item) => item.upstreamModelStatus === "active");
+      const results = await listAllAdminPages((options) =>
+        listAdminLLMUpstreamModels(token, parsedUpstreamID, {
+          ...options,
+          upstreamStatus: "active",
+          sort: "upstream_asc",
+        }),
+      );
+      const items = uniqueUpstreamModels(results).filter((item) => item.upstreamModelStatus === "active");
       setUpstreamModelsByID((current) => ({ ...current, [upstreamID]: items }));
     } catch (error) {
       toast.error(t("toast.upstreamModelsLoadFailed"), { description: resolveAdminErrorMessage(error) });

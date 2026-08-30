@@ -1,26 +1,36 @@
 "use client";
 
-import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { useFileExtract } from "@/features/files/hooks/use-file-extract";
 import { useFileInvalidation } from "@/features/files/hooks/use-file-invalidation";
 import { useFilePreview } from "@/features/files/hooks/use-file-preview";
 import type { FileFilterValue, FileSortKey } from "@/features/files/types/files";
-import { resolveFileFilter } from "@/shared/lib/file-display";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import {
   deleteFile,
   listFiles,
   renameFile,
+  submitFileEmbeddings,
   updateFileRagOptOut,
   uploadFile,
 } from "@/shared/api/file";
-import type { FileObjectDTO, UploadFileResult, UserStorageQuotaDTO } from "@/shared/api/file.types";
-import { runBulkActionInChunks } from "@/shared/lib/bulk-action";
+import type {
+  FileObjectDTO,
+  FileProcessingStatusDTO,
+  UploadFileResult,
+  UserStorageQuotaDTO,
+} from "@/shared/api/file.types";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import {
+  type FileStatusPollingResult,
+  useFileProcessingStatusPolling,
+} from "@/shared/hooks/use-file-processing-status-polling";
+import { runBulkActionInChunks, runSettledItemsWithConcurrency } from "@/shared/lib/bulk-action";
+import { resolveFileFilter } from "@/shared/lib/file-display";
+import { canManuallyVectorizeFile, isFileProcessing } from "@/shared/lib/file-processing";
 import { patchByID, replaceByID, upsertByID } from "@/shared/lib/optimistic-list";
 
 const FILES_PAGE_SIZE = 100;
@@ -53,6 +63,8 @@ type UseFilesPageResult = {
   selectedFileIDs: string[];
   bulkDeleteOpen: boolean;
   bulkDeleting: boolean;
+  vectorizing: boolean;
+  vectorizingFileIDs: string[];
   hasMore: boolean;
   query: string;
   sortKey: FileSortKey;
@@ -90,6 +102,8 @@ type UseFilesPageResult = {
   onBulkDeleteRequest: () => void;
   onClearBulkDelete: () => void;
   onConfirmBulkDelete: () => Promise<void>;
+  onVectorizeFile: (fileID: string) => Promise<void>;
+  onVectorizeSelected: () => Promise<void>;
   onBackToList: () => void;
   onToggleRagOptOut: (fileID: string, current: boolean) => Promise<void>;
 };
@@ -110,6 +124,8 @@ export function useFilesPage(): UseFilesPageResult {
   const totalRef = React.useRef(0);
   const isMountedRef = React.useRef(false);
   const loadRequestSeqRef = React.useRef(0);
+  const loadRequestControllerRef = React.useRef<AbortController | null>(null);
+  const uploadRequestControllerRef = React.useRef<AbortController | null>(null);
   const hasLoadedOnceRef = React.useRef(false);
 
   const [files, setFiles] = React.useState<FileObjectDTO[]>([]);
@@ -124,6 +140,7 @@ export function useFilesPage(): UseFilesPageResult {
   const [selectedFileIDs, setSelectedFileIDs] = React.useState<string[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
   const [bulkDeleting, setBulkDeleting] = React.useState(false);
+  const [vectorizingFileIDs, setVectorizingFileIDs] = React.useState<string[]>([]);
   const [nextPage, setNextPage] = React.useState(2);
   const [hasMore, setHasMore] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -145,6 +162,10 @@ export function useFilesPage(): UseFilesPageResult {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      loadRequestControllerRef.current?.abort();
+      loadRequestControllerRef.current = null;
+      uploadRequestControllerRef.current?.abort();
+      uploadRequestControllerRef.current = null;
     };
   }, []);
 
@@ -184,11 +205,38 @@ export function useFilesPage(): UseFilesPageResult {
     async (options: LoadFilesOptions = {}) => {
       const requestSeq = loadRequestSeqRef.current + 1;
       loadRequestSeqRef.current = requestSeq;
-      const token = await ensureAccessToken();
+      loadRequestControllerRef.current?.abort();
+      const requestController = new AbortController();
+      loadRequestControllerRef.current = requestController;
       const page = options.page ?? 1;
       const isLatestRequest = () => loadRequestSeqRef.current === requestSeq;
+      let token = "";
+      try {
+        token = await ensureAccessToken();
+      } catch (error) {
+        if (loadRequestControllerRef.current === requestController) {
+          loadRequestControllerRef.current = null;
+        }
+        if (!requestController.signal.aborted && isMountedRef.current && isLatestRequest()) {
+          setLoading(false);
+          setLoadingMore(false);
+          setSyncing(false);
+          toast.error(t("toasts.listLoadFailed"), {
+            id: "files-list-load-error",
+            description: resolveErrorMessage(error, t("toasts.listLoadFailed")),
+          });
+        }
+        return;
+      }
+
+      if (requestController.signal.aborted) {
+        return;
+      }
 
       if (!token) {
+        if (loadRequestControllerRef.current === requestController) {
+          loadRequestControllerRef.current = null;
+        }
         if (!isMountedRef.current || !isLatestRequest()) {
           return;
         }
@@ -222,7 +270,7 @@ export function useFilesPage(): UseFilesPageResult {
           query: debouncedQuery,
           kind: filterKeys,
           sort: sortKey,
-        });
+        }, requestController.signal);
         if (!isMountedRef.current || !isLatestRequest()) {
           return;
         }
@@ -240,7 +288,7 @@ export function useFilesPage(): UseFilesPageResult {
             pageSize: 1,
             query: explicitPreferredFileID,
             sort: "created",
-          });
+          }, requestController.signal);
           if (!isMountedRef.current || !isLatestRequest()) {
             return;
           }
@@ -264,6 +312,9 @@ export function useFilesPage(): UseFilesPageResult {
         setHasMore(page * FILES_PAGE_SIZE < data.total);
         setNextPage(page + 1);
       } catch (error) {
+        if (requestController.signal.aborted) {
+          return;
+        }
         if (!isMountedRef.current || !isLatestRequest()) {
           return;
         }
@@ -272,6 +323,9 @@ export function useFilesPage(): UseFilesPageResult {
           toast.error(t("toasts.listLoadFailed"), { id: "files-list-load-error", description });
         }
       } finally {
+        if (loadRequestControllerRef.current === requestController) {
+          loadRequestControllerRef.current = null;
+        }
         if (isMountedRef.current && isLatestRequest()) {
           hasLoadedOnceRef.current = true;
           setLoading(false);
@@ -290,30 +344,82 @@ export function useFilesPage(): UseFilesPageResult {
     });
   }, [loadFiles, requestedFileID]);
 
-  React.useEffect(() => {
-    if (loading || loadingMore || uploading) {
-      return;
+  const processingFileIDs = React.useMemo(
+    () => files
+      .filter(isFileProcessing)
+      .map((item) => item.fileID),
+    [files],
+  );
+
+  const onProcessingResult = React.useCallback(({
+    statuses,
+    missingFileIDs,
+  }: FileStatusPollingResult<FileProcessingStatusDTO>) => {
+    const statusesByID = new Map(statuses.map((status) => [status.fileID, status]));
+    const missingFileIDSet = new Set(missingFileIDs);
+    const currentFiles = filesRef.current;
+    let changed = false;
+    let removedCount = 0;
+    const nextFiles: FileObjectDTO[] = [];
+    for (const item of currentFiles) {
+      if (missingFileIDSet.has(item.fileID)) {
+        changed = true;
+        removedCount += 1;
+        continue;
+      }
+      const status = statusesByID.get(item.fileID);
+      if (!status || (
+        item.detectedMIME === status.detectedMIME &&
+        item.fileCategory === status.fileCategory &&
+        item.processingStatus === status.processingStatus &&
+        item.processingReady === status.processingReady &&
+        item.processingErrorCode === status.errorCode &&
+        item.processingErrorMessage === status.errorMessage &&
+        item.extractStatus === status.extractStatus &&
+        item.embedStatus === status.embedStatus &&
+        item.embedError === status.embedError &&
+        item.chunkCount === status.chunkCount &&
+        item.canVectorize === status.canVectorize &&
+        item.vectorizationReason === status.vectorizationReason &&
+        item.updatedAt === status.updatedAt
+      )) {
+        nextFiles.push(item);
+        continue;
+      }
+      changed = true;
+      nextFiles.push({
+        ...item,
+        detectedMIME: status.detectedMIME,
+        fileCategory: status.fileCategory,
+        processingStatus: status.processingStatus,
+        processingReady: status.processingReady,
+        processingErrorCode: status.errorCode,
+        processingErrorMessage: status.errorMessage,
+        extractStatus: status.extractStatus,
+        embedStatus: status.embedStatus,
+        embedError: status.embedError,
+        chunkCount: status.chunkCount,
+        canVectorize: status.canVectorize,
+        vectorizationReason: status.vectorizationReason,
+        updatedAt: status.updatedAt,
+      });
     }
-
-    const hasProcessingFile = files.some(
-      (item) =>
-        (item.processingStatus === "uploaded" ||
-          item.processingStatus === "queued" ||
-          item.processingStatus === "extracting" ||
-          item.processingStatus === "embedding" ||
-          item.extractStatus === "processing" ||
-          item.embedStatus === "processing"),
-    );
-    if (!hasProcessingFile) {
-      return;
+    if (changed) {
+      filesRef.current = nextFiles;
+      setFiles(nextFiles);
     }
+    if (removedCount > 0) {
+      setTotal((current) => Math.max(0, current - removedCount));
+      setSelectedFileID((current) =>
+        current && missingFileIDSet.has(current) ? (nextFiles[0]?.fileID ?? null) : current);
+    }
+  }, []);
 
-    const timer = window.setInterval(() => {
-      void loadFiles({ silent: true, background: true, preferredFileID: selectedFileID });
-    }, 2000);
-
-    return () => window.clearInterval(timer);
-  }, [files, loadFiles, loading, loadingMore, selectedFileID, uploading]);
+  useFileProcessingStatusPolling({
+    fileIDs: loading || loadingMore || uploading ? [] : processingFileIDs,
+    intervalMs: 2000,
+    onResult: onProcessingResult,
+  });
 
   useFileInvalidation(
     React.useCallback((detail) => {
@@ -328,6 +434,7 @@ export function useFilesPage(): UseFilesPageResult {
     () => files.find((item) => item.fileID === selectedFileID) ?? null,
     [files, selectedFileID],
   );
+  const vectorizing = vectorizingFileIDs.length > 0;
 
   const { preview, open, download } = useFilePreview({
     file: selectedFile,
@@ -351,15 +458,31 @@ export function useFilesPage(): UseFilesPageResult {
         return;
       }
 
+      uploadRequestControllerRef.current?.abort();
+      const requestController = new AbortController();
+      uploadRequestControllerRef.current = requestController;
       const token = await ensureAccessToken();
+      if (requestController.signal.aborted || !isMountedRef.current) {
+        return;
+      }
       if (!token) {
+        if (uploadRequestControllerRef.current === requestController) {
+          uploadRequestControllerRef.current = null;
+        }
         toast.error(t("toasts.sessionExpired"), { description: t("toasts.uploadAfterLogin") });
         return;
       }
 
       setUploading(true);
       try {
-        const results = await Promise.allSettled(nextFiles.map((file) => uploadFile(token, file)));
+        const results = await runSettledItemsWithConcurrency({
+          items: nextFiles,
+          signal: requestController.signal,
+          runItem: (file) => uploadFile(token, file, { signal: requestController.signal }),
+        });
+        if (requestController.signal.aborted || !isMountedRef.current) {
+          return;
+        }
         const successResults: UploadFileResult[] = [];
         let failedCount = 0;
 
@@ -422,10 +545,18 @@ export function useFilesPage(): UseFilesPageResult {
           });
         }
       } catch (error) {
+        if (requestController.signal.aborted || !isMountedRef.current) {
+          return;
+        }
         const description = resolveErrorMessage(error, t("toasts.uploadFailed"));
         toast.error(t("toasts.uploadFailed"), { description });
       } finally {
-        setUploading(false);
+        if (uploadRequestControllerRef.current === requestController) {
+          uploadRequestControllerRef.current = null;
+          if (isMountedRef.current) {
+            setUploading(false);
+          }
+        }
       }
     },
     [debouncedQuery, ensureAccessToken, filterKeys, loadFiles, resolveErrorMessage, t],
@@ -553,6 +684,77 @@ export function useFilesPage(): UseFilesPageResult {
     }
     toast.success(t("toasts.bulkDeleteSucceeded", { count: successCount }));
   }, [ensureAccessToken, loadFiles, selectedFileID, selectedFileIDs, t]);
+
+  const submitVectorization = React.useCallback(async (fileIDs: string[], clearSelection: boolean) => {
+    if (vectorizing) {
+      return;
+    }
+    const normalizedFileIDs = Array.from(new Set(fileIDs.map((fileID) => fileID.trim()).filter(Boolean)));
+    if (normalizedFileIDs.length === 0) {
+      return;
+    }
+    if (normalizedFileIDs.length > 100) {
+      toast.error(t("toasts.vectorizeLimit"));
+      return;
+    }
+
+    setVectorizingFileIDs(normalizedFileIDs);
+    try {
+      const token = await ensureAccessToken();
+      if (!token) {
+        toast.error(t("toasts.sessionExpired"), { description: t("toasts.operateAfterLogin") });
+        return;
+      }
+      const result = await submitFileEmbeddings(token, normalizedFileIDs);
+      const submittedFileIDSet = new Set(result.submittedFileIDs);
+      const failedCount = result.skipped.filter(({ reason }) => ["queue_busy", "submit_failed"].includes(reason)).length;
+      if (submittedFileIDSet.size > 0) {
+        const nextFiles = filesRef.current.map((item) => submittedFileIDSet.has(item.fileID)
+          ? {
+            ...item,
+            embedStatus: "queued",
+            embedError: "",
+            canVectorize: false,
+            vectorizationReason: "processing",
+          }
+          : item);
+        filesRef.current = nextFiles;
+        setFiles(nextFiles);
+      }
+      if (clearSelection) {
+        setSelectedFileIDs((current) => current.filter((fileID) => !submittedFileIDSet.has(fileID)));
+      }
+      if (failedCount > 0) {
+        toast.warning(t("toasts.vectorizePartial", { submitted: result.submittedFileIDs.length, failed: failedCount }));
+      } else if (result.submittedFileIDs.length === 0) {
+        toast.info(t("toasts.vectorizeNoChanges"));
+      } else {
+        toast.success(t("toasts.vectorizeSubmitted", { count: result.submittedFileIDs.length }), {
+          description: result.skipped.length > 0
+            ? t("toasts.vectorizeSkipped", { count: result.skipped.length })
+            : undefined,
+        });
+      }
+    } catch (error) {
+      toast.error(t("toasts.vectorizeFailed"), {
+        description: resolveErrorMessage(error, t("toasts.vectorizeFailed")),
+      });
+    } finally {
+      setVectorizingFileIDs([]);
+    }
+  }, [ensureAccessToken, resolveErrorMessage, t, vectorizing]);
+
+  const onVectorizeFile = React.useCallback(async (fileID: string) => {
+    await submitVectorization([fileID], false);
+  }, [submitVectorization]);
+
+  const onVectorizeSelected = React.useCallback(async () => {
+    const selectedFileIDSet = new Set(selectedFileIDs);
+    const fileIDs = filesRef.current
+      .filter((file) => selectedFileIDSet.has(file.fileID) && canManuallyVectorizeFile(file))
+      .map((file) => file.fileID);
+    await submitVectorization(fileIDs, true);
+  }, [selectedFileIDs, submitVectorization]);
 
   const onRenameCommit = React.useCallback(
     async (fileID: string, currentFileName: string) => {
@@ -734,6 +936,8 @@ export function useFilesPage(): UseFilesPageResult {
     selectedFileIDs,
     bulkDeleteOpen,
     bulkDeleting,
+    vectorizing,
+    vectorizingFileIDs,
     hasMore,
     query,
     sortKey,
@@ -771,6 +975,8 @@ export function useFilesPage(): UseFilesPageResult {
     onBulkDeleteRequest,
     onClearBulkDelete,
     onConfirmBulkDelete,
+    onVectorizeFile,
+    onVectorizeSelected,
     onBackToList,
     onToggleRagOptOut,
   };

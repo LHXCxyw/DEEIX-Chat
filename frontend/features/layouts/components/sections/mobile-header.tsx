@@ -4,7 +4,7 @@ import { PanelLeft, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
-import { useSidebar } from "@/components/ui/sidebar";
+import { useSidebarActions } from "@/components/ui/sidebar";
 import { MobileHeaderActionSlot } from "@/features/layouts/context/mobile-header-action-context";
 import { AppLogo } from "@/shared/components/app-logo";
 
@@ -14,7 +14,7 @@ export function MobileHeader({
   onCreateConversation: () => void;
 }) {
   const t = useTranslations("common.navigation");
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar } = useSidebarActions();
 
   return (
     <header className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-3 md:hidden">

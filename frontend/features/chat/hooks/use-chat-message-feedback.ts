@@ -1,16 +1,19 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import type { AssistantReaction } from "@/features/chat/components/message/message-meta";
 import type { ChatAreaMessage } from "@/features/chat/types/messages";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { setMessageFeedback } from "@/shared/api/conversation";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
-export function useChatMessageFeedback(messages: ChatAreaMessage[]) {
+export function useChatMessageFeedback(
+  messages: ChatAreaMessage[],
+  { persist = true }: { persist?: boolean } = {},
+) {
   const t = useTranslations("chat.feedback");
   const resolveErrorMessage = useLocalizedErrorMessage();
   const [overrides, setOverrides] = React.useState<Record<string, AssistantReaction>>({});
@@ -55,6 +58,17 @@ export function useChatMessageFeedback(messages: ChatAreaMessage[]) {
         [publicID]: reaction,
       }));
 
+      if (!persist) {
+        if (reaction === "up") {
+          toast.success(t("liked"));
+        } else if (reaction === "down") {
+          toast.success(t("disliked"));
+        } else {
+          toast.success(t("cleared"));
+        }
+        return;
+      }
+
       try {
         const token = await resolveAccessToken();
         if (!token) {
@@ -85,7 +99,7 @@ export function useChatMessageFeedback(messages: ChatAreaMessage[]) {
         toast.error(t("failed"), { description });
       }
     },
-    [getReaction, messages, resolveErrorMessage, t],
+    [getReaction, messages, persist, resolveErrorMessage, t],
   );
 
   return {

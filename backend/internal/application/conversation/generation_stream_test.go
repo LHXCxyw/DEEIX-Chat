@@ -355,6 +355,34 @@ func TestGenerationStreamRegistryActiveSubscriptionStartsWithSnapshotAndStreamsE
 	}
 }
 
+func TestServiceListActiveMessageGenerationsDelegatesToRegistry(t *testing.T) {
+	registry := newGenerationStreamRegistry(newTestGenerationStreamStore(), generationStreamOptions{
+		Retention:        time.Minute,
+		ActiveTTL:        time.Minute,
+		LeaseTTL:         time.Second,
+		LeaseRefresh:     100 * time.Millisecond,
+		MaxEvents:        8,
+		SubscriberBuffer: 4,
+	})
+	ctx := context.Background()
+	registry.register(ctx, "run_reconcile", 7, "conv_reconcile", func() {})
+	defer registry.finish(ctx, "run_reconcile")
+
+	svc := &Service{generationStreams: registry}
+	items, err := svc.ListActiveMessageGenerations(ctx, 7)
+	if err != nil || len(items) != 1 || items[0].RunID != "run_reconcile" || items[0].ConversationPublicID != "conv_reconcile" {
+		t.Fatalf("active snapshot = %+v err = %v, want registered run", items, err)
+	}
+	if items, err = svc.ListActiveMessageGenerations(ctx, 0); err != nil || len(items) != 0 {
+		t.Fatalf("zero user snapshot = %+v err = %v, want empty", items, err)
+	}
+
+	var nilService *Service
+	if items, err = nilService.ListActiveMessageGenerations(ctx, 7); err != nil || len(items) != 0 {
+		t.Fatalf("nil service snapshot = %+v err = %v, want empty", items, err)
+	}
+}
+
 func TestGenerationStreamStoreActiveLeaseExpires(t *testing.T) {
 	store := newTestGenerationStreamStore()
 	ctx := context.Background()

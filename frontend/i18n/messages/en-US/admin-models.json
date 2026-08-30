@@ -5,7 +5,7 @@
     "enabledStatus": "Automatic circuit breaker enabled",
     "disabledStatus": "Automatic circuit breaker disabled",
     "label": "Automatic circuit breaker",
-    "description": "Routing pauses when a model or upstream reaches its failure threshold, then resumes after an automatic recovery probe.",
+    "description": "Routing pauses when a model or upstream reaches its failure threshold, then resumes after an automatic recovery probe. Short route-level backoff for upstream 429 responses remains independent.",
     "loadFailed": "Failed to load circuit-breaker settings",
     "updateFailed": "Failed to update circuit-breaker settings",
     "enabledToast": "Automatic circuit breaker enabled",

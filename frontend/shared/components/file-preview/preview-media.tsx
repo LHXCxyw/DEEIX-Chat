@@ -84,6 +84,7 @@ export function PreviewMedia({
   const imagePreviewRef = React.useRef<HTMLDivElement | null>(null);
   const imageScrollRegionRef = React.useRef<HTMLDivElement | null>(null);
   const videoPreviewRef = React.useRef<HTMLDivElement | null>(null);
+  const mediaProgressRef = React.useRef<HTMLDivElement | null>(null);
   const videoPointerInsideRef = React.useRef(false);
   const videoFocusInsideRef = React.useRef(false);
   const videoControlsHideTimerRef = React.useRef<number | null>(null);
@@ -281,51 +282,78 @@ export function PreviewMedia({
     [scheduleVideoControlsHide],
   );
 
+  const syncMediaProgressVisual = React.useCallback(
+    (media: HTMLAudioElement | HTMLVideoElement) => {
+      const progressElement = mediaProgressRef.current;
+      if (!progressElement) {
+        return;
+      }
+      const nextDuration =
+        Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
+      const nextTime =
+        Number.isFinite(media.currentTime) && media.currentTime > 0 ? media.currentTime : 0;
+      const nextProgress = nextDuration > 0 ? Math.min(nextTime / nextDuration, 1) : 0;
+      progressElement.style.transform = `scaleX(${nextProgress})`;
+    },
+    [],
+  );
+
+  const syncMediaProgress = React.useCallback(
+    (media: HTMLAudioElement | HTMLVideoElement) => {
+      const nextTime =
+        Number.isFinite(media.currentTime) && media.currentTime > 0 ? media.currentTime : 0;
+      syncMediaProgressVisual(media);
+      setCurrentTime((current) => (current === nextTime ? current : nextTime));
+    },
+    [syncMediaProgressVisual],
+  );
+
   React.useEffect(() => {
     if (kind === "image" || !playing) {
       return undefined;
     }
 
     let frameID = 0;
-    const syncPlaybackTime = () => {
+    const updateProgressVisual = () => {
       const media = mediaRef.current;
-      if (!media) {
-        return;
+      if (media) {
+        syncMediaProgressVisual(media);
       }
-      setCurrentTime(media.currentTime || 0);
-      frameID = window.requestAnimationFrame(syncPlaybackTime);
+      frameID = window.requestAnimationFrame(updateProgressVisual);
     };
+    frameID = window.requestAnimationFrame(updateProgressVisual);
 
-    frameID = window.requestAnimationFrame(syncPlaybackTime);
     return () => window.cancelAnimationFrame(frameID);
-  }, [kind, playing]);
+  }, [kind, playing, syncMediaProgressVisual]);
 
   const syncMediaMetrics = React.useCallback((media: HTMLAudioElement | HTMLVideoElement) => {
-    const nextDuration = media.duration || 0;
+    const nextDuration = Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
     setDuration(nextDuration);
-    setCurrentTime(media.currentTime || 0);
-  }, []);
+    syncMediaProgress(media);
+  }, [syncMediaProgress]);
 
   const handleMediaLoadedMetadata = React.useCallback((event: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) => {
     syncMediaMetrics(event.currentTarget);
   }, [syncMediaMetrics]);
 
   const handleMediaTimeUpdate = React.useCallback((event: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) => {
-    setCurrentTime(event.currentTarget.currentTime || 0);
-  }, []);
+    syncMediaProgress(event.currentTarget);
+  }, [syncMediaProgress]);
 
-  const handleMediaPlay = React.useCallback(() => {
+  const handleMediaPlay = React.useCallback((event: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) => {
+    syncMediaProgress(event.currentTarget);
     setPlaying(true);
-  }, []);
+  }, [syncMediaProgress]);
 
-  const handleMediaPause = React.useCallback(() => {
+  const handleMediaPause = React.useCallback((event: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) => {
+    syncMediaProgress(event.currentTarget);
     setPlaying(false);
-  }, []);
+  }, [syncMediaProgress]);
 
   const handleMediaEnded = React.useCallback((event: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) => {
     setPlaying(false);
-    setCurrentTime(event.currentTarget.duration || 0);
-  }, []);
+    syncMediaMetrics(event.currentTarget);
+  }, [syncMediaMetrics]);
 
   const togglePlay = React.useCallback(async () => {
     const media = mediaRef.current;
@@ -351,8 +379,9 @@ export function PreviewMedia({
       return;
     }
     media.currentTime = nextTime;
+    syncMediaProgressVisual(media);
     setCurrentTime(nextTime);
-  }, []);
+  }, [syncMediaProgressVisual]);
 
   const imageFitScale = React.useMemo(() => {
     if (kind !== "image") {
@@ -641,6 +670,7 @@ export function PreviewMedia({
                         )}
                       >
                         <div
+                          ref={mediaProgressRef}
                           className={cn(
                             "absolute inset-y-0 left-0 w-full origin-left rounded-full",
                             inline ? "bg-white/90" : "bg-neutral-50/90",
@@ -719,8 +749,9 @@ export function PreviewMedia({
                 <div className="mt-2">
                   <div className="relative h-1.5 rounded-full bg-neutral-700/80">
                     <div
-                      className="absolute inset-y-0 left-0 rounded-full bg-neutral-50/90 transition-[width] duration-200 ease-out"
-                      style={{ width: `${progress * 100}%` }}
+                      ref={mediaProgressRef}
+                      className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-neutral-50/90"
+                      style={{ transform: `scaleX(${progress})` }}
                     />
                     <input
                       type="range"

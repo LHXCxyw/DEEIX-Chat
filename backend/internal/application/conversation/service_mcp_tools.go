@@ -9,18 +9,28 @@ import (
 	"strings"
 
 	domainmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/mcp"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/mcp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/secretbox"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/mcp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
 )
 
 type selectedToolRuntime struct {
 	definitions         []llm.ToolDefinition
 	nameMap             map[string]string
-	mcpConfigs          map[string]mcp.CallConfig
+	mcpBindings         map[string]mcpToolCallBinding
 	schemas             map[string]json.RawMessage
 	attachmentProcessor *selectedAttachmentProcessor
+}
+
+// mcpToolCallBinding 绑定模型侧工具名对应的 MCP 调用配置与计量元数据。
+// 服务器归属与价格在解析选中工具时快照，保证同名工具跨服务器可区分、计费按调用时价格结算。
+type mcpToolCallBinding struct {
+	Config       mcp.CallConfig
+	ServerID     uint
+	ServerName   string
+	ToolName     string
+	PriceNanousd int64
 }
 
 type selectedAttachmentProcessor struct {
@@ -67,7 +77,7 @@ func (r selectedToolRuntime) withoutProjectTools() selectedToolRuntime {
 	r.definitions = definitions
 	for name := range projectNames {
 		delete(r.nameMap, name)
-		delete(r.mcpConfigs, name)
+		delete(r.mcpBindings, name)
 		delete(r.schemas, name)
 	}
 	return r
@@ -103,7 +113,7 @@ func defaultMCPToolGuidancePrompt(runtime selectedToolRuntime) string {
 	builder.WriteString("- If tools fail or lack enough data, state the gap in the final answer.\n")
 	builder.WriteString("- Do not expose raw tool JSON, internal fields, or tool logs unless the user asks.\n")
 	if hasProjectToolDefinitions(runtime) {
-		builder.WriteString("- Project file operations are real side effects: listing, reading, searching, creating, overwriting, patching, or deleting project files MUST use the corresponding project_* tool when available.\n")
+		builder.WriteString("- Project file operations are real side effects: listing, reading, searching, creating, overwriting, patching, deleting, or archiving project files MUST use the corresponding project_* tool when available.\n")
 		builder.WriteString("- Never substitute a code block, diff, explanation, memory, or claim of completion for a required project file tool call. Read an existing file before modifying it, and report success only after the tool succeeds.\n")
 		builder.WriteString("- Prefer project_patch_file with focused old/new snippets (or the patches array for multiple edits) when modifying existing files; reserve project_write_file for creating files or explicit full rewrites.\n")
 	}
@@ -191,7 +201,12 @@ func schemaFieldType(prop map[string]interface{}) string {
 }
 
 func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint) (selectedToolRuntime, error) {
-	result := selectedToolRuntime{definitions: make([]llm.ToolDefinition, 0), nameMap: map[string]string{}, mcpConfigs: map[string]mcp.CallConfig{}, schemas: map[string]json.RawMessage{}}
+	result := selectedToolRuntime{
+		definitions: make([]llm.ToolDefinition, 0),
+		nameMap:     map[string]string{},
+		mcpBindings: map[string]mcpToolCallBinding{},
+		schemas:     map[string]json.RawMessage{},
+	}
 	addProjectToolDefinitions(&result)
 	if len(toolIDs) == 0 || !s.cfg.Snapshot().MCPEnable {
 		return result, nil
@@ -263,11 +278,17 @@ func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint
 		})
 		result.nameMap[modelName] = tool.Name
 		result.schemas[modelName] = schema
-		result.mcpConfigs[modelName] = mcp.CallConfig{
-			BaseURL:   server.BaseURL,
-			AuthToken: token,
-			TimeoutMS: cfg.MCPToolTimeoutSeconds * 1000,
-			Headers:   headers,
+		result.mcpBindings[modelName] = mcpToolCallBinding{
+			Config: mcp.CallConfig{
+				BaseURL:   server.BaseURL,
+				AuthToken: token,
+				TimeoutMS: cfg.MCPToolTimeoutSeconds * 1000,
+				Headers:   headers,
+			},
+			ServerID:     server.ID,
+			ServerName:   server.Name,
+			ToolName:     tool.Name,
+			PriceNanousd: tool.PriceNanousd,
 		}
 		if isAttachmentProcessor {
 			if bindErr := result.bindAttachmentProcessor(selectedAttachmentProcessor{
@@ -307,7 +328,7 @@ func (r selectedToolRuntime) withoutAttachmentProcessor() selectedToolRuntime {
 	}
 	r.definitions = definitions
 	delete(r.nameMap, processor.modelName)
-	delete(r.mcpConfigs, processor.modelName)
+	delete(r.mcpBindings, processor.modelName)
 	delete(r.schemas, processor.modelName)
 	r.attachmentProcessor = nil
 	return r
@@ -316,7 +337,7 @@ func (r selectedToolRuntime) withoutAttachmentProcessor() selectedToolRuntime {
 func (r selectedToolRuntime) withoutDefinitions() selectedToolRuntime {
 	r.definitions = nil
 	r.nameMap = nil
-	r.mcpConfigs = nil
+	r.mcpBindings = nil
 	r.schemas = nil
 	r.attachmentProcessor = nil
 	return r

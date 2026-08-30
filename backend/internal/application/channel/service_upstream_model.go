@@ -104,7 +104,9 @@ func (s *Service) UpsertUpstreamModel(ctx context.Context, upstreamID uint, inpu
 		upstreamModelVendor := normalizeUpstreamModelVendor("", upstreamModelName, upstream.Name, upstream.BaseURL)
 		upstreamModelIcon := normalizeModelIcon("", upstreamModelVendor, upstreamModelName)
 		upstreamModelSource := "manual"
-		if input.Source != nil {
+		if input.CatalogSource != nil {
+			upstreamModelSource = normalizeSource(*input.CatalogSource)
+		} else if input.Source != nil {
 			upstreamModelSource = normalizeSource(*input.Source)
 		}
 		upstreamModel, txErr := ensureUpstreamCatalogModel(

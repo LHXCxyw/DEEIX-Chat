@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -1535,51 +1536,68 @@ func mergeGeminiServerSideToolUsage(current map[string]int64, next map[string]in
 // 响应：{"models":[{"name":"models/gemini-2.0-flash","displayName":"..."},...]}
 func (c *Client) listModelsGemini(ctx context.Context, route RouteConfig) ([]ModelItem, error) {
 	base := geminiBaseURL(route)
-	requestURL := buildGeminiModelsURL(base)
+	baseRequestURL := buildGeminiModelsURL(base)
 
 	requestCtx, cancel := context.WithTimeout(ctx, resolveReadTimeout(route.ReadTimeoutMS))
 	defer cancel()
 
-	req, err := c.newGeminiRequest(requestCtx, http.MethodGet, requestURL, nil, route, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.doRouteRequest(route, req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	body, err := readUpstreamBody(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, parseGeminiError(resp.StatusCode, body, upstreamDebugSnapshot(req, nil, resp, body))
-	}
-
-	parsed := struct {
-		Models []struct {
-			Name        string `json:"name"`
-			DisplayName string `json:"displayName"`
-		} `json:"models"`
-	}{}
-	if err = json.Unmarshal(body, &parsed); err != nil {
-		return nil, err
-	}
-
-	results := make([]ModelItem, 0, len(parsed.Models))
-	for _, item := range parsed.Models {
-		// name 格式为 "models/gemini-xxx"，提取末段作为 ID
-		id := strings.TrimPrefix(strings.TrimSpace(item.Name), "models/")
-		if id == "" {
-			continue
+	results := make([]ModelItem, 0)
+	pageToken := ""
+	seenPageTokens := make(map[string]struct{})
+	for {
+		pageURL, err := url.Parse(baseRequestURL)
+		if err != nil {
+			return nil, err
 		}
-		results = append(results, ModelItem{
-			ID:      id,
-			OwnedBy: "google",
-		})
+		query := pageURL.Query()
+		query.Set("pageSize", "1000")
+		if pageToken != "" {
+			query.Set("pageToken", pageToken)
+		}
+		pageURL.RawQuery = query.Encode()
+
+		req, err := c.newGeminiRequest(requestCtx, http.MethodGet, pageURL.String(), nil, route, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.doRouteRequest(route, req)
+		if err != nil {
+			return nil, err
+		}
+		body, readErr := readUpstreamBody(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, parseGeminiError(resp.StatusCode, body, upstreamDebugSnapshot(req, nil, resp, body))
+		}
+
+		parsed := struct {
+			Models []struct {
+				Name        string `json:"name"`
+				DisplayName string `json:"displayName"`
+			} `json:"models"`
+			NextPageToken string `json:"nextPageToken"`
+		}{}
+		if err = json.Unmarshal(body, &parsed); err != nil {
+			return nil, err
+		}
+		for _, item := range parsed.Models {
+			id := strings.TrimPrefix(strings.TrimSpace(item.Name), "models/")
+			if id == "" {
+				continue
+			}
+			results = append(results, ModelItem{ID: id, OwnedBy: "google"})
+		}
+		nextPageToken := strings.TrimSpace(parsed.NextPageToken)
+		if nextPageToken == "" {
+			return results, nil
+		}
+		if _, exists := seenPageTokens[nextPageToken]; exists {
+			return nil, fmt.Errorf("repeated gemini models pagination token")
+		}
+		seenPageTokens[nextPageToken] = struct{}{}
+		pageToken = nextPageToken
 	}
-	return results, nil
 }

@@ -130,6 +130,90 @@ func TestListModelsFallsBackToOpenAICompatibleModels(t *testing.T) {
 	}
 }
 
+func TestListModelsAnthropicFetchesEveryPage(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/v1/models" || r.URL.Query().Get("limit") != "1000" {
+			t.Fatalf("unexpected models request: %s", r.URL.String())
+		}
+		switch calls {
+		case 1:
+			if got := r.URL.Query().Get("after_id"); got != "" {
+				t.Fatalf("unexpected first-page cursor %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data":     []map[string]string{{"id": "claude-first"}},
+				"has_more": true,
+				"last_id":  "cursor-1",
+			})
+		case 2:
+			if got := r.URL.Query().Get("after_id"); got != "cursor-1" {
+				t.Fatalf("unexpected second-page cursor %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data":     []map[string]string{{"id": "claude-second"}},
+				"has_more": false,
+			})
+		default:
+			t.Fatalf("unexpected request %d", calls)
+		}
+	}))
+	defer server.Close()
+
+	items, err := NewClient(security.NewStrictOutboundPolicy(true)).listModelsAnthropic(t.Context(), RouteConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+	})
+	if err != nil {
+		t.Fatalf("list anthropic models: %v", err)
+	}
+	if calls != 2 || len(items) != 2 || items[0].ID != "claude-first" || items[1].ID != "claude-second" {
+		t.Fatalf("unexpected paginated models: calls=%d items=%#v", calls, items)
+	}
+}
+
+func TestListModelsGeminiFetchesEveryPage(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/v1beta/models" || r.URL.Query().Get("pageSize") != "1000" {
+			t.Fatalf("unexpected models request: %s", r.URL.String())
+		}
+		switch calls {
+		case 1:
+			if got := r.URL.Query().Get("pageToken"); got != "" {
+				t.Fatalf("unexpected first-page token %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"models":        []map[string]string{{"name": "models/gemini-first"}},
+				"nextPageToken": "token-1",
+			})
+		case 2:
+			if got := r.URL.Query().Get("pageToken"); got != "token-1" {
+				t.Fatalf("unexpected second-page token %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"models": []map[string]string{{"name": "models/gemini-second"}},
+			})
+		default:
+			t.Fatalf("unexpected request %d", calls)
+		}
+	}))
+	defer server.Close()
+
+	items, err := NewClient(security.NewStrictOutboundPolicy(true)).listModelsGemini(t.Context(), RouteConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+	})
+	if err != nil {
+		t.Fatalf("list gemini models: %v", err)
+	}
+	if calls != 2 || len(items) != 2 || items[0].ID != "gemini-first" || items[1].ID != "gemini-second" {
+		t.Fatalf("unexpected paginated models: calls=%d items=%#v", calls, items)
+	}
+}
+
 type repeatingReader struct {
 	remaining int
 }

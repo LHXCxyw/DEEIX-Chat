@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	appuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -62,4 +64,42 @@ func (h *Handler) GetAvatar(c *gin.Context) {
 		c.Abort()
 		return
 	}
+}
+
+// GetDailyActivity godoc
+// @Summary 查询每日活跃度
+// @Description 查询当前用户按计费归属日聚合的模型请求数与 token 消耗，逐日补零
+// @Tags user
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param days query int false "统计天数(默认365，最大366)"
+// @Success 200 {object} UserDailyActivityListResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /user/stats/activity [get]
+func (h *Handler) GetDailyActivity(c *gin.Context) {
+	days := 0
+	if daysText := strings.TrimSpace(c.Query("days")); daysText != "" {
+		parsed, err := strconv.Atoi(daysText)
+		if err != nil || parsed <= 0 {
+			response.Error(c, http.StatusBadRequest, "invalid daily activity days")
+			return
+		}
+		days = parsed
+	}
+	items, err := h.service.GetDailyActivity(c.Request.Context(), middleware.MustUserID(c), days, time.Now())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list daily activity failed")
+		return
+	}
+	results := make([]UserDailyActivityItem, 0, len(items))
+	for _, item := range items {
+		results = append(results, UserDailyActivityItem{
+			Date:         item.Date,
+			RequestCount: item.RequestCount,
+			TokenUsage:   item.TokenUsage,
+		})
+	}
+	response.Success(c, results)
 }

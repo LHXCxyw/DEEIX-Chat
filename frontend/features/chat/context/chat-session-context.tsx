@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { useConversationRunState } from "@/features/chat/hooks/use-conversation-run-state";
+import { useChatRunState } from "@/features/chat/hooks/use-chat-run-state";
 import type { ConversationRunStore } from "@/features/chat/model/conversation-run-store";
 
 type ChatSessionContextValue = {
@@ -24,7 +24,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     finishConversationRun,
     registerConversationRun,
     store,
-  } = useConversationRunState();
+  } = useChatRunState();
   const requestNewConversation = React.useCallback((options?: { projectID?: string }) => {
     setState((prev) => ({
       revision: prev.revision + 1,

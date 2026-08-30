@@ -2,20 +2,19 @@ package conversation
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	appcm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/contentmoderation"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/google/uuid"
 )
 
 const temporaryChatMaxContentChars = 1_000_000
 
-// TemporaryChatMessage 是浏览器内临时对话的一条纯文本消息。
+// TemporaryChatMessage 是浏览器内临时对话的一条消息。
 type TemporaryChatMessage struct {
 	Role    string
 	Content string
@@ -23,18 +22,20 @@ type TemporaryChatMessage struct {
 
 // TemporaryChatInput 描述不创建会话、消息和运行记录的临时推理请求。
 type TemporaryChatInput struct {
-	UserID                  uint
-	RequestID               string
-	SessionID               string
-	ClientRunID             string
-	Model                   string
-	Options                 map[string]interface{}
-	SelectedToolIDs         []uint
-	SkillIDs                []uint
-	KnowledgeBaseIDs        []string
-	HTMLVisualPromptEnabled bool
-	Messages                []TemporaryChatMessage
-	OnEvent                 func(eventType string, payload map[string]interface{}) error
+	UserID                   uint
+	RequestID                string
+	SessionID                string
+	ClientRunID              string
+	Model                    string
+	Options                  map[string]interface{}
+	SelectedToolIDs          []uint
+	SkillIDs                 []uint
+	KnowledgeBaseIDs         []string
+	HTMLVisualPromptEnabled  bool
+	Messages                 []TemporaryChatMessage
+	Attachments              []TemporaryChatAttachment
+	ReleaseAttachmentSources func()
+	OnEvent                  func(eventType string, payload map[string]interface{}) error
 }
 
 // StreamTemporaryChat 直接以请求上下文调用上游。调用方断开连接时生成随即取消，
@@ -60,14 +61,7 @@ func (s *Service) StreamTemporaryChat(
 		RequestID:         strings.TrimSpace(input.RequestID),
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, channel.ErrModelAccessDenied):
-			return nil, ErrModelAccessDenied
-		case errors.Is(err, channel.ErrRouteNotFound), errors.Is(err, channel.ErrModelNotFound):
-			return nil, ErrModelRouteNotConfigured
-		default:
-			return nil, wrapUpstreamRequestError(err)
-		}
+		return nil, mapRouteResolutionError(err)
 	}
 	attributionReferer, attributionTitle := s.llmAttribution()
 	routeConfig := messageRouteConfig(route, attributionReferer, attributionTitle)
@@ -90,6 +84,14 @@ func (s *Service) StreamTemporaryChat(
 	for _, item := range input.Messages {
 		messages = append(messages, llm.Message{Role: item.Role, Content: item.Content})
 	}
+	attachmentContext, err := s.prepareTemporaryAttachmentContext(ctx, input, messages)
+	if input.ReleaseAttachmentSources != nil {
+		input.ReleaseAttachmentSources()
+	}
+	if err != nil {
+		return nil, err
+	}
+	messages = attachmentContext.messages
 	systemPrompt := resolveMessageSystemPromptInjection(cfg, route, "", input.HTMLVisualPromptEnabled)
 	if systemPrompt.Content != "" {
 		if systemPrompt.InlineToUser {
@@ -105,8 +107,8 @@ func (s *Service) StreamTemporaryChat(
 	if err != nil {
 		return nil, err
 	}
-	// Attachment processors require persisted file objects and are therefore not
-	// exposed in a text-only temporary request.
+	// Attachment processors depend on persisted file IDs. Request-scoped temporary
+	// attachments are injected directly into the model context instead.
 	toolRuntime = toolRuntime.withoutAttachmentProcessor()
 	skillPrompts, err := s.resolveSkillPrompts(ctx, SendMessageInput{
 		UserID:   input.UserID,
@@ -123,11 +125,12 @@ func (s *Service) StreamTemporaryChat(
 		return nil, err
 	}
 	promptPlan := buildPromptPlan(ctx, promptPlanInput{
-		BaseMessages:   messages,
-		DynamicContext: knowledgeContext,
-		SkillPrompts:   skillPrompts,
-		ToolRuntime:    toolRuntime,
-		Config:         cfg,
+		BaseMessages:      messages,
+		StableAttachments: attachmentContext.stableAttachments,
+		DynamicContext:    knowledgeContext,
+		SkillPrompts:      skillPrompts,
+		ToolRuntime:       toolRuntime,
+		Config:            cfg,
 	})
 	messages = stripTemporaryMessageCacheControls(promptPlan.Messages)
 	fullMessages := cloneLLMMessages(messages)
@@ -153,15 +156,15 @@ func (s *Service) StreamTemporaryChat(
 				})
 			}
 			moderationCoord.EnqueueInputText(lastUser.Content)
+			moderationCoord.EnqueueInputImageSources(attachmentContext.moderationImages)
 		}
 	}
 	generateInput := llm.GenerateInput{
-		RequestID:    strings.TrimSpace(input.RequestID),
-		Messages:     messages,
-		Tools:        toolRuntime.definitions,
-		DisableTools: len(toolRuntime.definitions) == 0,
-		Options:      filteredOptions,
-		Ephemeral:    true,
+		RequestID: strings.TrimSpace(input.RequestID),
+		Messages:  messages,
+		Tools:     toolRuntime.definitions,
+		Options:   filteredOptions,
+		Ephemeral: true,
 	}
 	var budgetFit promptBudgetFit
 	generateInput, budgetFit = fitGenerateInputToModelBudget(
@@ -282,6 +285,7 @@ func (s *Service) StreamTemporaryChat(
 		CacheWrite5mTokens:  usage.CacheWrite5mTokens,
 		CacheWrite1hTokens:  usage.CacheWrite1hTokens,
 		ServerSideToolUsage: output.ServerSideToolUsage,
+		MCPToolUsage:        generation.MCPToolUsage,
 		LatencyMS:           time.Since(startedAt).Milliseconds(),
 		StartedAt:           startedAt,
 	}
@@ -352,6 +356,9 @@ func ValidateTemporaryChatInput(input TemporaryChatInput) error {
 	if len(input.Messages) == 0 || len(input.Messages) > 100 {
 		return ErrInvalidMessageContent
 	}
+	if len(input.Attachments) > TemporaryChatMaxAttachments {
+		return ErrTooManyMessageFiles
+	}
 	if len(input.KnowledgeBaseIDs) > 8 {
 		return ErrInvalidMessageContent
 	}
@@ -366,12 +373,22 @@ func ValidateTemporaryChatInput(input TemporaryChatInput) error {
 		}
 		seenKnowledgeBases[normalized] = struct{}{}
 	}
+	attachmentCounts := make(map[int]int)
+	for _, attachment := range input.Attachments {
+		if attachment.MessageIndex < 0 || attachment.MessageIndex >= len(input.Messages) || attachment.Reader == nil {
+			return ErrInvalidFileReference
+		}
+		attachmentCounts[attachment.MessageIndex]++
+	}
 	totalChars := 0
 	previousRole := ""
-	for _, item := range input.Messages {
+	for index, item := range input.Messages {
 		role := strings.TrimSpace(item.Role)
 		content := strings.TrimSpace(item.Content)
-		if (role != "user" && role != "assistant") || content == "" || role == previousRole {
+		if (role != "user" && role != "assistant") || role == previousRole {
+			return ErrInvalidMessageContent
+		}
+		if content == "" && (role != "user" || attachmentCounts[index] == 0) {
 			return ErrInvalidMessageContent
 		}
 		totalChars += len([]rune(item.Content))

@@ -14,8 +14,7 @@ import (
 
 const (
 	defaultPageSize                     = 20
-	maxPageSize                         = 100
-	maxAdminEventPageSize               = 1000
+	maxPageSize                         = 1000
 	maxMessagePageSize                  = 1000
 	conversationPreviewMessageLimit     = 10
 	conversationPreviewAncestorMaxDepth = 100
@@ -60,6 +59,18 @@ func (s *Service) CreateConversation(ctx context.Context, userID uint, title str
 		}
 		project = resolvedProject
 		projectID = &project.ID
+		if normalizedModel == "" {
+			projectDefaultModel := strings.TrimSpace(project.DefaultModel)
+			if projectDefaultModel != "" {
+				available, availabilityErr := s.isAvailableConversationProjectDefaultModel(ctx, userID, projectDefaultModel)
+				if availabilityErr != nil {
+					return nil, availabilityErr
+				}
+				if available {
+					normalizedModel = projectDefaultModel
+				}
+			}
+		}
 	}
 
 	item := &model.Conversation{
@@ -430,6 +441,9 @@ func (s *Service) UpdateAssistantMessageContent(
 	if err = s.hydrateMessageFeedback(ctx, userID, items); err != nil {
 		return nil, err
 	}
+	if err = s.hydrateMessageProcessTraces(ctx, items); err != nil {
+		return nil, err
+	}
 	updated = &items[0]
 	return updated, nil
 }
@@ -539,7 +553,7 @@ type EventLogListFilter struct {
 
 // ListConversationEventLogs 分页查询管理员对话事件。
 func (s *Service) ListConversationEventLogs(ctx context.Context, page int, pageSize int, filter EventLogListFilter) ([]model.EventLog, int64, error) {
-	offset, limit := normalizePageWithMax(page, pageSize, maxAdminEventPageSize)
+	offset, limit := normalizePage(page, pageSize)
 	return s.repo.ListConversationEventLogs(ctx, repository.ConversationEventLogListFilter{
 		Query:          filter.Query,
 		EventScope:     filter.EventScope,
@@ -582,6 +596,31 @@ func (s *Service) ListConversationRunsByRunIDs(
 		return nil, ErrConversationNotFound
 	}
 	return s.repo.ListConversationRunsByRunIDs(ctx, userID, conversationID, runIDs)
+}
+
+// ListConversationRunStatusesByRunIDs 批量查询当前用户的运行状态。
+func (s *Service) ListConversationRunStatusesByRunIDs(
+	ctx context.Context,
+	userID uint,
+	runIDs []string,
+) ([]model.RunStatus, error) {
+	normalized := make([]string, 0, len(runIDs))
+	seen := make(map[string]struct{}, len(runIDs))
+	for _, rawRunID := range runIDs {
+		runID := strings.TrimSpace(rawRunID)
+		if runID == "" {
+			continue
+		}
+		if _, exists := seen[runID]; exists {
+			continue
+		}
+		seen[runID] = struct{}{}
+		normalized = append(normalized, runID)
+	}
+	if len(normalized) == 0 {
+		return nil, nil
+	}
+	return s.repo.ListConversationRunStatusesByRunIDs(ctx, userID, normalized)
 }
 
 func normalizePage(page int, pageSize int) (int, int) {
