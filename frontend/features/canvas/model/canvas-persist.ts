@@ -53,12 +53,16 @@ export function toPersistedNodes(nodes: CanvasNode[]): PersistedCanvasNode[] {
   });
 }
 
+export function stringifyCanvasState(state: PersistedCanvasState): string {
+  return JSON.stringify(state);
+}
+
 export function saveCanvasState(state: PersistedCanvasState): void {
   if (typeof window === "undefined") {
     return;
   }
   try {
-    window.localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(state));
+    window.localStorage.setItem(CANVAS_STORAGE_KEY, stringifyCanvasState(state));
   } catch {
     // 存储失败时静默降级（隐私模式/配额超限）
   }
@@ -157,15 +161,8 @@ function parseImageOptions(value: unknown): Record<string, ConversationOptions> 
   );
 }
 
-export function loadCanvasState(): PersistedCanvasState | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
+export function parseCanvasState(raw: string): PersistedCanvasState | null {
   try {
-    const raw = window.localStorage.getItem(CANVAS_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
     const parsed = JSON.parse(raw) as unknown;
     if (parsed === null || typeof parsed !== "object") {
       return null;
@@ -191,6 +188,18 @@ export function loadCanvasState(): PersistedCanvasState | null {
       nodes,
       imageOptions: parseImageOptions(source.imageOptions),
     };
+  } catch {
+    return null;
+  }
+}
+
+export function loadCanvasState(): PersistedCanvasState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(CANVAS_STORAGE_KEY);
+    return raw ? parseCanvasState(raw) : null;
   } catch {
     return null;
   }

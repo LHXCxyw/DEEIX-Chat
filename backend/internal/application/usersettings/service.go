@@ -42,6 +42,7 @@ var allowedKeys = map[string]string{
 	"chat.input_height":                         "standard",
 	"chat.content_width":                        "compact",
 	"chat.default_mcp_tool_ids":                 "[]",
+	"canvas.state_v1":                           "{}",
 }
 
 // boolKeys 取值只能是 "true" / "false"。
@@ -73,6 +74,9 @@ var enumKeys = map[string]map[string]bool{
 
 // validateValue 校验 key 对应 value 的合法性。
 func validateValue(key, value string) error {
+	if key == "canvas.state_v1" {
+		return validateCanvasState(value, key)
+	}
 	if key == "chat.default_mcp_tool_ids" {
 		return validateDefaultMCPToolIDs(value, key)
 	}
@@ -89,6 +93,27 @@ func validateValue(key, value string) error {
 			}
 			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be one of %s", key, strings.Join(valid, ", "))}
 		}
+	}
+	return nil
+}
+
+func validateCanvasState(value, key string) error {
+	if len(value) > 512*1024 {
+		return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: JSON exceeds 512 KiB", key)}
+	}
+	var state struct {
+		Nodes    []json.RawMessage `json:"nodes"`
+		Viewport struct {
+			X     float64 `json:"x"`
+			Y     float64 `json:"y"`
+			Scale float64 `json:"scale"`
+		} `json:"viewport"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(value)), &state); err != nil || state.Nodes == nil {
+		return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key)}
+	}
+	if len(state.Nodes) > 256 || state.Viewport.Scale < 0.2 || state.Viewport.Scale > 4 {
+		return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: canvas limits exceeded", key)}
 	}
 	return nil
 }

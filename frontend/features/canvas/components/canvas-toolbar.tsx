@@ -95,7 +95,7 @@ export function CanvasToolbar({
         <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Frame className="size-4" strokeWidth={1.8} />
         </span>
-        <div className="flex flex-col leading-tight">
+        <div className="hidden flex-col leading-tight sm:flex">
           <span className="text-sm font-semibold tracking-tight text-foreground">
             {t("title")}
           </span>

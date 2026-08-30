@@ -43,6 +43,23 @@ func TestDefaultMCPToolIDsSettingIsAllowed(t *testing.T) {
 	}
 }
 
+func TestCanvasStateSettingIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	if got := allowedKeys["canvas.state_v1"]; got != "{}" {
+		t.Fatalf("expected canvas.state_v1 default to be {}, got %q", got)
+	}
+	valid := `{"viewport":{"x":0,"y":0,"scale":1},"nodes":[],"pointerMode":"pan","imageOptions":{}}`
+	if err := validateValue("canvas.state_v1", valid); err != nil {
+		t.Fatalf("expected canvas state to be accepted, got %v", err)
+	}
+	for _, value := range []string{"{}", `{"viewport":{"scale":0.1},"nodes":[]}`, `{"viewport":{"scale":1},"nodes":null}`} {
+		if err := validateValue("canvas.state_v1", value); err == nil {
+			t.Fatalf("expected canvas state %s to be rejected", value)
+		}
+	}
+}
+
 func TestContentWidthSettingIsAllowed(t *testing.T) {
 	t.Parallel()
 

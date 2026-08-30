@@ -6,10 +6,19 @@ import { toast } from "sonner";
 
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { canvasStore } from "@/features/canvas/model/canvas-store";
-import type { CanvasNodeReference } from "@/features/canvas/model/canvas-types";
+import { parseCanvasState } from "@/features/canvas/model/canvas-persist";
+import {
+  CANVAS_CLOUD_SETTING_KEY,
+  type CanvasNodeReference,
+} from "@/features/canvas/model/canvas-types";
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 import { uploadFile } from "@/shared/api/file";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useAuthSession } from "@/shared/auth/auth-session-context";
+import {
+  loadUserSettingsSnapshot,
+  updateUserSettings,
+} from "@/shared/model/user-settings-store";
 
 export type CanvasReferenceImage = CanvasNodeReference & {
   previewURL?: string;
@@ -26,6 +35,7 @@ export function useCanvasStore({
 }) {
   const t = useTranslations("canvas");
   const tMediaStatus = useTranslations("chat.submit");
+  const { accessToken } = useAuthSession();
 
   const state = React.useSyncExternalStore(
     canvasStore.subscribe,
@@ -56,10 +66,56 @@ export function useCanvasStore({
     });
   }, [t, tMediaStatus]);
 
-  // 首次挂载恢复本地记录；路由切回时内存状态已存在，不会重复恢复
+  // 登录用户优先恢复云端状态；云端不可用或无有效状态时回退本地记录。
   React.useEffect(() => {
-    canvasStore.restore();
-  }, []);
+    let active = true;
+    if (!accessToken) {
+      canvasStore.setCloudPersist(null);
+      canvasStore.restore();
+      return () => {
+        active = false;
+      };
+    }
+
+    let cloudTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingCloudRaw = "";
+    const persistCloud = () => {
+      cloudTimer = null;
+      const raw = pendingCloudRaw;
+      pendingCloudRaw = "";
+      if (raw) {
+        void updateUserSettings(accessToken, { [CANVAS_CLOUD_SETTING_KEY]: raw }).catch(() => undefined);
+      }
+    };
+    canvasStore.setCloudPersist((raw) => {
+      pendingCloudRaw = raw;
+      if (cloudTimer) {
+        clearTimeout(cloudTimer);
+      }
+      cloudTimer = setTimeout(persistCloud, 1200);
+    });
+    void loadUserSettingsSnapshot(accessToken).then((settings) => {
+      if (!active || canvasStore.getState().restored) {
+        return;
+      }
+      const cloudState = parseCanvasState(settings[CANVAS_CLOUD_SETTING_KEY] ?? "");
+      if (cloudState) {
+        canvasStore.seedPersistedState(cloudState);
+      } else {
+        canvasStore.restore();
+        canvasStore.pushCurrentStateToCloud();
+      }
+    });
+
+    return () => {
+      active = false;
+      canvasStore.setCloudPersist(null);
+      if (cloudTimer) {
+        clearTimeout(cloudTimer);
+        persistCloud();
+      }
+    };
+  }, [accessToken]);
 
   React.useEffect(() => {
     canvasStore.setModelName(selectedModel?.platformModelName ?? null);

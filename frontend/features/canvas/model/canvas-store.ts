@@ -16,6 +16,7 @@ import {
   clearCanvasState,
   loadCanvasState,
   saveCanvasState,
+  stringifyCanvasState,
   toPersistedNodes,
 } from "@/features/canvas/model/canvas-persist";
 import {
@@ -27,6 +28,7 @@ import {
   type CanvasNodeReference,
   type CanvasPointerMode,
   type CanvasViewport,
+  type PersistedCanvasState,
 } from "@/features/canvas/model/canvas-types";
 import {
   createConversation,
@@ -105,6 +107,8 @@ const objectURLCache = new Map<string, string>();
 const abortControllers = new Map<string, AbortController>();
 let labels: CanvasStoreLabels | null = null;
 let persistTimer: number | null = null;
+let cloudPersist: ((raw: string) => void) | null = null;
+let lastPersistedRaw = "";
 let nodeSpawnCounter = 0;
 
 function emit(): void {
@@ -127,6 +131,17 @@ function clampScale(scale: number): number {
   return Math.min(CANVAS_MAX_SCALE, Math.max(CANVAS_MIN_SCALE, scale));
 }
 
+function getPersistedState(): PersistedCanvasState {
+  return {
+    conversationID: state.conversationID,
+    selectedModelName: state.restoredModelName,
+    pointerMode: state.pointerMode,
+    viewport: state.viewport,
+    nodes: toPersistedNodes(state.nodes),
+    imageOptions: state.imageOptions,
+  };
+}
+
 function schedulePersist(): void {
   if (typeof window === "undefined" || !state.restored) {
     return;
@@ -137,14 +152,14 @@ function schedulePersist(): void {
   }
   persistTimer = window.setTimeout(() => {
     persistTimer = null;
-    saveCanvasState({
-      conversationID: state.conversationID,
-      selectedModelName: state.restoredModelName,
-      pointerMode: state.pointerMode,
-      viewport: state.viewport,
-      nodes: toPersistedNodes(state.nodes),
-      imageOptions: state.imageOptions,
-    });
+    const persisted = getPersistedState();
+    const raw = stringifyCanvasState(persisted);
+    if (raw === lastPersistedRaw) {
+      return;
+    }
+    lastPersistedRaw = raw;
+    saveCanvasState(persisted);
+    cloudPersist?.(raw);
   }, 400);
 }
 
@@ -272,6 +287,63 @@ function errorDetailFromApiError(error: ApiError): string | undefined {
   return detail || undefined;
 }
 
+function restoreFromPersisted(persisted: PersistedCanvasState): void {
+  const restoredNodes = persisted.nodes.map((item): CanvasNode => {
+    const base = {
+      id: item.id,
+      x: item.x,
+      y: item.y,
+      prompt: item.prompt,
+      model: item.model,
+      createdAt: item.createdAt,
+      parentID: item.parentID ?? null,
+      reference: item.reference ?? null,
+      options: item.options,
+    };
+    if (item.status === "error") {
+      return {
+        ...base,
+        status: "error" as const,
+        errorMessage: item.errorMessage ?? "",
+        errorDetail: item.errorDetail,
+      };
+    }
+    if (item.status === "pending" || item.status === "streaming") {
+      return {
+        ...base,
+        status: "error" as const,
+        errorMessage: labels?.nodeGenerationInterrupted ?? "Generation was interrupted. Please retry.",
+      };
+    }
+    return {
+      ...base,
+      status: "done" as const,
+      fileID: item.fileID ?? "",
+      fileName: item.fileName ?? "",
+      mimeType: item.mimeType ?? "image/png",
+      sizeBytes: item.sizeBytes ?? 0,
+    };
+  });
+  nodeSpawnCounter = restoredNodes.length;
+  state = {
+    ...state,
+    nodes: restoredNodes,
+    viewport: { x: persisted.viewport.x, y: persisted.viewport.y, scale: clampScale(persisted.viewport.scale) },
+    conversationID: null,
+    pointerMode: persisted.pointerMode,
+    imageOptions: persisted.imageOptions,
+    restoredModelName: persisted.selectedModelName,
+    restored: true,
+  };
+  lastPersistedRaw = stringifyCanvasState(persisted);
+  emit();
+  for (const node of restoredNodes) {
+    if (node.status === "done" && node.fileID) {
+      void loadNodeImage(node.id, node.fileID);
+    }
+  }
+}
+
 const canvasStoreImplementation = {
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
@@ -292,6 +364,22 @@ const canvasStoreImplementation = {
     labels = next;
   },
 
+  setCloudPersist(next: ((raw: string) => void) | null): void {
+    cloudPersist = next;
+  },
+
+  seedPersistedState(persisted: PersistedCanvasState): void {
+    if (state.restored) {
+      return;
+    }
+    restoreFromPersisted(persisted);
+    saveCanvasState(persisted);
+  },
+
+  pushCurrentStateToCloud(): void {
+    cloudPersist?.(stringifyCanvasState(getPersistedState()));
+  },
+
   // 首次进入时从 localStorage 恢复；后续路由切换直接复用内存状态
   restore(): void {
     if (state.restored) {
@@ -302,63 +390,7 @@ const canvasStoreImplementation = {
       setState((current) => ({ ...current, restored: true }));
       return;
     }
-    const restoredNodes = persisted.nodes.map((item): CanvasNode => {
-      const base = {
-        id: item.id,
-        x: item.x,
-        y: item.y,
-        prompt: item.prompt,
-        model: item.model,
-        createdAt: item.createdAt,
-        parentID: item.parentID ?? null,
-        reference: item.reference ?? null,
-        options: item.options,
-      };
-      if (item.status === "error") {
-        return {
-          ...base,
-          status: "error" as const,
-          errorMessage: item.errorMessage ?? "",
-          errorDetail: item.errorDetail,
-        };
-      }
-      if (item.status === "pending" || item.status === "streaming") {
-        return {
-          ...base,
-          status: "error" as const,
-          errorMessage: labels?.nodeGenerationInterrupted ?? "Generation was interrupted. Please retry.",
-        };
-      }
-      return {
-        ...base,
-        status: "done" as const,
-        fileID: item.fileID ?? "",
-        fileName: item.fileName ?? "",
-        mimeType: item.mimeType ?? "image/png",
-        sizeBytes: item.sizeBytes ?? 0,
-      };
-    });
-    nodeSpawnCounter = restoredNodes.length;
-    state = {
-      ...state,
-      nodes: restoredNodes,
-      viewport: {
-        x: persisted.viewport.x,
-        y: persisted.viewport.y,
-        scale: clampScale(persisted.viewport.scale),
-      },
-      conversationID: null,
-      pointerMode: persisted.pointerMode,
-      imageOptions: persisted.imageOptions,
-      restoredModelName: persisted.selectedModelName,
-      restored: true,
-    };
-    emit();
-    for (const node of restoredNodes) {
-      if (node.status === "done" && node.fileID) {
-        void loadNodeImage(node.id, node.fileID);
-      }
-    }
+    restoreFromPersisted(persisted);
   },
 
   setViewport(next: CanvasViewport | ((current: CanvasViewport) => CanvasViewport)): void {

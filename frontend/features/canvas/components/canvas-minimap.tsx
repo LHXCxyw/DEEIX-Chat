@@ -13,6 +13,7 @@ const MINIMAP_HEIGHT = 120;
 const MINIMAP_PADDING = 8;
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
+type MinimapTransform = { bounds: Bounds; offsetX: number; offsetY: number; scale: number };
 
 function resolveBounds(nodes: CanvasNode[], viewportBox: Bounds): Bounds {
   const bounds = nodes.reduce<Bounds>(
@@ -49,6 +50,7 @@ export function CanvasMinimap({
   const t = useTranslations("canvas");
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const draggingRef = React.useRef(false);
+  const dragTransformRef = React.useRef<MinimapTransform | null>(null);
   const selectedSet = React.useMemo(() => new Set(selectedNodeIDs), [selectedNodeIDs]);
 
   const viewportBox = React.useMemo<Bounds>(() => {
@@ -84,15 +86,16 @@ export function CanvasMinimap({
   const navigateFromEvent = React.useCallback(
     (clientX: number, clientY: number) => {
       const rect = surfaceRef.current?.getBoundingClientRect();
-      if (!rect || scale <= 0) {
+      const transform = dragTransformRef.current ?? { bounds, offsetX, offsetY, scale };
+      if (!rect || transform.scale <= 0) {
         return;
       }
       onNavigate({
-        x: bounds.minX + (clientX - rect.left - offsetX) / scale,
-        y: bounds.minY + (clientY - rect.top - offsetY) / scale,
+        x: transform.bounds.minX + (clientX - rect.left - transform.offsetX) / transform.scale,
+        y: transform.bounds.minY + (clientY - rect.top - transform.offsetY) / transform.scale,
       });
     },
-    [bounds.minX, bounds.minY, offsetX, offsetY, onNavigate, scale],
+    [bounds, offsetX, offsetY, onNavigate, scale],
   );
 
   const viewportRect = toMinimapRect(
@@ -121,8 +124,10 @@ export function CanvasMinimap({
         style={{ height: MINIMAP_HEIGHT }}
         title={t("minimapHint")}
         onPointerDown={(event) => {
+          event.preventDefault();
           event.stopPropagation();
           draggingRef.current = true;
+          dragTransformRef.current = { bounds, offsetX, offsetY, scale };
           event.currentTarget.setPointerCapture(event.pointerId);
           navigateFromEvent(event.clientX, event.clientY);
         }}
@@ -135,10 +140,18 @@ export function CanvasMinimap({
         }}
         onPointerUp={(event) => {
           draggingRef.current = false;
-          event.currentTarget.releasePointerCapture(event.pointerId);
+          dragTransformRef.current = null;
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
         }}
         onPointerCancel={() => {
           draggingRef.current = false;
+          dragTransformRef.current = null;
+        }}
+        onLostPointerCapture={() => {
+          draggingRef.current = false;
+          dragTransformRef.current = null;
         }}
       >
         {/* 节点缩略：已完成节点直接绘制图片内容 */}

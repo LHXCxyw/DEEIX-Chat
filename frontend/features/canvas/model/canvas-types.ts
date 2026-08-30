@@ -92,6 +92,7 @@ export const CANVAS_GRID_SIZE = 8;
 export const CANVAS_MIN_SCALE = 0.2;
 export const CANVAS_MAX_SCALE = 4;
 export const CANVAS_STORAGE_KEY = "deeix_canvas_state_v2";
+export const CANVAS_CLOUD_SETTING_KEY = "canvas.state_v1";
 // 覆盖层元素标记：命中时不触发画布缩放/平移
 export const CANVAS_UI_ATTRIBUTE = "data-canvas-ui";
 
