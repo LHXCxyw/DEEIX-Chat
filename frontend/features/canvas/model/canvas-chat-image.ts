@@ -45,13 +45,7 @@ function resolveBase64Source(value: string): CanvasChatImageSource | null {
     : null;
 }
 
-/** 从 Chat 模型文本响应中提取 Markdown 图片、裸 URL、Data URL 或裸图片 Base64。 */
-export function resolveCanvasChatImageSource(content: string): CanvasChatImageSource | null {
-  const text = content.trim();
-  if (!text) {
-    return null;
-  }
-
+function resolveImageSourceFromText(text: string): CanvasChatImageSource | null {
   const markdownSource = MARKDOWN_IMAGE_RE.exec(text)?.[1]?.trim();
   if (markdownSource) {
     if (/^https?:\/\//i.test(markdownSource)) {
@@ -70,6 +64,49 @@ export function resolveCanvasChatImageSource(content: string): CanvasChatImageSo
 
   const url = HTTP_IMAGE_URL_RE.exec(text)?.[0];
   return url ? { kind: "url", source: url } : null;
+}
+
+function resolveImageSourceFromValue(value: unknown): CanvasChatImageSource | null {
+  if (typeof value === "string") {
+    return resolveImageSourceFromText(value.trim());
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const source = resolveImageSourceFromValue(item);
+      if (source) {
+        return source;
+      }
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) {
+      const source = resolveImageSourceFromValue(item);
+      if (source) {
+        return source;
+      }
+    }
+  }
+  return null;
+}
+
+/** 从 Chat 模型文本或结构化响应中提取 Markdown 图片、裸 URL、Data URL 或裸图片 Base64。 */
+export function resolveCanvasChatImageSource(content: string): CanvasChatImageSource | null {
+  const text = content.trim();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const structuredSource = resolveImageSourceFromValue(JSON.parse(text));
+    if (structuredSource) {
+      return structuredSource;
+    }
+  } catch {
+    // 普通模型文本不是 JSON，继续按 Markdown、URL 或 Base64 解析。
+  }
+
+  return resolveImageSourceFromText(text);
 }
 
 function decodeBase64(payload: string): ArrayBuffer {
