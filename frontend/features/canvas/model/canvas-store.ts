@@ -666,9 +666,9 @@ const canvasStoreImplementation = {
       let imageAttachment = attachments.find((item) => item.kind === "image");
       const rawResponse = completed.assistantMessage.content?.trim() || assistantText.trim();
 
-      // Chat 生图模型常把图片放在 Markdown 文本而非 attachments 中。
+      // 部分上游会在任意生成路由中把图片放进 Markdown 文本，而不是 attachments。
       // 提取 URL / Data URL / Base64 后上传到文件服务，使画布节点仍可持久化、下载和继续编辑。
-      if (!imageAttachment && route === "chat" && rawResponse) {
+      if (!imageAttachment && rawResponse) {
         const imageSource = resolveCanvasChatImageSource(rawResponse);
         if (imageSource) {
           const sourceFile = await canvasChatImageSourceToFile(imageSource, controller.signal);
