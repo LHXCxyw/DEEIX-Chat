@@ -17,6 +17,7 @@ import {
   type QueuedChatSubmission,
 } from "@/features/chat/model/message-submit-branching";
 import { resolveImageLoadingAspectRatio } from "@/features/chat/model/message-submit-media";
+import { chatImagePromptSuffix, isChatRouteImageModel } from "@/features/canvas/model/canvas-image-options";
 import type { ChatModelOption, PendingAttachment } from "@/features/chat/types/chat-runtime";
 import type { ChatAreaMessage, ImageLoadingAspectRatio } from "@/features/chat/types/messages";
 import type { ConversationOptions } from "@/shared/api/conversation.types";
@@ -32,6 +33,7 @@ export type ChatSubmissionBlock =
 
 export type ChatSubmissionPlan = {
   payloadContent: string;
+  submittedContent: string;
   platformModelName: string;
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -165,6 +167,10 @@ export function planChatSubmission(input: {
   if (!platformModelName) {
     return { ok: false, block: { kind: "no_model" }, attachmentsTruncated };
   }
+  const submittedContent =
+    submitDecision.task === "chat" && isChatRouteImageModel(selectedModel)
+      ? `${payloadContent}${chatImagePromptSuffix(sanitizedOptions)}`
+      : payloadContent;
   const submitTask = submitDecision.task;
 
   const exchangeKey = `local-exchange-${clientRunID}`;
@@ -201,6 +207,7 @@ export function planChatSubmission(input: {
     attachmentsTruncated,
     plan: {
       payloadContent,
+      submittedContent,
       platformModelName,
       selectedToolIDs,
       selectedSkills,

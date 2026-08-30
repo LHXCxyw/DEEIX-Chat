@@ -38,7 +38,7 @@ export function createInitialPendingExchange(
     sourcePublicID: plan.resolvedSourcePublicID,
     branchReason: plan.branchReason,
     reuseUserMessage: plan.assistantOnlyBranch,
-    userContent: plan.payloadContent,
+    userContent: plan.submittedContent,
     userAttachments: plan.effectiveAttachments.length > 0 ? plan.effectiveAttachments : undefined,
     userCreatedAt: createdAt,
     assistantText: "",

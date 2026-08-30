@@ -632,7 +632,7 @@ export function useChatModelOptions({
       const publicModels = availableModels.filter((item): item is PublicModelDTO => !isUserModel(item));
       const result = await resolveConversationDefaultModel({
         accessToken: token,
-        availableModels,
+        availableModels: publicModels,
         projectDefaultModel: newConversationDefaultModel ?? "",
         userDefaultModel,
       });

@@ -337,6 +337,7 @@ export function useChatMessageSubmit({
       const { plan } = planResult;
       const {
         payloadContent,
+        submittedContent,
         platformModelName,
         clientRunID,
         exchangeKey,
@@ -536,7 +537,7 @@ export function useChatMessageSubmit({
           submitTask: plan.submitTask,
           exchangeKey,
           clientRunID,
-          content: payloadContent,
+          content: submittedContent,
           options: plan.sanitizedOptions,
           effectiveAttachments,
           platformModelName,

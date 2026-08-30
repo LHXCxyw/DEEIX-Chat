@@ -14,6 +14,7 @@ import type {
   SetConversationProjectRequest as ContractSetConversationProjectRequest,
   SetConversationStarRequest as ContractSetConversationStarRequest,
   SetMessageFeedbackRequest as ContractSetMessageFeedbackRequest,
+  TemporaryChatHistoryMessage as ContractTemporaryChatHistoryMessage,
   UpdateConversationLabelsRequest as ContractUpdateConversationLabelsRequest,
   UpdateConversationProjectRequest as ContractUpdateConversationProjectRequest,
   UpdateMessageRequest as ContractUpdateMessageRequest,

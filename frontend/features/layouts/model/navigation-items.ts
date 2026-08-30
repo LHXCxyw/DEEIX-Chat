@@ -4,6 +4,7 @@ import { PlusIcon } from "@/components/ui/plus";
 import { Search } from "@/components/animate-ui/icons/search";
 import { Blend } from "@/components/animate-ui/icons/blend";
 import { BookOpen } from "@/components/animate-ui/icons/book-open";
+import { Sparkles } from "@/components/animate-ui/icons/sparkles";
 import type { NavigationItem } from "@/features/layouts/types/navigation";
 
 export const NAVIGATION_ITEMS = [
@@ -27,6 +28,13 @@ export const NAVIGATION_ITEMS = [
     kind: "link",
     href: "/recent",
     icon: MessageCircleMore,
+    group: "secondary",
+  },
+  {
+    id: "canvasStudio",
+    kind: "link",
+    href: "/canvas",
+    icon: Sparkles,
     group: "secondary",
   },
   {

@@ -16,3 +16,7 @@ frontend/package-lock.json
 backend/storage
 storage
 tmp
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
