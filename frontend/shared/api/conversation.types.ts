@@ -239,6 +239,8 @@ export type MediaVideoRequest = {
 };
 
 export type MediaVideoExtensionRequest = Omit<ContractMediaVideoExtensionRequest, "options"> & {
+  modelScope?: "platform" | "user";
+  userModelID?: number;
   options?: ConversationOptions;
 };
 

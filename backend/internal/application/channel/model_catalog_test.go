@@ -691,12 +691,18 @@ func TestResolveRouteProtocolUsesExplicitConversationProtocolAsSourceOfTruth(t *
 	}
 }
 
-func TestIsRouteAllowedForTaskSeparatesChatAndImageProtocols(t *testing.T) {
+func TestIsRouteAllowedForTaskAllowsImplementedProtocolsForChatAndSeparatesMediaTasks(t *testing.T) {
 	if !IsRouteAllowedForTask(TaskTypeChat, `["chat"]`, "openai_responses") {
 		t.Fatalf("expected chat task to allow chat protocol")
 	}
-	if IsRouteAllowedForTask(TaskTypeChat, `["image_gen"]`, "openai_image_generations") {
-		t.Fatalf("expected chat task to reject image generation protocol")
+	if !IsRouteAllowedForTask(TaskTypeChat, `["image_gen"]`, "openai_image_generations") {
+		t.Fatalf("expected chat task to allow implemented image generation protocol")
+	}
+	if !IsRouteAllowedForTask(TaskTypeChat, `["video_gen"]`, "openai_video_generations") {
+		t.Fatalf("expected chat task to allow implemented video generation protocol")
+	}
+	if IsRouteAllowedForTask(TaskTypeChat, `["chat"]`, "unknown_protocol") {
+		t.Fatalf("expected chat task to reject unknown protocol")
 	}
 	if !IsRouteAllowedForTask(TaskTypeImageGeneration, `["image_gen","image_edit"]`, "openai_image_generations") {
 		t.Fatalf("expected image generation task to allow image generation protocol")
@@ -755,14 +761,14 @@ func TestIsRouteAllowedForTaskSeparatesChatAndImageProtocols(t *testing.T) {
 	if IsRouteAllowedForTask(TaskTypeVideoExtension, `["video_gen"]`, "xai_video_extensions") {
 		t.Fatal("video extension task must require the video_extension kind")
 	}
-	if IsRouteAllowedForTask(TaskTypeChat, `["video_gen"]`, "gemini_interactions") {
-		t.Fatalf("expected chat task to reject video generation protocol")
+	if !IsRouteAllowedForTask(TaskTypeChat, `["video_gen"]`, "gemini_interactions") {
+		t.Fatalf("expected chat task to allow Gemini Interactions regardless of model kind")
 	}
 	if !IsRouteAllowedForTask(TaskTypeChat, `["chat"]`, "gemini_interactions") {
 		t.Fatalf("expected chat task to allow Gemini Interactions protocol")
 	}
-	if IsRouteAllowedForTask(TaskTypeChat, `["audio"]`, "gemini_interactions") {
-		t.Fatalf("expected audio task to reject Gemini Interactions protocol")
+	if !IsRouteAllowedForTask(TaskTypeChat, `["audio"]`, "gemini_interactions") {
+		t.Fatalf("expected chat task to allow Gemini Interactions regardless of model kind")
 	}
 }
 

@@ -541,6 +541,8 @@ export function useChatMessageSubmit({
           options: plan.sanitizedOptions,
           effectiveAttachments,
           platformModelName,
+          modelScope: plan.modelScope,
+          userModelID: plan.userModelID,
           selectedToolIDs: plan.selectedToolIDs,
           selectedSkills: plan.selectedSkills,
           selectedKnowledgeBaseIDs: plan.selectedKnowledgeBaseIDs,
@@ -852,6 +854,9 @@ export function useChatMessageSubmit({
       branchScopeRunID: targetBranchScopeRunID,
     };
     const clientRunID = createClientRunID();
+    const selectedModel = modelOptions.find(
+      (item) => item.platformModelName === selectedPlatformModelName,
+    );
     setQueuedSubmissions((current) => {
       const previousQueuedSubmission = current
         .filter((item) => branchScopesEqual(item, targetBranchScope))
@@ -872,6 +877,8 @@ export function useChatMessageSubmit({
           content,
           attachments: currentAttachments,
           platformModelName: selectedPlatformModelName,
+          modelScope: selectedModel?.modelScope,
+          userModelID: selectedModel?.userModelID,
           options: sanitizeConversationOptions(options),
           selectedToolIDs: selectedToolIDs.slice(),
           selectedSkills: selectedSkills.slice(),
@@ -893,6 +900,7 @@ export function useChatMessageSubmit({
     currentLeafMessage?.status,
     draft,
     htmlVisualPromptEnabled,
+    modelOptions,
     options,
     selectedPlatformModelName,
     selectedSkills,

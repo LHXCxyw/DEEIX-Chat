@@ -70,6 +70,8 @@ export function useChatRunStream({
       options,
       effectiveAttachments,
       platformModelName,
+      modelScope,
+      userModelID,
       selectedToolIDs,
       selectedSkills,
       selectedKnowledgeBaseIDs,
@@ -89,6 +91,8 @@ export function useChatRunStream({
       options: ConversationOptions;
       effectiveAttachments: PendingAttachment[];
       platformModelName: string;
+      modelScope?: "platform" | "user";
+      userModelID?: number;
       selectedToolIDs: number[];
       selectedSkills: SkillSummaryDTO[];
       selectedKnowledgeBaseIDs: string[];
@@ -231,6 +235,8 @@ export function useChatRunStream({
       const effectiveOptions = submitTask === "video_extension" ? resolveVideoExtensionOptions(options) : options;
       const commonStreamPayload = {
         model: platformModelName,
+        modelScope,
+        userModelID,
         options: Object.keys(effectiveOptions).length > 0 ? effectiveOptions : undefined,
         clientRunID,
         fileIDs: effectiveAttachments.length > 0 ? effectiveAttachments.map((item) => item.fileID) : undefined,
@@ -263,6 +269,8 @@ export function useChatRunStream({
         }
         const mediaPayload: MediaVideoExtensionRequest = {
           model: commonStreamPayload.model,
+          modelScope: commonStreamPayload.modelScope,
+          userModelID: commonStreamPayload.userModelID,
           options: commonStreamPayload.options,
           clientRunID: commonStreamPayload.clientRunID,
           parentMessagePublicID: commonStreamPayload.parentMessagePublicID,

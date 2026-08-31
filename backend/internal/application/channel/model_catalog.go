@@ -464,12 +464,17 @@ func NormalizeTaskType(raw string) string {
 }
 
 // IsRouteAllowedForTask 判断指定模型 kind 与协议是否可服务当前任务。
-// 图片任务必须命中图片协议；聊天任务不会误用图片生成/编辑协议。
+// 聊天任务允许任意已实现适配器协议；图片与视频任务必须命中对应 kind 和协议。
 func IsRouteAllowedForTask(taskType string, kindsJSON string, protocol string) bool {
-	kinds := parseKinds(kindsJSON)
+	taskType = NormalizeTaskType(taskType)
 	protocol = strings.TrimSpace(strings.ToLower(protocol))
+	if taskType == TaskTypeChat {
+		return isKnownProtocol(protocol)
+	}
+
+	kinds := parseKinds(kindsJSON)
 	if len(kinds) == 0 {
-		switch NormalizeTaskType(taskType) {
+		switch taskType {
 		case TaskTypeImageGeneration:
 			return isProtocolAllowedForKind(modelKindImageGen, protocol)
 		case TaskTypeImageEdit:
@@ -479,10 +484,10 @@ func IsRouteAllowedForTask(taskType string, kindsJSON string, protocol string) b
 		case TaskTypeVideoExtension:
 			return isProtocolAllowedForKind(modelKindVideoExtension, protocol)
 		default:
-			return isProtocolAllowedForKind(modelKindChat, protocol) || isProtocolAllowedForKind(modelKindAudio, protocol)
+			return false
 		}
 	}
-	switch NormalizeTaskType(taskType) {
+	switch taskType {
 	case TaskTypeImageGeneration:
 		return hasModelKind(kinds, modelKindImageGen) && isProtocolAllowedForKind(modelKindImageGen, protocol)
 	case TaskTypeImageEdit:
@@ -492,11 +497,6 @@ func IsRouteAllowedForTask(taskType string, kindsJSON string, protocol string) b
 	case TaskTypeVideoExtension:
 		return hasModelKind(kinds, modelKindVideoExtension) && isProtocolAllowedForKind(modelKindVideoExtension, protocol)
 	default:
-		for _, kind := range kinds {
-			if (kind == modelKindChat || kind == modelKindAudio) && isProtocolAllowedForKind(kind, protocol) {
-				return true
-			}
-		}
 		return false
 	}
 }

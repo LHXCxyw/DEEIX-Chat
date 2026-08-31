@@ -35,6 +35,8 @@ export type ChatSubmissionPlan = {
   payloadContent: string;
   submittedContent: string;
   platformModelName: string;
+  modelScope?: "platform" | "user";
+  userModelID?: number;
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
   selectedKnowledgeBaseIDs: string[];
@@ -116,6 +118,8 @@ export function planChatSubmission(input: {
     );
   const selectedModel =
     input.modelOptions.find((item) => item.platformModelName === platformModelName) ?? null;
+  const modelScope = queuedSubmission?.modelScope ?? selectedModel?.modelScope;
+  const userModelID = queuedSubmission?.userModelID ?? selectedModel?.userModelID;
   const branchReason = input.branchReason ?? "default";
   const concurrentBranchRun = branchReason === "retry" || branchReason === "edit";
   const targetConversationHasActiveStream = activeStreams.some((active) =>
@@ -209,6 +213,8 @@ export function planChatSubmission(input: {
       payloadContent,
       submittedContent,
       platformModelName,
+      modelScope,
+      userModelID,
       selectedToolIDs,
       selectedSkills,
       selectedKnowledgeBaseIDs,
