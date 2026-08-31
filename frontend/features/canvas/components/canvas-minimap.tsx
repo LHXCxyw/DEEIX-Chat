@@ -11,9 +11,11 @@ import { cn } from "@/lib/utils";
 const MINIMAP_WIDTH = 176;
 const MINIMAP_HEIGHT = 120;
 const MINIMAP_PADDING = 8;
+const MINIMAP_HEADER_HEIGHT = 27;
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 type MinimapTransform = { bounds: Bounds; offsetX: number; offsetY: number; scale: number };
+type MinimapPosition = { left: number; top: number };
 
 function resolveBounds(nodes: CanvasNode[], viewportBox: Bounds): Bounds {
   const bounds = nodes.reduce<Bounds>(
@@ -48,9 +50,12 @@ export function CanvasMinimap({
   onNavigate: (canvasPoint: { x: number; y: number }) => void;
 }) {
   const t = useTranslations("canvas");
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const draggingRef = React.useRef(false);
   const dragTransformRef = React.useRef<MinimapTransform | null>(null);
+  const dragOffsetRef = React.useRef({ x: 0, y: 0 });
+  const [position, setPosition] = React.useState<MinimapPosition | null>(null);
   const selectedSet = React.useMemo(() => new Set(selectedNodeIDs), [selectedNodeIDs]);
 
   const viewportBox = React.useMemo<Bounds>(() => {
@@ -105,13 +110,69 @@ export function CanvasMinimap({
     viewportBox.maxY - viewportBox.minY,
   );
 
+  const handlePanelPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = panelRef.current?.parentElement?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+    const maxLeft = Math.max(0, containerSize.width - MINIMAP_WIDTH);
+    const maxTop = Math.max(0, containerSize.height - MINIMAP_HEIGHT - MINIMAP_HEADER_HEIGHT);
+    setPosition({
+      left: Math.min(maxLeft, Math.max(0, event.clientX - rect.left - dragOffsetRef.current.x)),
+      top: Math.min(maxTop, Math.max(0, event.clientY - rect.top - dragOffsetRef.current.y)),
+    });
+  };
+
+  const stopPanelDragging = (event: React.PointerEvent<HTMLDivElement>) => {
+    draggingRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   return (
     <div
+      ref={panelRef}
       data-canvas-ui="minimap"
-      className="pointer-events-auto absolute right-3 bottom-40 z-20 hidden overflow-hidden rounded-xl border border-border/70 bg-background/80 shadow-lg shadow-black/5 backdrop-blur-xl sm:block"
-      style={{ width: MINIMAP_WIDTH }}
+      className="pointer-events-auto absolute z-20 hidden overflow-hidden rounded-xl border border-border/70 bg-background/80 shadow-lg shadow-black/5 backdrop-blur-xl sm:block"
+      style={{
+        width: MINIMAP_WIDTH,
+        ...(position ? { left: position.left, top: position.top } : { right: 12, bottom: 160 }),
+      }}
+      onPointerMove={handlePanelPointerMove}
+      onPointerUp={stopPanelDragging}
+      onPointerCancel={stopPanelDragging}
+      onLostPointerCapture={() => {
+        draggingRef.current = false;
+      }}
     >
-      <div className="flex items-center justify-between gap-1.5 border-b border-border/60 px-2 py-1">
+      <div
+        className="flex cursor-grab touch-none items-center justify-between gap-1.5 border-b border-border/60 px-2 py-1 active:cursor-grabbing"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const panel = panelRef.current;
+          const containerRect = panel?.parentElement?.getBoundingClientRect();
+          if (!panel || !containerRect) {
+            return;
+          }
+          const rect = panel.getBoundingClientRect();
+          if (!position && containerRect) {
+            setPosition({ left: rect.left - containerRect.left, top: rect.top - containerRect.top });
+          }
+          dragOffsetRef.current = {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          };
+          draggingRef.current = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+      >
         <span className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
           <MapIcon className="size-3" strokeWidth={1.8} />
           {t("minimapTitle")}
