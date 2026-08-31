@@ -59,15 +59,14 @@ DEEIX Chat 后端是 Go API 服务，负责认证、用户、对话、模型渠�
 ## 配置
 
 默认读取仓库根目录下的 `config.yaml`，常用配置也支持环境变量覆盖。从 `backend/` 目录启动时会读取 `../config.yaml`。
-本地开发可先在仓库根目录复制示例配置；Docker 部署使用 Docker 示例配置：
+本地开发可先在仓库根目录复制示例配置。Docker 不提供在线应用镜像，使用本地源码和 `docker-compose.build.yml` 自行构建；PostgreSQL、Redis 等第三方依赖仍使用公开镜像：
 
 ```bash
-cp config.example.yaml config.yaml
-# Docker Compose full stack
 cp config.full.example.yaml config.yaml
-# SQLite + memory cache
-cp config.sqlite.example.yaml config.yaml
+docker compose -f docker-compose.build.yml up -d --build
 ```
+
+应用访问地址为 `http://localhost:3700`。
 
 关键配置：
 
@@ -157,14 +156,10 @@ https://pay.example.com/epay/submit.php
 
 ## 本地启动
 
-先确保 PostgreSQL 和 Redis 可用。若本机已有依赖，可以只启动默认应用容器；若需要完整本地栈，使用 `docker-compose.full.yml`：
+本地 Docker 启动使用仓库源码自编译应用，不依赖在线应用镜像；PostgreSQL 和 Redis 使用第三方依赖镜像：
 
 ```bash
-docker compose up -d
-```
-
-```bash
-docker compose -f docker-compose.full.yml up -d
+docker compose -f docker-compose.build.yml up -d --build
 ```
 
 启动后端：

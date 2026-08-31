@@ -4,7 +4,7 @@ app:
   env: dev
 
 server:
-  # Optional. Defaults match docker-compose.sqlite.yml. Change only when exposed ports or public URLs differ.
+  # Optional. Change only when exposed ports or public URLs differ. The application image is built locally from source.
   http_port: "8080"
   cors_allow_origin: "http://localhost:8080,http://127.0.0.1:8080"
   trusted_proxies: "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"

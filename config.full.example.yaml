@@ -11,10 +11,10 @@ server:
   # Optional. Change these values only when exposed ports or public URLs differ.
   # Optional. If http_port changes, also update the compose port mapping.
   http_port: "8080"
-  cors_allow_origin: "http://localhost:8080,http://127.0.0.1:8080"
+  cors_allow_origin: "http://localhost:3700,http://127.0.0.1:3700"
   trusted_proxies: "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"
-  public_api_base_url: "http://localhost:8080"
-  public_web_base_url: "http://localhost:8080"
+  public_api_base_url: "http://localhost:3700"
+  public_web_base_url: "http://localhost:3700"
   frontend_dist_dir: "/app/frontend/out"
   read_header_timeout_seconds: 10
   read_timeout_seconds: 120
@@ -55,7 +55,7 @@ database:
   driver: postgres
   postgres:
     # Required when database.driver is postgres.
-    # Optional. docker-compose.full.yml overrides this value with the bundled PostgreSQL service.
+    # The build Compose file supplies the bundled PostgreSQL service through environment variables.
     dsn: "postgres://deeix_chat:deeix_chat_2026@postgres:5432/deeix_chat?sslmode=disable&TimeZone=Asia/Shanghai"
     max_open_conns: 30
     max_idle_conns: 10
@@ -63,7 +63,7 @@ database:
     conn_max_idle_time_minutes: 10
   redis:
     # Required when cache.driver is redis.
-    # Optional. docker-compose.full.yml overrides this value with the bundled Redis service.
+    # The build Compose file supplies the bundled Redis service through environment variables.
     addr: "redis:6379"
     # Optional. Set when Redis ACL requires a username.
     username: ""

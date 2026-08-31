@@ -32,8 +32,8 @@ body:
     id: version
     attributes:
       label: Version or commit
-      description: Provide the release version, Docker image tag, branch, or commit SHA where the issue occurs.
-      placeholder: "v0.1.0, ghcr.io/deeix-ai/deeix-chat:latest, main@abcdef1"
+      description: Provide the release version, local build identifier, branch, or commit SHA where the issue occurs.
+      placeholder: "local build, main@abcdef1, commit SHA"
     validations:
       required: true
   - type: textarea

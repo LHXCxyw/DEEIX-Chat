@@ -133,11 +133,14 @@ pnpm dev:web
 pnpm dev:api
 ```
 
-后端数据库、缓存和存储配置继续由根目录 `config.yaml` 或环境变量提供；前端不复制这些服务端配置。完整 PostgreSQL + Redis 本地依赖可使用：
+后端数据库、缓存和存储配置继续由根目录 `config.yaml` 或环境变量提供；前端不复制这些服务端配置。Docker 不提供在线应用镜像，完整 PostgreSQL + Redis 本地依赖使用仓库源码自编译应用；PostgreSQL 和 Redis 仍使用第三方依赖镜像：
 
 ```bash
-docker compose -f docker-compose.full.yml up -d
+cp config.full.example.yaml config.yaml
+docker compose -f docker-compose.build.yml up -d --build
 ```
+
+应用访问地址为 `http://localhost:3700`。
 
 访问地址：
 
