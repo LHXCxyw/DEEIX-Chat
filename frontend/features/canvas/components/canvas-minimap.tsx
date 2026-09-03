@@ -4,7 +4,7 @@ import * as React from "react";
 import { useTranslations } from "next-intl";
 import { AlertTriangle, Map as MapIcon } from "lucide-react";
 
-import type { CanvasNode, CanvasViewport } from "@/features/canvas/model/canvas-types";
+import type { CanvasDecoration, CanvasNode, CanvasViewport } from "@/features/canvas/model/canvas-types";
 import { CANVAS_NODE_HEIGHT, CANVAS_NODE_WIDTH } from "@/features/canvas/model/canvas-types";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +17,7 @@ type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 type MinimapTransform = { bounds: Bounds; offsetX: number; offsetY: number; scale: number };
 type MinimapPosition = { left: number; top: number };
 
-function resolveBounds(nodes: CanvasNode[], viewportBox: Bounds): Bounds {
+function resolveBounds(nodes: CanvasNode[], decorations: CanvasDecoration[], viewportBox: Bounds): Bounds {
   const bounds = nodes.reduce<Bounds>(
     (current, node) => ({
       minX: Math.min(current.minX, node.x),
@@ -27,22 +27,34 @@ function resolveBounds(nodes: CanvasNode[], viewportBox: Bounds): Bounds {
     }),
     { ...viewportBox },
   );
+  // Frame / Section / Note 也纳入范围，保证小地图覆盖全部画布内容
+  const withDecorations = decorations.reduce<Bounds>(
+    (current, item) => ({
+      minX: Math.min(current.minX, item.x),
+      minY: Math.min(current.minY, item.y),
+      maxX: Math.max(current.maxX, item.x + item.width),
+      maxY: Math.max(current.maxY, item.y + item.height),
+    }),
+    bounds,
+  );
   return {
-    minX: bounds.minX - 120,
-    minY: bounds.minY - 120,
-    maxX: bounds.maxX + 120,
-    maxY: bounds.maxY + 120,
+    minX: withDecorations.minX - 120,
+    minY: withDecorations.minY - 120,
+    maxX: withDecorations.maxX + 120,
+    maxY: withDecorations.maxY + 120,
   };
 }
 
 export function CanvasMinimap({
   nodes,
+  decorations,
   viewport,
   containerSize,
   selectedNodeIDs,
   onNavigate,
 }: {
   nodes: CanvasNode[];
+  decorations: CanvasDecoration[];
   viewport: CanvasViewport;
   containerSize: { width: number; height: number };
   selectedNodeIDs: string[];
@@ -69,7 +81,7 @@ export function CanvasMinimap({
     };
   }, [containerSize.height, containerSize.width, viewport]);
 
-  const bounds = React.useMemo(() => resolveBounds(nodes, viewportBox), [nodes, viewportBox]);
+  const bounds = React.useMemo(() => resolveBounds(nodes, decorations, viewportBox), [nodes, decorations, viewportBox]);
   const boundsWidth = Math.max(1, bounds.maxX - bounds.minX);
   const boundsHeight = Math.max(1, bounds.maxY - bounds.minY);
   const innerWidth = MINIMAP_WIDTH - MINIMAP_PADDING * 2;
@@ -215,33 +227,48 @@ export function CanvasMinimap({
           dragTransformRef.current = null;
         }}
       >
-        {/* 节点缩略：已完成节点直接绘制图片内容 */}
+        {/* 装饰轮廓：Section 最底层，Frame / Note 其上（折叠的装饰按 48px 标题条绘制） */}
+        {[...decorations].sort((a, b) => (a.kind === "section" ? 0 : 1) - (b.kind === "section" ? 0 : 1)).map((item) => {
+          const rect = toMinimapRect(item.x, item.y, item.width, (item.kind === "frame" || item.kind === "section") && item.collapsed ? 48 : item.height);
+          return (
+            <div
+              key={item.id}
+              title={item.title}
+              className={cn(
+                "pointer-events-none absolute rounded-[2px] border",
+                item.kind === "frame" && "border-indigo-400/70 bg-indigo-500/15",
+                item.kind === "section" && "border-dashed border-cyan-400/60 bg-cyan-400/10",
+                item.kind === "note" && "border-amber-400/70 bg-amber-300/20",
+              )}
+              style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+            />
+          );
+        })}
+
+        {/* 节点占位块：不渲染预览图，仅按状态着色 */}
         {nodes.map((node) => {
           const rect = toMinimapRect(node.x, node.y, CANVAS_NODE_WIDTH, CANVAS_NODE_HEIGHT);
-          const source = node.status === "done" ? node.objectURL : node.status === "streaming" ? node.previewURL : undefined;
           return (
             <div
               key={node.id}
+              title={node.prompt}
               className={cn(
                 "absolute overflow-hidden rounded-[2px] border",
                 selectedSet.has(node.id)
                   ? "border-primary/80 ring-1 ring-primary/40"
                   : node.status === "error"
                     ? "border-destructive/50 bg-destructive/15"
-                    : "border-border/60 bg-muted/70",
+                    : node.status === "streaming"
+                      ? "border-primary/40 bg-primary/15 animate-pulse"
+                      : "border-border/60 bg-muted/70",
               )}
               style={rect}
             >
-              {source ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img alt="" className="size-full object-cover" draggable={false} src={source} />
-              ) : node.status === "error" ? (
+              {node.status === "error" ? (
                 <span className="flex size-full items-center justify-center">
                   <AlertTriangle className="size-2.5 text-destructive/70" strokeWidth={2} />
                 </span>
-              ) : (
-                <span className="block size-full animate-pulse bg-muted-foreground/20" />
-              )}
+              ) : null}
             </div>
           );
         })}

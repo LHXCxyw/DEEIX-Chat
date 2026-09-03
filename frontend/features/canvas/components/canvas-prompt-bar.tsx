@@ -16,8 +16,8 @@ import { cn } from "@/lib/utils";
 export function CanvasPromptBar({
   prompt,
   onPromptChange,
-  reference,
-  onReferenceChange,
+  references,
+  onReferencesChange,
   onGenerate,
   onAttachFile,
   uploadingReference,
@@ -30,9 +30,9 @@ export function CanvasPromptBar({
 }: {
   prompt: string;
   onPromptChange: (value: string) => void;
-  reference: CanvasReferenceImage | null;
-  onReferenceChange: (reference: CanvasReferenceImage | null) => void;
-  onGenerate: (prompt: string, reference: CanvasReferenceImage | null) => void;
+  references: CanvasReferenceImage[];
+  onReferencesChange: (references: CanvasReferenceImage[]) => void;
+  onGenerate: (prompt: string, references: CanvasReferenceImage[], resultCount: number) => void;
   onAttachFile: (file: File) => void;
   uploadingReference: boolean;
   imageModels: ChatModelOption[];
@@ -45,6 +45,7 @@ export function CanvasPromptBar({
   const t = useTranslations("canvas");
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [resultCount, setResultCount] = React.useState(1);
 
   // 自动增高
   React.useEffect(() => {
@@ -58,8 +59,8 @@ export function CanvasPromptBar({
 
   // 路由校验：仅支持图像编辑的模型禁止纯文本发送
   const routeDecision = React.useMemo(
-    () => resolveCanvasRoute(selectedModel, Boolean(reference)),
-    [reference, selectedModel],
+    () => resolveCanvasRoute(selectedModel, references.length > 0),
+    [references.length, selectedModel],
   );
   const blockedMessage = routeDecision.blockedReason
     ? routeDecision.blockedReason === "edit_reference_required"
@@ -85,53 +86,71 @@ export function CanvasPromptBar({
     if (!canGenerate) {
       return;
     }
-    onGenerate(prompt, reference);
+    onGenerate(prompt, references, resultCount);
     onPromptChange("");
-    onReferenceChange(null);
+    onReferencesChange([]);
     textareaRef.current?.focus();
-  }, [blockedMessage, canGenerate, onGenerate, onPromptChange, onReferenceChange, prompt, reference]);
+  }, [blockedMessage, canGenerate, onGenerate, onPromptChange, onReferencesChange, prompt, references, resultCount]);
 
   return (
     <div
       data-canvas-ui="prompt-bar"
-      className="pointer-events-auto mx-auto w-full max-w-3xl px-3 pb-1 md:px-0"
+      className="pointer-events-auto mx-auto w-full max-w-3xl px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] sm:px-3 md:px-0"
     >
       {/* 参考图预览 */}
-      {reference ? (
-        <div className="mb-2 inline-flex items-center gap-2 rounded-lg border border-border bg-background/90 p-1.5 pr-2 shadow-sm backdrop-blur-md">
-          <div className="relative size-10 overflow-hidden rounded-md bg-muted/40">
-            {reference.previewURL ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                alt={reference.fileName}
-                className="size-full object-cover"
-                draggable={false}
-                src={reference.previewURL}
-              />
-            ) : null}
-          </div>
-          <span className="max-w-40 truncate text-xs text-muted-foreground">
-            {reference.fileName}
-          </span>
-          <button
-            type="button"
-            aria-label={t("removeReference")}
-            className="flex size-5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            onClick={() => onReferenceChange(null)}
-          >
-            <X className="size-3.5" strokeWidth={1.8} />
-          </button>
+      {references.length > 0 ? (
+        <div className="mb-2 flex max-w-full gap-1.5 overflow-x-auto rounded-xl border border-border bg-background/90 p-1.5 shadow-sm backdrop-blur-md">
+          {references.map((reference) => (
+            <div key={reference.fileID} className="flex shrink-0 items-center gap-2 rounded-lg bg-muted/40 p-1 pr-1.5">
+              <div className="relative size-9 overflow-hidden rounded-md bg-muted/60">
+                {reference.previewURL ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img alt={reference.fileName} className="size-full object-cover" draggable={false} src={reference.previewURL} />
+                ) : null}
+              </div>
+              <span className="max-w-28 truncate text-[11px] text-muted-foreground">{reference.fileName}</span>
+              <button
+                type="button"
+                aria-label={t("removeReference")}
+                className="flex size-5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => onReferencesChange(references.filter((item) => item.fileID !== reference.fileID))}
+              >
+                <X className="size-3.5" strokeWidth={1.8} />
+              </button>
+            </div>
+          ))}
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-2 rounded-2xl border border-border bg-background/90 p-2 shadow-xl shadow-black/5 backdrop-blur-xl">
+      <div className="flex flex-col gap-1.5 rounded-2xl border border-border bg-background/90 p-1.5 shadow-xl shadow-black/5 backdrop-blur-xl sm:gap-2 sm:p-2">
         <textarea
           ref={textareaRef}
           value={prompt}
           rows={1}
+          name="canvas-prompt"
+          aria-label={t("promptPlaceholder")}
+          autoComplete="off"
           placeholder={t("promptPlaceholder")}
           className="max-h-40 min-h-8 w-full resize-none bg-transparent px-1 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
           onChange={(event) => onPromptChange(event.target.value)}
+          onPaste={(event) => {
+            const imageFiles = Array.from(event.clipboardData.items)
+              .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+              .flatMap((item) => {
+                const file = item.getAsFile();
+                return file ? [file] : [];
+              });
+            if (imageFiles.length === 0) {
+              return;
+            }
+            const hasText = event.clipboardData.getData("text/plain").length > 0;
+            if (!hasText) {
+              event.preventDefault();
+            }
+            for (const file of imageFiles) {
+              onAttachFile(file);
+            }
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
@@ -153,11 +172,13 @@ export function CanvasPromptBar({
             model={selectedModel}
             options={imageOptions}
             onOptionsChange={onImageOptionsChange}
+            resultCount={resultCount}
+            onResultCountChange={setResultCount}
             onOpenChange={onOverlayOpenChange}
             disabled={uploadingReference}
           />
 
-          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
             <input
               ref={fileInputRef}
               type="file"
@@ -176,7 +197,7 @@ export function CanvasPromptBar({
               aria-label={t("attachReference")}
               title={t("attachReference")}
               disabled={uploadingReference}
-              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+              className="flex size-10 touch-manipulation items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50 sm:size-8"
               onClick={() => fileInputRef.current?.click()}
             >
               <ImagePlus className="size-4" strokeWidth={1.8} />
@@ -187,7 +208,7 @@ export function CanvasPromptBar({
               title={blockedMessage || t("generate")}
               disabled={!canGenerate && !blockedMessage}
               className={cn(
-                "flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-all",
+                "flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-[transform,filter,opacity] sm:size-8",
                 "hover:brightness-110 active:scale-95",
                 "disabled:pointer-events-none disabled:opacity-40",
                 blockedMessage && "opacity-50",

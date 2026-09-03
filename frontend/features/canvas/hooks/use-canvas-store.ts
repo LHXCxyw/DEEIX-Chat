@@ -95,7 +95,7 @@ export function useCanvasStore({
       cloudTimer = setTimeout(persistCloud, 1200);
     });
     void loadUserSettingsSnapshot(accessToken).then((settings) => {
-      if (!active || canvasStore.getState().restored) {
+      if (!active) {
         return;
       }
       const cloudState = parseCanvasState(settings[CANVAS_CLOUD_SETTING_KEY] ?? "");
@@ -159,24 +159,32 @@ export function useCanvasStore({
   );
 
   const generate = React.useCallback(
-    (prompt: string, reference?: CanvasReferenceImage | null, parentID?: string | null) => {
-      if (!selectedModel) {
+    (prompt: string, references: CanvasReferenceImage[] = [], parentID?: string | null, maskReference?: CanvasReferenceImage | null, operation?: "generate" | "edit" | "inpaint" | "outpaint" | "crop", optionsOverride?: ConversationOptions, modelOverride?: ChatModelOption) => {
+      const model = modelOverride ?? selectedModel;
+      if (!model) {
         toast.error(t("noImageModels"));
         return;
       }
       void canvasStore.generate({
         prompt,
-        model: selectedModel,
-        imageOptions,
-        reference: reference
+        model,
+        imageOptions: optionsOverride ?? imageOptions,
+        references: references.map(({ fileID, fileName, mimeType, sizeBytes }) => ({
+          fileID,
+          fileName,
+          mimeType,
+          sizeBytes,
+        })),
+        maskReference: maskReference
           ? {
-            fileID: reference.fileID,
-            fileName: reference.fileName,
-            mimeType: reference.mimeType,
-            sizeBytes: reference.sizeBytes,
+            fileID: maskReference.fileID,
+            fileName: maskReference.fileName,
+            mimeType: maskReference.mimeType,
+            sizeBytes: maskReference.sizeBytes,
           }
           : null,
         parentID: parentID ?? null,
+        operation,
         spawnPoint: getSpawnPoint?.(),
       });
     },
@@ -196,12 +204,21 @@ export function useCanvasStore({
 
   return {
     nodes: state.nodes,
+    decorations: state.decorations,
+    bookmarks: state.bookmarks,
+    canvases: state.canvases,
+    activeCanvasID: state.activeCanvasID,
+    projectName: state.projectName,
+    versions: state.versions,
+    selectedDecorationIDs: state.selectedDecorationIDs,
     viewport: state.viewport,
     conversationID: state.conversationID,
     pointerMode: state.pointerMode,
     selectedNodeIDs: state.selectedNodeIDs,
     generatingCount: state.generatingCount,
     restored: state.restored,
+    canUndo: state.canUndo,
+    canRedo: state.canRedo,
     imageOptions,
     setImageOptions,
     setViewportState: canvasStore.setViewport,
@@ -209,8 +226,35 @@ export function useCanvasStore({
     fitViewport: canvasStore.fitViewport,
     setPointerMode: canvasStore.setPointerMode,
     setSelectedNodeIDs: canvasStore.setSelectedNodeIDs,
+    setSelectedDecorationIDs: canvasStore.setSelectedDecorationIDs,
+    setProjectName: canvasStore.setProjectName,
+    addCanvas: canvasStore.addCanvas,
+    switchCanvas: canvasStore.switchCanvas,
+    renameCanvas: canvasStore.renameCanvas,
+    removeCanvas: canvasStore.removeCanvas,
+    addDecoration: canvasStore.addDecoration,
+    updateDecoration: canvasStore.updateDecoration,
+    moveDecoration: canvasStore.moveDecoration,
+    removeSelected: canvasStore.removeSelected,
+    groupSelected: canvasStore.groupSelected,
+    ungroupSelected: canvasStore.ungroupSelected,
+    toggleLockSelected: canvasStore.toggleLockSelected,
+    arrangeSelected: canvasStore.arrangeSelected,
+    addBookmark: canvasStore.addBookmark,
+    goToBookmark: canvasStore.goToBookmark,
+    removeBookmark: canvasStore.removeBookmark,
+    createVersion: canvasStore.createVersion,
+    restoreVersion: canvasStore.restoreVersion,
+    exportProject: canvasStore.exportProject,
+    importProject: canvasStore.importProject,
+    applyTemplate: canvasStore.applyTemplate,
+    beginNodeMove: canvasStore.beginNodeMove,
     moveNodes: canvasStore.moveNodes,
+    endNodeMove: canvasStore.endNodeMove,
     removeNode: canvasStore.removeNode,
+    removeNodes: canvasStore.removeNodes,
+    undo: canvasStore.undo,
+    redo: canvasStore.redo,
     cancelNode: canvasStore.cancelNode,
     clearCanvas: canvasStore.clearCanvas,
     retryNode,

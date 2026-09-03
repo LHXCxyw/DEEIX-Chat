@@ -37,12 +37,16 @@ export function CanvasImageParams({
   model,
   options,
   onOptionsChange,
+  resultCount,
+  onResultCountChange,
   onOpenChange,
   disabled,
 }: {
   model: ChatModelOption | null;
   options: ConversationOptions;
   onOptionsChange: (options: ConversationOptions) => void;
+  resultCount: number;
+  onResultCountChange: (count: number) => void;
   onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
 }) {
@@ -79,9 +83,8 @@ export function CanvasImageParams({
     [onOptionsChange, options],
   );
 
-  if (controls.length === 0) {
-    return null;
-  }
+  const totalCount = controls.length + 1;
+  const displayCount = activeCount + (resultCount > 1 ? 1 : 0);
 
   return (
     <Popover onOpenChange={onOpenChange}>
@@ -96,7 +99,7 @@ export function CanvasImageParams({
         <SlidersHorizontal className="size-3.5 text-muted-foreground" strokeWidth={1.8} />
         <span className="hidden sm:inline">{t("imageParams")}</span>
         <span className="tabular-nums text-muted-foreground">
-          {activeCount}/{controls.length}
+          {displayCount}/{totalCount}
         </span>
       </PopoverTrigger>
       <PopoverContent
@@ -111,13 +114,31 @@ export function CanvasImageParams({
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            onClick={() => onOptionsChange({})}
+            onClick={() => {
+              onOptionsChange({});
+              onResultCountChange(1);
+            }}
           >
             <RotateCcw className="size-3" strokeWidth={1.8} />
             {t("imageParamsReset")}
           </button>
         </div>
-        <div className="max-h-72 space-y-2 overflow-y-auto pr-0.5">
+        <div className="max-h-72 space-y-2 overflow-y-auto overscroll-contain pr-0.5">
+          <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-2">
+            <p className="truncate text-xs text-foreground/80">{t("resultCount")}</p>
+            <Select value={String(resultCount)} onValueChange={(value) => onResultCountChange(Number(value))}>
+              <SelectTrigger size="sm" aria-label={t("resultCount")} className="w-full tabular-nums">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent data-canvas-ui="result-count-select">
+                {[1, 2, 3, 4].map((count) => (
+                  <SelectItem key={count} value={String(count)}>
+                    {count}×
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {controls.map((control) => {
             const segments = optionPathSegments(control.path);
             const value = getOptionAtPath(options, segments);

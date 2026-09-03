@@ -5,11 +5,15 @@ import { useTranslations } from "next-intl";
 import {
   AlertTriangle,
   ChevronDown,
+  Clock3,
   Copy,
   Download,
   ImageIcon,
+  Paintbrush,
+  PencilLine,
   RefreshCw,
   Repeat2,
+  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
@@ -20,6 +24,13 @@ import { cn } from "@/lib/utils";
 
 // 指针位移小于该阈值视为点击而非拖拽
 const DRAG_CLICK_THRESHOLD = 4;
+
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
 
 function NodeActionButton({
   label,
@@ -61,6 +72,9 @@ export function CanvasNodeCard({
   onCancel,
   onRetry,
   onUseAsReference,
+  onReuseParameters,
+  onRegenerate,
+  onEdit,
   onDownload,
   onPreview,
 }: {
@@ -70,12 +84,16 @@ export function CanvasNodeCard({
   onCancel: () => void;
   onRetry: () => void;
   onUseAsReference: () => void;
+  onReuseParameters: () => void;
+  onRegenerate: () => void;
+  onEdit: () => void;
   onDownload: () => void;
   onPreview: () => void;
 }) {
   const t = useTranslations("canvas");
   const [imageLoaded, setImageLoaded] = React.useState(false);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  const [now, setNow] = React.useState(() => Date.now());
   const pressPointRef = React.useRef<{ x: number; y: number } | null>(null);
 
   const displaySource =
@@ -108,6 +126,13 @@ export function CanvasNodeCard({
   }, [node, t]);
 
   const isGenerating = node.status === "pending" || node.status === "streaming";
+  React.useEffect(() => {
+    if (!isGenerating) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isGenerating]);
+  const durationMs = node.durationMs ?? (isGenerating ? now - node.createdAt : undefined);
 
   return (
     <div
@@ -153,7 +178,7 @@ export function CanvasNodeCard({
               <img
                 alt={node.prompt}
                 className={cn(
-                  "size-full object-contain transition-opacity duration-300",
+                  "size-full object-contain transition-opacity duration-300 motion-reduce:transition-none",
                   imageLoaded ? "opacity-100" : "opacity-0",
                 )}
                 src={displaySource}
@@ -283,12 +308,18 @@ export function CanvasNodeCard({
             {node.model}
           </span>
           <div className="flex shrink-0 items-center gap-1.5">
-            {node.reference ? (
-              <span
-                className="rounded-sm bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-primary"
-                title={node.reference.fileName}
-              >
-                {t("nodeFromReference")}
+            {(node.references?.length ?? 0) > 0 ? (
+              <span className="rounded-sm bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-primary">
+                {t("nodeFromReference")} · {node.references?.length}
+              </span>
+            ) : null}
+            <span className="rounded-sm bg-muted px-1 py-0.5 text-[9px] font-semibold text-muted-foreground">
+              V{node.version ?? 1}
+            </span>
+            {durationMs !== undefined ? (
+              <span className="inline-flex items-center gap-1 rounded-sm bg-muted px-1 py-0.5 text-[9px] font-medium tabular-nums text-muted-foreground" title={t("nodeDuration")}>
+                <Clock3 className="size-2.5" aria-hidden="true" />
+                {formatDuration(durationMs)}
               </span>
             ) : null}
             {node.status === "done" ? (
@@ -313,6 +344,15 @@ export function CanvasNodeCard({
             <NodeActionButton label={t("nodeUseAsReference")} onClick={onUseAsReference}>
               <Repeat2 className="size-3.5" strokeWidth={1.8} />
             </NodeActionButton>
+            <NodeActionButton label={t("nodeRegenerate")} onClick={onRegenerate}>
+              <PencilLine className="size-3.5" strokeWidth={1.8} />
+            </NodeActionButton>
+            <NodeActionButton label={t("nodeEdit")} onClick={onEdit}>
+              <Paintbrush className="size-3.5" strokeWidth={1.8} />
+            </NodeActionButton>
+            <NodeActionButton label={t("nodeReuseParameters")} onClick={onReuseParameters}>
+              <SlidersHorizontal className="size-3.5" strokeWidth={1.8} />
+            </NodeActionButton>
             <NodeActionButton label={t("nodeRetry")} onClick={onRetry}>
               <RefreshCw className="size-3.5" strokeWidth={1.8} />
             </NodeActionButton>
@@ -325,7 +365,10 @@ export function CanvasNodeCard({
 
       {/* 删除按钮（非生成中常驻右上） */}
       {!isGenerating ? (
-        <div className="pointer-events-none absolute top-2 right-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+        <div className={cn(
+          "pointer-events-none absolute top-2 right-2 transition-opacity duration-150 motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100",
+          selected ? "opacity-100" : "opacity-0",
+        )}>
           <NodeActionButton label={t("nodeDelete")} onClick={onRemove} destructive>
             <Trash2 className="size-3.5" strokeWidth={1.8} />
           </NodeActionButton>

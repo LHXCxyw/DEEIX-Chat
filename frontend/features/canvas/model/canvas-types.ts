@@ -1,88 +1,57 @@
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 
 export type CanvasNodeStatus = "pending" | "streaming" | "done" | "error";
-
-// 画布指针模式：拖动平移 / 框选节点
 export type CanvasPointerMode = "pan" | "select";
+export type CanvasNodeReference = { fileID: string; fileName: string; mimeType: string; sizeBytes: number };
+export type CanvasOperation = "generate" | "edit" | "inpaint" | "outpaint" | "crop";
+export type CanvasElementMeta = { locked?: boolean; groupID?: string | null; frameID?: string | null; zIndex?: number };
 
-// 生成来源引用（参考图），用于图像编辑与重试续传
-export type CanvasNodeReference = {
-  fileID: string;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
+export type CanvasNodeBase = CanvasElementMeta & {
+  id: string; x: number; y: number; prompt: string; model: string; createdAt: number;
+  parentID?: string | null; reference?: CanvasNodeReference | null; references?: CanvasNodeReference[];
+  maskReference?: CanvasNodeReference | null; options?: ConversationOptions; operation?: CanvasOperation;
+  batchID?: string; version?: number; completedAt?: number; durationMs?: number;
 };
-
-export type CanvasNodeBase = {
-  id: string;
-  x: number;
-  y: number;
-  prompt: string;
-  model: string;
-  createdAt: number;
-  // 父节点：由某张图继续编辑或重试而来
-  parentID?: string | null;
-  reference?: CanvasNodeReference | null;
-  options?: ConversationOptions;
-};
-
-export type CanvasGeneratingNode = CanvasNodeBase & {
-  status: "pending" | "streaming";
-  statusLabel: string;
-  previewURL?: string;
-};
-
-export type CanvasDoneNode = CanvasNodeBase & {
-  status: "done";
-  fileID: string;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  objectURL?: string;
-  imageLoadFailed?: boolean;
-};
-
-export type CanvasErrorNode = CanvasNodeBase & {
-  status: "error";
-  errorMessage: string;
-  // 上游原始响应（文本或调试载荷），供卡片展开查看
-  errorDetail?: string;
-};
-
+export type CanvasGeneratingNode = CanvasNodeBase & { status: "pending" | "streaming"; statusLabel: string; previewURL?: string };
+export type CanvasDoneNode = CanvasNodeBase & { status: "done"; fileID: string; fileName: string; mimeType: string; sizeBytes: number; objectURL?: string; imageLoadFailed?: boolean };
+export type CanvasErrorNode = CanvasNodeBase & { status: "error"; errorMessage: string; errorDetail?: string };
 export type CanvasNode = CanvasGeneratingNode | CanvasDoneNode | CanvasErrorNode;
 
-export type CanvasViewport = {
-  x: number;
-  y: number;
-  scale: number;
-};
-
-// 持久化时仅保留可恢复字段，objectURL 等运行时资源不落盘
-export type PersistedCanvasNode = {
+export type CanvasDecoration = CanvasElementMeta & {
   id: string;
-  x: number;
-  y: number;
-  prompt: string;
-  model: string;
-  createdAt: number;
-  status: "pending" | "streaming" | "done" | "error";
-  parentID?: string | null;
-  reference?: CanvasNodeReference | null;
-  options?: ConversationOptions;
-  fileID?: string;
-  fileName?: string;
-  mimeType?: string;
-  sizeBytes?: number;
-  errorMessage?: string;
-  errorDetail?: string;
+  kind: "frame" | "section" | "note";
+  x: number; y: number; width: number; height: number;
+  title: string; text: string; color: string; createdAt: number; collapsed?: boolean;
 };
+export type CanvasViewport = { x: number; y: number; scale: number };
+export type CanvasBookmark = { id: string; name: string; viewport: CanvasViewport; createdAt: number };
 
+export type PersistedCanvasNode = {
+  id: string; x: number; y: number; prompt: string; model: string; createdAt: number;
+  status: CanvasNodeStatus; parentID?: string | null; reference?: CanvasNodeReference | null;
+  references?: CanvasNodeReference[]; maskReference?: CanvasNodeReference | null; operation?: CanvasOperation;
+  batchID?: string; version?: number; completedAt?: number; durationMs?: number; options?: ConversationOptions; fileID?: string; fileName?: string;
+  mimeType?: string; sizeBytes?: number; errorMessage?: string; errorDetail?: string;
+  locked?: boolean; groupID?: string | null; frameID?: string | null; zIndex?: number;
+};
+export type PersistedCanvasPage = {
+  id: string; name: string; viewport: CanvasViewport; nodes: PersistedCanvasNode[];
+  decorations: CanvasDecoration[]; bookmarks: CanvasBookmark[]; createdAt: number; updatedAt: number;
+};
+export type CanvasVersion = { id: string; name: string; createdAt: number; activeCanvasID: string; canvases: PersistedCanvasPage[] };
 export type PersistedCanvasState = {
+  version?: 3;
+  projectName?: string;
+  activeCanvasID?: string;
+  canvases?: PersistedCanvasPage[];
+  versions?: CanvasVersion[];
   conversationID: string | null;
   selectedModelName: string | null;
   pointerMode: CanvasPointerMode;
   viewport: CanvasViewport;
   nodes: PersistedCanvasNode[];
+  decorations?: CanvasDecoration[];
+  bookmarks?: CanvasBookmark[];
   imageOptions: Record<string, ConversationOptions>;
 };
 
@@ -91,11 +60,8 @@ export const CANVAS_NODE_HEIGHT = 340;
 export const CANVAS_GRID_SIZE = 8;
 export const CANVAS_MIN_SCALE = 0.2;
 export const CANVAS_MAX_SCALE = 4;
-export const CANVAS_STORAGE_KEY = "deeix_canvas_state_v2";
+export const CANVAS_STORAGE_KEY = "deeix_canvas_state_v3";
+export const CANVAS_LEGACY_STORAGE_KEY = "deeix_canvas_state_v2";
 export const CANVAS_CLOUD_SETTING_KEY = "canvas.state_v1";
-// 覆盖层元素标记：命中时不触发画布缩放/平移
 export const CANVAS_UI_ATTRIBUTE = "data-canvas-ui";
-
-export function snapToGrid(value: number): number {
-  return Math.round(value / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE;
-}
+export function snapToGrid(value: number): number { return Math.round(value / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE; }
