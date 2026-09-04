@@ -20,6 +20,7 @@ export const PROTOCOL_PRESETS: ReadonlyArray<LLMProtocolPreset> = [
   { value: "openai_chat_completions", label: "Chat Completions (OpenAI)", kinds: ["chat"] },
   { value: "openai_image_generations", label: "Images Generations (OpenAI)", kinds: ["image_gen"] },
   { value: "openai_image_edits", label: "Images Edits (OpenAI)", kinds: ["image_edit"] },
+  { value: "image_edits_json", label: "Images Edits (JSON)", kinds: ["image_edit"] },
   { value: "openai_video_generations", label: "Video Generations (OpenAI)", kinds: ["video_gen"] },
   { value: "anthropic_messages", label: "Messages (Anthropic)", kinds: ["chat"] },
   { value: "google_generate_content", label: "Generate Content (Google)", kinds: ["chat"] },

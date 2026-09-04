@@ -54,6 +54,7 @@ export type AdminLLMAdapter =
   | "openai_chat_completions"
   | "openai_image_generations"
   | "openai_image_edits"
+  | "image_edits_json"
   | "openai_video_generations"
   | "anthropic_messages"
   | "google_generate_content"

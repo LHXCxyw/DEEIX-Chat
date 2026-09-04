@@ -36,6 +36,7 @@ const (
 	protocolOpenAIImageGenerations = llm.AdapterOpenAIImageGenerations
 	protocolOpenAIImageEdits       = llm.AdapterOpenAIImageEdits
 	protocolOpenAIVideoGenerations = "openai_video_generations"
+	protocolImageEditsJSON    = llm.AdapterImageEditsJSON
 	protocolGoogleImageGeneration  = llm.AdapterGoogleImageGeneration
 	protocolGeminiInteractions     = llm.AdapterGeminiInteractions
 	protocolXAIImage               = llm.AdapterXAIImage
@@ -178,6 +179,7 @@ func isKnownProtocol(raw string) bool {
 		protocolOpenAIImageGenerations,
 		protocolOpenAIImageEdits,
 		protocolOpenAIVideoGenerations,
+		protocolImageEditsJSON,
 		protocolGoogleImageGeneration,
 		protocolGeminiInteractions,
 		protocolXAIImage,
@@ -352,6 +354,11 @@ func isSupportedRouteProtocolCombination(protocols []string) bool {
 	if hasGeneration && hasEdit {
 		return true
 	}
+	// JSON 编辑协议与 OpenAI 兼容生成协议配套：生成走 generations，编辑走 JSON 版 edits。
+	_, hasJSONEdit := seen[protocolImageEditsJSON]
+	if hasGeneration && hasJSONEdit {
+		return true
+	}
 	_, hasGeneration = seen[protocolXAIImage]
 	_, hasEdit = seen[protocolXAIImageEdits]
 	if hasGeneration && hasEdit {
@@ -423,9 +430,14 @@ func isProtocolAllowedForKind(kind string, protocol string) bool {
 	case modelKindImageEdit:
 		switch protocol {
 		case protocolOpenAIImageEdits,
+			// generations 协议适配器可按任务切换到 edits 端点执行编辑请求，
+			// 因此模型标注 image_edit 能力时允许绑定在 generations 协议上。
+			protocolOpenAIImageGenerations,
 			protocolGoogleImageGeneration,
 			protocolGeminiInteractions,
-			protocolXAIImageEdits:
+			protocolXAIImageEdits,
+			// image_edits_json：编辑端点路径与 OpenAI 相同但请求为 JSON 体，需要独立协议。
+			protocolImageEditsJSON:
 			return true
 		default:
 			return false

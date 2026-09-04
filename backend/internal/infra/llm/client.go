@@ -518,6 +518,7 @@ func NewClient(outboundPolicy security.OutboundPolicy) *Client {
 		AdapterOpenAIChatCompletions:  &openAIChatCompletionsAdapter{client: client},
 		AdapterOpenAIImageGenerations: &openAIImageGenerationsAdapter{client: client},
 		AdapterOpenAIImageEdits:       &openAIImageEditsAdapter{client: client},
+		AdapterImageEditsJSON:    &imageEditsJSONAdapter{client: client},
 		AdapterXAIResponses:           &xAIResponsesAdapter{client: client},
 		AdapterXAIImage:               &xAIImageAdapter{client: client},
 		AdapterXAIImageEdits:          &xAIImageEditsAdapter{client: client},

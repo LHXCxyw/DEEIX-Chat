@@ -32,6 +32,7 @@ const (
 	AdapterXAIResponses           = portllm.AdapterXAIResponses
 	AdapterXAIImage               = portllm.AdapterXAIImage
 	AdapterXAIImageEdits          = portllm.AdapterXAIImageEdits
+	AdapterImageEditsJSON    = portllm.AdapterImageEditsJSON
 	AdapterXAIVideo               = portllm.AdapterXAIVideo
 	AdapterXAIVideoExtensions     = portllm.AdapterXAIVideoExtensions
 )

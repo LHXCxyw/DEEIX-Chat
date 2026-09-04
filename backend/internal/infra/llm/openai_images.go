@@ -23,18 +23,26 @@ type openAIImageGenerationsAdapter struct {
 func (a *openAIImageGenerationsAdapter) Name() string { return AdapterOpenAIImageGenerations }
 
 // Generate 调用 OpenAI 图片生成接口，返回结构化图片结果。
+// 编辑任务（route.Endpoint == EndpointImageEdits）会切换到 edits 端点以携带参考图。
 func (a *openAIImageGenerationsAdapter) Generate(ctx context.Context, route RouteConfig, input GenerateInput) (*GenerateOutput, error) {
+	if route.Endpoint == EndpointImageEdits {
+		return a.client.generateOpenAIImageEdits(ctx, route, input)
+	}
 	route.Endpoint = EndpointImageGenerations
 	return a.client.generateOpenAIImageGenerations(ctx, route, input)
 }
 
 // GenerateStream 调用 OpenAI 图片生成流式接口，事件只输出图片增量，不进入聊天 token delta 链路。
+// 编辑任务同样切换到 edits 流式端点。
 func (a *openAIImageGenerationsAdapter) GenerateStream(
 	ctx context.Context,
 	route RouteConfig,
 	input GenerateInput,
 	onEvent func(GenerateStreamEvent) error,
 ) (*GenerateOutput, error) {
+	if route.Endpoint == EndpointImageEdits {
+		return a.client.generateOpenAIImageEditsStream(ctx, route, input, onEvent)
+	}
 	route.Endpoint = EndpointImageGenerations
 	return a.client.generateOpenAIImageGenerationsStream(ctx, route, input, onEvent)
 }

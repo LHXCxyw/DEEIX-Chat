@@ -494,6 +494,10 @@ const BASE_OPTION_CONTROLS: Partial<Record<string, ModelOptionControl[]>> = {
     { path: "input_fidelity", type: "select", options: ["low", "high"] },
     { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
   ],
+  image_edits_json: [
+    { path: "size", type: "select", options: ["auto", "2048x2048", "2720x1536", "1536x2720", "1664x2496", "2496x1664", "4096x4096"] },
+    { path: "response_format", type: "select", options: ["b64_json", "url"] },
+  ],
   google_image_generation: [
     { path: "generationConfig.responseModalities", type: "select", options: ["TEXT", "IMAGE"] },
     { path: "generationConfig.imageConfig.aspectRatio", type: "select", options: OPTION_SELECT_VALUES["generationConfig.imageConfig.aspectRatio"] },

@@ -22,6 +22,7 @@ const (
 	AdapterXAIResponses           = "xai_responses"               // POST /v1/responses（OpenAI 兼容）
 	AdapterXAIImage               = "xai_image"                   // POST /v1/images/generations
 	AdapterXAIImageEdits          = "xai_image_edits"             // POST /v1/images/edits
+	AdapterImageEditsJSON          = "image_edits_json"            // POST /v1/images/edits（JSON 体，images[].image_url）
 	AdapterXAIVideo               = "xai_video"                   // POST /v1/videos/generations + GET /v1/videos/{request_id}
 	AdapterXAIVideoExtensions     = "xai_video_extensions"        // POST /v1/videos/extensions + GET /v1/videos/{request_id}
 )
@@ -58,6 +59,7 @@ func IsKnownAdapter(raw string) bool {
 		AdapterXAIResponses,
 		AdapterXAIImage,
 		AdapterXAIImageEdits,
+		AdapterImageEditsJSON,
 		AdapterXAIVideo,
 		AdapterXAIVideoExtensions:
 		return true
@@ -70,7 +72,7 @@ func IsKnownAdapter(raw string) bool {
 func IsImplementedAdapter(raw string) bool {
 	switch NormalizeAdapter(raw) {
 	case AdapterOpenAIResponses, AdapterOpenRouterChat, AdapterOpenRouterResponses, AdapterOpenAIChatCompletions, AdapterOpenAIImageGenerations, AdapterOpenAIImageEdits, AdapterXAIResponses,
-		AdapterAnthropicMessages, AdapterGoogleGenerateContent, AdapterGoogleImageGeneration, AdapterGeminiInteractions, AdapterXAIImage, AdapterXAIImageEdits, AdapterXAIVideo, AdapterXAIVideoExtensions:
+		AdapterAnthropicMessages, AdapterGoogleGenerateContent, AdapterGoogleImageGeneration, AdapterGeminiInteractions, AdapterXAIImage, AdapterXAIImageEdits, AdapterImageEditsJSON, AdapterXAIVideo, AdapterXAIVideoExtensions:
 		return true
 	default:
 		return false
@@ -133,9 +135,11 @@ func IsImageGenerationAdapter(raw string) bool {
 }
 
 // IsImageEditAdapter 返回协议是否属于独立图片编辑链路。
+// openai_image_generations 适配器可按任务端点切换到 edits 请求，
+// 因此标注 image_edit 能力的 generations 协议模型同样可执行编辑任务。
 func IsImageEditAdapter(raw string) bool {
 	switch NormalizeAdapter(raw) {
-	case AdapterOpenAIImageEdits, AdapterGoogleImageGeneration, AdapterGeminiInteractions, AdapterXAIImageEdits:
+	case AdapterOpenAIImageEdits, AdapterOpenAIImageGenerations, AdapterGoogleImageGeneration, AdapterGeminiInteractions, AdapterXAIImageEdits, AdapterImageEditsJSON:
 		return true
 	default:
 		return false
@@ -159,7 +163,7 @@ func DefaultEndpointForAdapter(adapter string) string {
 		return EndpointChatCompletions
 	case AdapterOpenAIImageGenerations, AdapterGoogleImageGeneration, AdapterXAIImage:
 		return EndpointImageGenerations
-	case AdapterOpenAIImageEdits, AdapterXAIImageEdits:
+	case AdapterOpenAIImageEdits, AdapterXAIImageEdits, AdapterImageEditsJSON:
 		return EndpointImageEdits
 	case AdapterXAIVideo:
 		return EndpointVideoGenerations

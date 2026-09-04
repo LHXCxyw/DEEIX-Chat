@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { useChatModelOptions } from "@/features/chat/hooks/use-chat-model-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import { canvasStore } from "@/features/canvas/model/canvas-store";
 
 const CANVAS_MODEL_STORAGE_KEY = "deeix_canvas_selected_model_v1";
 
@@ -47,6 +48,11 @@ export function useCanvasModels() {
 
   const [selectedModelName, setSelectedModelName] = React.useState<string | null>(null);
   const resolvedSelectionRef = React.useRef(false);
+
+  // 模型目录注入 store，供生成节点按名称解析运行时模型
+  React.useEffect(() => {
+    canvasStore.setModelCatalog(imageModels);
+  }, [imageModels]);
 
   const selectedModel = React.useMemo<ChatModelOption | null>(() => {
     if (imageModels.length === 0) {

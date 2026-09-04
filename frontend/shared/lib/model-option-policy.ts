@@ -6,6 +6,7 @@ export const MODEL_OPTION_POLICY_PROTOCOLS = [
   "openrouter_responses",
   "openai_image_generations",
   "openai_image_edits",
+  "image_edits_json",
   "anthropic_messages",
   "gemini_generate_content",
   "google_image_generation",
@@ -68,6 +69,7 @@ export const MODEL_OPTION_POLICY_PROTOCOL_LABELS: Record<ModelOptionPolicyProtoc
   openrouter_responses: "OpenRouter（Responses）",
   openai_image_generations: "OpenAI（Images Generations）",
   openai_image_edits: "OpenAI（Images Edits）",
+  image_edits_json: "Images Edits JSON（Images Edits JSON）",
   anthropic_messages: "Anthropic（Messages）",
   gemini_generate_content: "Google（Generate Content）",
   google_image_generation: "Google（Image Generation）",
@@ -139,6 +141,8 @@ export function resolveModelOptionPolicyProtocol(protocol: string): ModelOptionP
       return "openai_image_generations";
     case "openai_image_edits":
       return "openai_image_edits";
+    case "image_edits_json":
+      return "image_edits_json";
     case "anthropic":
     case "claude":
     case "anthropic_messages":
