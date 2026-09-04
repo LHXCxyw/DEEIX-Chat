@@ -2,22 +2,34 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { Box, ChevronDown, ChevronUp, Focus, LayoutTemplate, LockKeyhole, MousePointer2 } from "lucide-react";
+import { Box, ChevronDown, ChevronUp, Focus, LayoutTemplate, LockKeyhole, MousePointer2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
 import type {
   CanvasDecoration,
-  CanvasNode,
   CanvasPointerMode,
   CanvasViewport as Viewport,
+  GraphEdge,
+  GraphNode,
+  GraphNodeKind,
+  ImageGraphNode,
+  OutputGraphNode,
 } from "@/features/canvas/model/canvas-types";
 import {
-  CANVAS_NODE_HEIGHT,
-  CANVAS_NODE_WIDTH,
   CANVAS_UI_ATTRIBUTE,
+  graphNodeSize,
   snapToGrid,
+  type GraphNodeUpdate,
 } from "@/features/canvas/model/canvas-types";
+import {
+  graphEdgeMidpoint,
+  graphEdgePath,
+  graphPortCanvasPosition,
+  type GraphPortID,
+} from "@/features/canvas/model/canvas-graph";
 import {
   activeElasticDecorationForElement,
   canvasElementIDsInRegion,
@@ -27,7 +39,7 @@ import {
   viewportForCanvasKey,
 } from "@/features/canvas/model/canvas-interactions";
 import { zoomViewportAt } from "@/features/canvas/model/canvas-persist";
-import { CanvasNodeCard } from "@/features/canvas/components/canvas-node-card";
+import { GraphNodeView, type GraphNodeActionHandlers } from "@/features/canvas/components/canvas-graph-nodes";
 import { cn } from "@/lib/utils";
 
 type ActivePointer = {
@@ -56,6 +68,15 @@ type DraggingNodeState = {
   siblings: { nodeID: string; offsetX: number; offsetY: number }[];
 };
 
+// 端口拖拽连线：fromDirection 区分正向（出端口起拖）与反向（入端口起拖）
+type ConnectionDragState = {
+  fromNodeID: string;
+  fromPort: GraphPortID;
+  fromDirection: "in" | "out";
+  fromKind: GraphNodeKind;
+  pointer: { x: number; y: number };
+};
+
 type ElasticDecorationPreview = {
   id: string;
   x: number;
@@ -66,11 +87,10 @@ type ElasticDecorationPreview = {
 };
 
 const NODE_DRAG_THRESHOLD = 4;
-const CANVAS_CARD_DIAGONAL = Math.hypot(CANVAS_NODE_WIDTH, CANVAS_NODE_HEIGHT);
-// 弹性拉伸预算与脱离距离：约两个卡片对角线，留足拖出余量
-const ELASTIC_RANGE_MULTIPLIER = 2;
-const ELASTIC_EXPANSION_BUDGET = Math.ceil(CANVAS_CARD_DIAGONAL * ELASTIC_RANGE_MULTIPLIER);
-const ELASTIC_DISTANCE_THRESHOLD = Math.ceil(CANVAS_CARD_DIAGONAL * ELASTIC_RANGE_MULTIPLIER);
+const NODE_CARD_DIAGONAL = Math.hypot(288, 224);
+// 橡皮筋最大拉伸量：Frame 边缘 1:1 跟随节点移动，最多跟随约一个卡片对角线后停住。
+// 与节点离边缘的距离、Frame 尺寸和屏幕位置无关，弹性手感始终一致
+const ELASTIC_MAX_STRETCH = Math.ceil(NODE_CARD_DIAGONAL);
 // 刻意甩出才触发脱离的瞬时速度阈值（px/ms），普通快拖约 1.5~2.5，避免误脱离
 const ELASTIC_DETACH_VELOCITY = 3;
 
@@ -85,9 +105,17 @@ const DECORATION_HANDLES: { id: "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w
   { id: "sw", className: "-left-2 -bottom-2", cursor: "cursor-nesw-resize" },
   { id: "w", className: "-left-2 top-1/2 -translate-y-1/2", cursor: "cursor-ew-resize" },
 ];
-// Section 排在最底层（分区背景标记），Frame/Note 依次在上，卡片渲染于所有装饰之上
+// Section 排在最底层（分区背景标记），Frame/Note 依次在上，节点渲染于所有装饰之上
 function decorationLayerRank(item: CanvasDecoration): number {
   return item.kind === "section" ? 0 : 1;
+}
+
+function withGraphSize(node: GraphNode) {
+  return { ...node, ...graphNodeSize(node) };
+}
+
+function graphNodeSizeOf(node: Pick<GraphNode, "kind">) {
+  return graphNodeSize(node);
 }
 
 type MarqueeState = {
@@ -97,7 +125,7 @@ type MarqueeState = {
   currentY: number;
 };
 
-// 覆盖层（工具栏 / 输入区 / 小地图）内的滚轮与指针事件不驱动画布
+// 覆盖层（工具栏 / 面板 / 小地图）内的滚轮与指针事件不驱动画布
 function isCanvasOverlayTarget(target: EventTarget | null): boolean {
   if (!(target instanceof globalThis.Element)) {
     return false;
@@ -107,15 +135,19 @@ function isCanvasOverlayTarget(target: EventTarget | null): boolean {
 
 export function CanvasViewport({
   nodes,
+  edges,
   decorations,
   viewport,
   pointerMode,
   selectedNodeIDs,
   selectedDecorationIDs,
+  selectedEdgeIDs,
+  imageModels,
   interactionLocked,
   containerSize,
   onSelectedNodeIDsChange,
   onSelectedDecorationIDsChange,
+  onSelectedEdgeIDsChange,
   onPointerModeChange,
   onUpdateDecoration,
   onMoveDecoration,
@@ -124,27 +156,35 @@ export function CanvasViewport({
   onBeginNodeMove,
   onMoveNodes,
   onEndNodeMove,
+  onUpdateNode,
+  onEnsureNodePreview,
   onRemoveNode,
+  onRunNode,
   onCancelNode,
-  onRetryNode,
-  onUseAsReference,
-  onReuseParameters,
-  onRegenerateNode,
-  onEditNode,
-  onDownloadNode,
+  onConnectNodes,
+  onRemoveEdge,
   onPreviewNode,
+  onDownloadNode,
+  onEditNode,
+  onEditReferenceNode,
+  onUseAsReference,
+  uploadReferenceFile,
   children,
 }: {
-  nodes: CanvasNode[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
   decorations: CanvasDecoration[];
   viewport: Viewport;
   pointerMode: CanvasPointerMode;
   selectedNodeIDs: string[];
   selectedDecorationIDs: string[];
+  selectedEdgeIDs: string[];
+  imageModels: ChatModelOption[];
   interactionLocked?: boolean;
   containerSize: { width: number; height: number };
   onSelectedNodeIDsChange: (nodeIDs: string[]) => void;
   onSelectedDecorationIDsChange: (ids: string[]) => void;
+  onSelectedEdgeIDsChange: (edgeIDs: string[]) => void;
   onPointerModeChange: (mode: CanvasPointerMode) => void;
   onUpdateDecoration: (id: string, patch: Partial<CanvasDecoration>) => void;
   onMoveDecoration: (id: string, x: number, y: number) => void;
@@ -153,15 +193,19 @@ export function CanvasViewport({
   onBeginNodeMove: () => void;
   onMoveNodes: (positions: { nodeID: string; x: number; y: number }[]) => void;
   onEndNodeMove: () => void;
+  onUpdateNode: (nodeID: string, patch: GraphNodeUpdate) => void;
+  onEnsureNodePreview: (nodeID: string) => void;
   onRemoveNode: (nodeID: string) => void;
+  onRunNode: (nodeID: string) => void;
   onCancelNode: (nodeID: string) => void;
-  onRetryNode: (nodeID: string) => void;
-  onUseAsReference: (node: CanvasNode) => void;
-  onReuseParameters: (node: CanvasNode) => void;
-  onRegenerateNode: (node: CanvasNode) => void;
-  onEditNode: (node: CanvasNode) => void;
-  onDownloadNode: (node: CanvasNode) => void;
-  onPreviewNode: (node: CanvasNode) => void;
+  onConnectNodes: (attempt: { fromNodeID: string; fromPort: "out"; toNodeID: string; toPort: "prompt" | "image" | "result" }) => boolean;
+  onRemoveEdge: (edgeID: string) => void;
+  onPreviewNode: (node: OutputGraphNode) => void;
+  onDownloadNode: (node: OutputGraphNode) => void;
+  onEditNode: (node: OutputGraphNode) => void;
+  onEditReferenceNode: (node: ImageGraphNode) => void;
+  onUseAsReference: (node: OutputGraphNode) => void;
+  uploadReferenceFile: (file: File) => Promise<CanvasReferenceImage | null>;
   children?: React.ReactNode;
 }) {
   const t = useTranslations("canvas");
@@ -171,6 +215,8 @@ export function CanvasViewport({
   const panStartRef = React.useRef<{ x: number; y: number; viewportX: number; viewportY: number } | null>(null);
   const pinchStartRef = React.useRef<{ distance: number; scale: number } | null>(null);
   const draggingNodeRef = React.useRef<DraggingNodeState | null>(null);
+  const connectionDragRef = React.useRef<ConnectionDragState | null>(null);
+  const [connectionDrag, setConnectionDrag] = React.useState<ConnectionDragState | null>(null);
   const viewportRef = React.useRef(viewport);
   const nodesRef = React.useRef(nodes);
   const decorationsRef = React.useRef(decorations);
@@ -187,7 +233,7 @@ export function CanvasViewport({
   const moveFrameRef = React.useRef<number | null>(null);
   const pendingMoveRef = React.useRef<{ nodeID: string; x: number; y: number }[] | null>(null);
 
-  // 折叠 Frame 的成员卡片与内嵌装饰收纳隐藏，展开后按原位还原
+  // 折叠 Frame 的成员节点与内嵌装饰收纳隐藏，展开后按原位还原
   const collapsedFrameIDs = React.useMemo(
     () => new Set(decorations.filter((item) => item.kind === "frame" && item.collapsed).map((item) => item.id)),
     [decorations],
@@ -231,6 +277,12 @@ export function CanvasViewport({
       (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isEditable(event.target)) return;
+      // 连线拖拽中 ESC 取消
+      if (event.key === "Escape" && connectionDragRef.current) {
+        connectionDragRef.current = null;
+        setConnectionDrag(null);
+        return;
+      }
       if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "v") {
         onPointerModeChange("select");
         toast(t("modeSelectActivated"));
@@ -307,7 +359,7 @@ export function CanvasViewport({
     if (!dragging.elasticOrigin || dragging.elasticDetached || dragging.lastPositions.length === 0) return;
     const positions = new Map(dragging.lastPositions.map((item) => [item.nodeID, item]));
     const contents = dragging.elasticContents.map((item) => ({ ...item, ...positions.get(item.id) }));
-    const bounds = elasticCanvasBounds(dragging.elasticOrigin, contents, ELASTIC_EXPANSION_BUDGET, 24, 72);
+    const bounds = elasticCanvasBounds(dragging.elasticOrigin, contents, ELASTIC_MAX_STRETCH, 24, 72);
     const preview = { id: dragging.elasticOrigin.id, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, tension: 0 };
     elasticPreviewRef.current = preview;
     setElasticPreview(preview);
@@ -327,7 +379,7 @@ export function CanvasViewport({
     setElasticPreview(null);
   }, [onUpdateDecoration]);
 
-  // 指针在容器外释放时兜底清理，避免平移/拖拽状态残留
+  // 指针在容器外释放时兜底清理，避免平移/拖拽/连线状态残留
   React.useEffect(() => {
     const handleWindowPointerUp = () => {
       pointersRef.current.clear();
@@ -348,6 +400,10 @@ export function CanvasViewport({
         onEndNodeMove();
       }
       draggingNodeRef.current = null;
+      if (connectionDragRef.current) {
+        connectionDragRef.current = null;
+        setConnectionDrag(null);
+      }
       if (marqueeRef.current) {
         marqueeRef.current = null;
         setMarquee(null);
@@ -380,6 +436,69 @@ export function CanvasViewport({
     return () => container.removeEventListener("wheel", handleWheel);
   }, [zoomAt]);
 
+  // 从端口起拖连线；in 端口反向拖拽（目标为出端口）
+  const beginConnectionDrag = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, nodeID: string, portID: GraphPortID, direction: "in" | "out") => {
+      const node = nodesRef.current.find((item) => item.id === nodeID);
+      if (!node) {
+        return;
+      }
+      const pointer = toCanvasPoint(event.clientX, event.clientY);
+      const drag: ConnectionDragState = {
+        fromNodeID: nodeID,
+        fromPort: portID,
+        fromDirection: direction,
+        fromKind: node.kind,
+        pointer,
+      };
+      connectionDragRef.current = drag;
+      setConnectionDrag(drag);
+    },
+    [toCanvasPoint],
+  );
+
+  // 释放连线：命中兼容端口则建立连线（in 端口起拖时方向反转）
+  const finishConnectionDrag = React.useCallback(
+    (clientX: number, clientY: number) => {
+      const drag = connectionDragRef.current;
+      connectionDragRef.current = null;
+      setConnectionDrag(null);
+      if (!drag) {
+        return;
+      }
+      const element = document.elementFromPoint(clientX, clientY);
+      const portElement = element?.closest("[data-graph-port]") as HTMLElement | null;
+      if (!portElement) {
+        return;
+      }
+      const direction = portElement.dataset.graphPort;
+      const targetNodeID = portElement.dataset.graphNodeId ?? "";
+      const targetPort = (portElement.dataset.graphPortId ?? "") as GraphPortID;
+      if (!targetNodeID || !targetPort) {
+        return;
+      }
+      // 反向拖拽：入端口 -> 出端口；正向拖拽：出端口 -> 入端口
+      const attempt = drag.fromDirection === "out"
+        ? {
+          fromNodeID: drag.fromNodeID,
+          fromPort: "out" as const,
+          toNodeID: targetNodeID,
+          toPort: targetPort as "prompt" | "image" | "result",
+        }
+        : {
+          fromNodeID: targetNodeID,
+          fromPort: "out" as const,
+          toNodeID: drag.fromNodeID,
+          toPort: drag.fromPort as "prompt" | "image" | "result",
+        };
+      if (direction === drag.fromDirection) {
+        return;
+      }
+      onConnectNodes(attempt);
+    },
+    [onConnectNodes],
+  );
+
   const handlePointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (interactionLocked || isCanvasOverlayTarget(event.target)) {
@@ -407,13 +526,25 @@ export function CanvasViewport({
       }
 
       const target = event.target as HTMLElement;
-      // 卡片内可选中/可交互区域不触发拖拽，保证文本选择与右键复制
+      // 端口起拖连线，不触发节点拖拽
+      const portElement = target.closest("[data-graph-port]") as HTMLElement | null;
+      if (portElement && !isMiddleButton && !temporaryPan) {
+        event.preventDefault();
+        const portNodeID = portElement.dataset.graphNodeId ?? "";
+        const portID = (portElement.dataset.graphPortId ?? "") as GraphPortID;
+        const direction = portElement.dataset.graphPort === "out" ? "out" : "in";
+        if (portNodeID && portID) {
+          beginConnectionDrag(event, portNodeID, portID, direction);
+          return;
+        }
+      }
+      // 节点内可选中/可交互区域不触发拖拽，保证文本选择与控件交互
       if (target.closest("[data-canvas-selectable]")) {
         return;
       }
       const nodeElement = target.closest("[data-canvas-node-id]") as HTMLElement | null;
       const nodeID = nodeElement?.dataset.canvasNodeId ?? "";
-      const node = nodes.find((item) => item.id === nodeID);
+      const node = presentableNodes.find((item) => item.id === nodeID);
       if (node && nodeElement && !isMiddleButton && !temporaryPan) {
         event.currentTarget.focus({ preventScroll: true });
         const additiveSelection = event.metaKey || event.ctrlKey || event.shiftKey;
@@ -429,11 +560,12 @@ export function CanvasViewport({
           return;
         }
         const point = toCanvasPoint(event.clientX, event.clientY);
+        const nodeSize = graphNodeSizeOf(node);
         const explicitSelection = selectedRef.current.includes(nodeID) ? selectedRef.current : [nodeID];
         const groupSelection = node.groupID ? [...new Set([...explicitSelection, ...presentableNodes.filter((item) => item.groupID === node.groupID).map((item) => item.id)])] : explicitSelection;
         const elasticOrigin = presentableDecorations
           .filter((item) => (item.kind === "frame" || item.kind === "section") && !item.locked)
-          .filter((item) => isCanvasElementCenterInside(item, { ...node, width: CANVAS_NODE_WIDTH, height: CANVAS_NODE_HEIGHT }))
+          .filter((item) => isCanvasElementCenterInside(item, { ...node, width: nodeSize.width, height: nodeSize.height }))
           .sort((a, b) => a.width * a.height - b.width * b.height || a.id.localeCompare(b.id))[0] ?? null;
         draggingNodeRef.current = {
           nodeID,
@@ -449,7 +581,7 @@ export function CanvasViewport({
           elasticOrigin,
           elasticContents: elasticOrigin
             ? [
-              ...presentableNodes.map((item) => ({ ...item, width: CANVAS_NODE_WIDTH, height: CANVAS_NODE_HEIGHT })),
+              ...presentableNodes.map(withGraphSize),
               ...presentableDecorations.filter((item) => item.id !== elasticOrigin.id),
             ].filter((item) => isCanvasElementCenterInside(elasticOrigin, item))
             : [],
@@ -468,7 +600,7 @@ export function CanvasViewport({
         if (!selectedRef.current.includes(nodeID)) {
           onSelectedNodeIDsChange([nodeID]);
         }
-        // 轻点时不抢占 pointer capture，保证卡片内图片按钮能收到 click；
+        // 轻点时不抢占 pointer capture，保证节点内按钮能收到 click；
         // 指针移动超过阈值后再进入正式拖拽。
         return;
       }
@@ -485,6 +617,7 @@ export function CanvasViewport({
         if (!additiveSelection) {
           onSelectedNodeIDsChange([]);
           onSelectedDecorationIDsChange([]);
+          onSelectedEdgeIDsChange([]);
         }
         // 捕获指针，拖到容器外仍能持续更新并正常提交选区
         containerRef.current?.setPointerCapture?.(event.pointerId);
@@ -500,10 +633,11 @@ export function CanvasViewport({
       if (!temporaryPan) {
         onSelectedNodeIDsChange([]);
         onSelectedDecorationIDsChange([]);
+        onSelectedEdgeIDsChange([]);
       }
       containerRef.current?.setPointerCapture?.(event.pointerId);
     },
-    [interactionLocked, onSelectedDecorationIDsChange, onSelectedNodeIDsChange, pointerMode, presentableDecorations, presentableNodes, toCanvasPoint],
+    [beginConnectionDrag, interactionLocked, onSelectedDecorationIDsChange, onSelectedEdgeIDsChange, onSelectedNodeIDsChange, pointerMode, presentableDecorations, presentableNodes, toCanvasPoint],
   );
 
   const handlePointerMove = React.useCallback(
@@ -530,6 +664,16 @@ export function CanvasViewport({
         return;
       }
 
+      // 端口连线拖拽：更新临时连线终点
+      const connectionDragState = connectionDragRef.current;
+      if (connectionDragState) {
+        const pointer = toCanvasPoint(event.clientX, event.clientY);
+        const next = { ...connectionDragState, pointer };
+        connectionDragRef.current = next;
+        setConnectionDrag(next);
+        return;
+      }
+
       const dragging = draggingNodeRef.current;
       if (dragging) {
         if (!dragging.active) {
@@ -552,6 +696,7 @@ export function CanvasViewport({
         dragging.lastClientX = event.clientX;
         dragging.lastClientY = event.clientY;
         dragging.lastTime = event.timeStamp;
+        const draggedSize = graphNodeSizeOf(nodesRef.current.find((item) => item.id === dragging.nodeID) ?? { kind: "prompt" } as GraphNode);
 
         const movedPositions = new Map<string, { x: number; y: number }>([
           [dragging.nodeID, { x: baseX, y: baseY }],
@@ -564,7 +709,7 @@ export function CanvasViewport({
         if (!dragging.elasticDetached) {
           let justActivated = false;
           if (!dragging.elasticOrigin) {
-            const movedCard = { id: dragging.nodeID, x: baseX, y: baseY, width: CANVAS_NODE_WIDTH, height: CANVAS_NODE_HEIGHT };
+            const movedCard = { id: dragging.nodeID, x: baseX, y: baseY, width: draggedSize.width, height: draggedSize.height };
             // 通过 ref 读取最新 decorations，避免 memo 回调闭包陈旧导致首次拖入无法激活弹性边框
             const origin = activeElasticDecorationForElement(movedCard, decorationsRef.current);
             if (origin) {
@@ -573,8 +718,7 @@ export function CanvasViewport({
                 ...nodesRef.current.map((item) => ({
                   ...item,
                   ...movedPositions.get(item.id),
-                  width: CANVAS_NODE_WIDTH,
-                  height: CANVAS_NODE_HEIGHT,
+                  ...graphNodeSizeOf(item),
                 })),
                 ...decorationsRef.current.filter((item) => item.id !== origin.id),
               ].filter((item) => isCanvasElementCenterInside(origin, item));
@@ -585,27 +729,15 @@ export function CanvasViewport({
           const origin = dragging.elasticOrigin;
           if (origin) {
             const elasticContents = dragging.elasticContents.map((item) => ({ ...item, ...movedPositions.get(item.id) }));
-            const elastic = elasticCanvasBounds(origin, elasticContents, ELASTIC_EXPANSION_BUDGET, 24, 72);
-            // 卡片相对原始 frame 的最大超出距离：完全在 frame 内时为 0，避免靠近边缘即误判脱离
-            const cardOverflow = Math.max(
-              baseX - origin.x,
-              baseY - origin.y,
-              origin.x + origin.width - (baseX + CANVAS_NODE_WIDTH),
-              origin.y + origin.height - (baseY + CANVAS_NODE_HEIGHT),
-              0,
-            );
+            const elastic = elasticCanvasBounds(origin, elasticContents, ELASTIC_MAX_STRETCH, 24, 72);
             if (!justActivated && shouldDetachElasticBoundary({
-              overflowDistance: cardOverflow,
               velocity: dragging.elasticEnteredDuringDrag ? 0 : velocity,
-              requestedExpansion: elastic.requestedExpansion,
-              expansionBudget: ELASTIC_EXPANSION_BUDGET,
-              distanceThreshold: ELASTIC_DISTANCE_THRESHOLD / viewportRef.current.scale,
               velocityThreshold: ELASTIC_DETACH_VELOCITY,
             })) {
               dragging.elasticDetached = true;
               const movedIDs = new Set(movedPositions.keys());
               const remainingContents = dragging.elasticContents.filter((item) => !movedIDs.has(item.id));
-              const remainingBounds = elasticCanvasBounds(origin, remainingContents, ELASTIC_EXPANSION_BUDGET, 24, 72);
+              const remainingBounds = elasticCanvasBounds(origin, remainingContents, ELASTIC_MAX_STRETCH, 24, 72);
               const preview = { id: origin.id, x: remainingBounds.x, y: remainingBounds.y, width: remainingBounds.width, height: remainingBounds.height, tension: 0 };
               elasticPreviewRef.current = preview;
               setElasticPreview(preview);
@@ -616,8 +748,8 @@ export function CanvasViewport({
             }
           }
         } else {
-          // 脱离后同一手势内再次把卡片拖回 frame 时重新吸附
-          const movedCard = { id: dragging.nodeID, x: baseX, y: baseY, width: CANVAS_NODE_WIDTH, height: CANVAS_NODE_HEIGHT };
+          // 脱离后同一手势内再次把节点拖回 frame 时重新吸附
+          const movedCard = { id: dragging.nodeID, x: baseX, y: baseY, width: draggedSize.width, height: draggedSize.height };
           const origin = activeElasticDecorationForElement(movedCard, decorationsRef.current);
           if (origin) {
             dragging.elasticOrigin = origin;
@@ -625,8 +757,7 @@ export function CanvasViewport({
               ...nodesRef.current.map((item) => ({
                 ...item,
                 ...movedPositions.get(item.id),
-                width: CANVAS_NODE_WIDTH,
-                height: CANVAS_NODE_HEIGHT,
+                ...graphNodeSizeOf(item),
               })),
               ...decorationsRef.current.filter((item) => item.id !== origin.id),
             ].filter((item) => isCanvasElementCenterInside(origin, item));
@@ -684,6 +815,12 @@ export function CanvasViewport({
         pinchStartRef.current = null;
       }
 
+      // 释放连线拖拽
+      if (connectionDragRef.current) {
+        finishConnectionDrag(event.clientX, event.clientY);
+        return;
+      }
+
       const currentMarquee = marqueeRef.current;
       if (currentMarquee) {
         const left = Math.min(currentMarquee.startX, currentMarquee.currentX);
@@ -691,13 +828,10 @@ export function CanvasViewport({
         const top = Math.min(currentMarquee.startY, currentMarquee.currentY);
         const bottom = Math.max(currentMarquee.startY, currentMarquee.currentY);
         const hitNodeIDs = nodesRef.current
-          .filter(
-            (node) =>
-              node.x < right &&
-              node.x + CANVAS_NODE_WIDTH > left &&
-              node.y < bottom &&
-              node.y + CANVAS_NODE_HEIGHT > top,
-          )
+          .filter((node) => {
+            const size = graphNodeSizeOf(node);
+            return node.x < right && node.x + size.width > left && node.y < bottom && node.y + size.height > top;
+          })
           .map((node) => node.id);
         marqueeRef.current = null;
         setMarquee(null);
@@ -728,7 +862,7 @@ export function CanvasViewport({
         draggingNodeRef.current = null;
       }
     },
-    [clearElasticPreview, onEndNodeMove, onMoveNodes, onSelectedNodeIDsChange, refreshElasticPreview],
+    [clearElasticPreview, finishConnectionDrag, onEndNodeMove, onMoveNodes, onSelectedNodeIDsChange, refreshElasticPreview],
   );
 
   const handleKeyDown = React.useCallback(
@@ -761,39 +895,83 @@ export function CanvasViewport({
     };
   }, [containerSize.height, containerSize.width, viewport]);
   const visibleNodes = React.useMemo(
-    () => presentableNodes.filter((node) =>
-      selectedSet.has(node.id) ||
-      (node.x < visibleBounds.right &&
-        node.x + CANVAS_NODE_WIDTH > visibleBounds.left &&
-        node.y < visibleBounds.bottom &&
-        node.y + CANVAS_NODE_HEIGHT > visibleBounds.top),
-    ),
+    () => presentableNodes.filter((node) => {
+      const size = graphNodeSizeOf(node);
+      return selectedSet.has(node.id) ||
+        (node.x < visibleBounds.right &&
+          node.x + size.width > visibleBounds.left &&
+          node.y < visibleBounds.bottom &&
+          node.y + size.height > visibleBounds.top);
+    }),
     [presentableNodes, selectedSet, visibleBounds],
   );
   const visibleNodeIDs = React.useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
 
-  // 父子连接线：由父节点底部中点连向子节点顶部中点
-  const connections = React.useMemo(() => {
+  // 图连线：贝塞尔曲线 + 生成中流动动画
+  const connectionLines = React.useMemo(() => {
     const nodeByID = new Map(presentableNodes.map((node) => [node.id, node]));
-    return presentableNodes.flatMap((node) => {
-      const parent = node.parentID ? nodeByID.get(node.parentID) : undefined;
-      if (!parent || (!visibleNodeIDs.has(node.id) && !visibleNodeIDs.has(parent.id))) {
+    const generatingNodeIDs = new Set(
+      presentableNodes
+        .filter((node) => node.kind === "generate" && (node.runStatus === "pending" || node.runStatus === "streaming"))
+        .map((node) => node.id),
+    );
+    return edges.flatMap((edge) => {
+      const from = nodeByID.get(edge.fromNodeID);
+      const to = nodeByID.get(edge.toNodeID);
+      if (!from || !to || (!visibleNodeIDs.has(from.id) && !visibleNodeIDs.has(to.id))) {
         return [];
       }
-      const fromX = parent.x + CANVAS_NODE_WIDTH;
-      const fromY = parent.y + CANVAS_NODE_HEIGHT / 2;
-      const toX = node.x;
-      const toY = node.y + CANVAS_NODE_HEIGHT / 2;
-      const controlOffset = Math.max(48, Math.abs(toX - fromX) / 2);
-      return [
-        {
-          id: `${parent.id}->${node.id}`,
-          path: `M ${fromX} ${fromY} C ${fromX + controlOffset} ${fromY}, ${toX - controlOffset} ${toY}, ${toX} ${toY}`,
-          active: node.status === "pending" || node.status === "streaming",
-        },
-      ];
+      const fromSize = graphNodeSizeOf(from);
+      const toSize = graphNodeSizeOf(to);
+      const fromPoint = graphPortCanvasPosition(from, "out", fromSize);
+      const toPoint = graphPortCanvasPosition(to, edge.toPort, toSize);
+      if (!fromPoint || !toPoint) {
+        return [];
+      }
+      return [{
+        id: edge.id,
+        path: graphEdgePath(fromPoint, toPoint),
+        midpoint: graphEdgeMidpoint(fromPoint, toPoint),
+        active: generatingNodeIDs.has(from.id),
+      }];
     });
-  }, [presentableNodes, visibleNodeIDs]);
+  }, [edges, presentableNodes, visibleNodeIDs]);
+
+  // 各生成节点的上游输入摘要（连线计数，用于节点内徽标显示）
+  const inputSummaries = React.useMemo(() => {
+    const summaries = new Map<string, { prompts: number; references: number }>();
+    for (const edge of edges) {
+      if (edge.toPort !== "prompt" && edge.toPort !== "image") {
+        continue;
+      }
+      const summary = summaries.get(edge.toNodeID) ?? { prompts: 0, references: 0 };
+      if (edge.toPort === "prompt") {
+        summary.prompts += 1;
+      } else {
+        summary.references += 1;
+      }
+      summaries.set(edge.toNodeID, summary);
+    }
+    return summaries;
+  }, [edges]);
+
+  // 连线拖拽中的临时路径：源端口 -> 指针位置
+  const connectionDragPath = React.useMemo(() => {
+    if (!connectionDrag) {
+      return null;
+    }
+    const node = presentableNodes.find((item) => item.id === connectionDrag.fromNodeID);
+    if (!node) {
+      return null;
+    }
+    const fromPoint = graphPortCanvasPosition(node, connectionDrag.fromPort, graphNodeSizeOf(node));
+    if (!fromPoint) {
+      return null;
+    }
+    return {
+      path: graphEdgePath(fromPoint, connectionDrag.pointer),
+    };
+  }, [connectionDrag, presentableNodes]);
 
   const marqueeRect = marquee
     ? {
@@ -804,7 +982,7 @@ export function CanvasViewport({
     }
     : null;
 
-  // 渲染顺序：Section 最底层，Frame/Note 其上，卡片渲染于所有装饰之上
+  // 渲染顺序：Section 最底层，Frame/Note 其上，节点渲染于所有装饰之上
   const renderDecorations = [...presentableDecorations].sort((a, b) =>
     decorationLayerRank(a) - decorationLayerRank(b) || (a.zIndex ?? 0) - (b.zIndex ?? 0) || a.id.localeCompare(b.id));
 
@@ -812,7 +990,7 @@ export function CanvasViewport({
     const preview = elasticPreview?.id === item.id ? elasticPreview : null;
     const bounds = preview ? { ...item, x: preview.x, y: preview.y, width: preview.width, height: preview.height } : item;
     const selected = selectedDecorationIDs.includes(item.id);
-    const regionNodeIDs = canvasElementIDsInRegion(bounds, presentableNodes.map((node) => ({ ...node, width: CANVAS_NODE_WIDTH, height: CANVAS_NODE_HEIGHT })));
+    const regionNodeIDs = canvasElementIDsInRegion(bounds, presentableNodes.map(withGraphSize));
     // Frame 计数使用完整列表：折叠时成员被收纳隐藏，徽标仍显示收纳数量
     const containedCount = item.kind === "frame"
       ? nodes.filter((node) => node.frameID === item.id).length + decorations.filter((decoration) => decoration.frameID === item.id).length
@@ -848,7 +1026,10 @@ export function CanvasViewport({
               ? selectedDecorationIDs.filter((id) => id !== item.id)
               : [...selectedDecorationIDs, item.id]
             : [item.id]);
-          if (!additiveSelection) onSelectedNodeIDsChange([]);
+          if (!additiveSelection) {
+            onSelectedNodeIDsChange([]);
+            onSelectedEdgeIDsChange([]);
+          }
           if (item.locked || additiveSelection) return;
           const start = { x: event.clientX, y: event.clientY, left: item.x, top: item.y };
           const move = (next: PointerEvent) => onMoveDecoration(item.id, snapToGrid(start.left + (next.clientX - start.x) / viewport.scale), snapToGrid(start.top + (next.clientY - start.y) / viewport.scale));
@@ -963,6 +1144,20 @@ export function CanvasViewport({
     );
   };
 
+  const nodeHandlers: GraphNodeActionHandlers = React.useMemo(() => ({
+    onUpdateNode,
+    onEnsureNodePreview,
+    onRemoveNode,
+    onRunNode,
+    onCancelNode,
+    onPreviewNode,
+    onDownloadNode,
+    onEditNode,
+    onEditReferenceNode,
+    onUseAsReference,
+    uploadReferenceFile,
+  }), [onCancelNode, onDownloadNode, onEditNode, onEditReferenceNode, onEnsureNodePreview, onPreviewNode, onRemoveNode, onRunNode, onUpdateNode, onUseAsReference, uploadReferenceFile]);
+
   return (
     <div
       ref={containerRef}
@@ -971,7 +1166,7 @@ export function CanvasViewport({
       tabIndex={interactionLocked ? -1 : 0}
       className={cn(
         "relative h-full w-full touch-none overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50",
-        spacePressed ? "cursor-grab active:cursor-grabbing" : pointerMode === "select" ? "cursor-crosshair" : "cursor-grab",
+        spacePressed ? "cursor-grab active:cursor-grabbing" : connectionDrag ? "cursor-crosshair" : pointerMode === "select" ? "cursor-crosshair" : "cursor-grab",
       )}
       onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
@@ -993,34 +1188,67 @@ export function CanvasViewport({
 
       {/* 节点层 */}
       <div
-        className="absolute top-0 left-0 will-change-transform"
+        className="group/edges absolute top-0 left-0 will-change-transform"
         style={{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
           transformOrigin: "0 0",
         }}
       >
-        {/* 装饰层：Section 最底层，Frame/Note 其上，卡片渲染于所有装饰之上 */}
+        {/* 装饰层：Section 最底层，Frame/Note 其上，节点渲染于所有装饰之上 */}
         {renderDecorations.map((item) => renderDecoration(item))}
 
-        {/* 父子连接线（置于卡片之下） */}
+        {/* 图连线层：贝塞尔曲线 + 删除按钮 */}
         <svg
           aria-hidden="true"
           className="pointer-events-none absolute overflow-visible"
           style={{ left: 0, top: 0, width: 1, height: 1 }}
         >
-          {connections.map((connection) => (
+          {connectionLines.map((line) => (
             <path
-              key={connection.id}
-              d={connection.path}
+              key={line.id}
+              d={line.path}
               fill="none"
-              stroke="var(--border)"
               strokeWidth={2}
-              strokeDasharray={connection.active ? "6 6" : undefined}
-              className={connection.active ? "animate-pulse" : undefined}
+              stroke={line.active ? "var(--primary)" : "var(--border)"}
+              strokeDasharray={line.active ? "6 6" : undefined}
+              className={line.active ? "animate-pulse" : undefined}
               opacity={0.9}
             />
           ))}
+          {connectionDragPath ? (
+            <path
+              d={connectionDragPath.path}
+              fill="none"
+              stroke="var(--primary)"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              opacity={0.85}
+            />
+          ) : null}
         </svg>
+
+        {/* 连线删除按钮：位于曲线中点，hover 展示 */}
+        {connectionLines.map((line) => (
+          <button
+            key={line.id}
+            type="button"
+            aria-label={t("edgeDelete")}
+            title={t("edgeDelete")}
+            className={cn(
+              "absolute z-0 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-border/70 bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:border-destructive/40 hover:text-destructive focus-visible:opacity-100",
+              "group-hover/edges:opacity-100",
+              selectedEdgeIDs.includes(line.id) && "opacity-100",
+            )}
+            style={{ left: line.midpoint.x, top: line.midpoint.y }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemoveEdge(line.id);
+            }}
+          >
+            <X className="size-2.5" strokeWidth={2} />
+          </button>
+        ))}
 
         {visibleNodes.map((node) => (
           <motion.div
@@ -1029,27 +1257,22 @@ export function CanvasViewport({
             initial={reducedMotion ? false : { opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 24 }}
+            className="group-hover/edges:z-10"
             style={{
               position: "absolute",
               left: node.x,
               top: node.y,
-              width: CANVAS_NODE_WIDTH,
               zIndex: node.zIndex ?? 0,
             }}
           >
-            {node.locked ? <span className="pointer-events-none absolute right-2 top-2 z-20 inline-flex rounded-full border border-border/70 bg-background/85 p-1.5 text-primary shadow-sm backdrop-blur" title={t("lockedState")}><LockKeyhole className="size-3.5" /></span> : null}
-            <CanvasNodeCard
+            {node.locked ? <span className="pointer-events-none absolute -top-2 -right-2 z-30 inline-flex rounded-full border border-border/70 bg-background/85 p-1 text-primary shadow-sm backdrop-blur" title={t("lockedState")}><LockKeyhole className="size-3" /></span> : null}
+            <GraphNodeView
               node={node}
               selected={selectedSet.has(node.id)}
-              onRemove={() => onRemoveNode(node.id)}
-              onCancel={() => onCancelNode(node.id)}
-              onRetry={() => onRetryNode(node.id)}
-              onUseAsReference={() => onUseAsReference(node)}
-              onReuseParameters={() => onReuseParameters(node)}
-              onRegenerate={() => onRegenerateNode(node)}
-              onEdit={() => onEditNode(node)}
-              onDownload={() => onDownloadNode(node)}
-              onPreview={() => onPreviewNode(node)}
+              connecting={connectionDrag ? { kind: connectionDrag.fromKind, port: connectionDrag.fromPort } : null}
+              imageModels={imageModels}
+              inputSummary={inputSummaries.get(node.id) ?? { prompts: 0, references: 0 }}
+              handlers={nodeHandlers}
             />
           </motion.div>
         ))}

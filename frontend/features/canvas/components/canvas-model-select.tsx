@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { ChevronsUpDown, Check, Sparkles } from "lucide-react";
 
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import { modelSupportsImageEditRoute } from "@/features/canvas/model/canvas-image-options";
 import { ModelIcon } from "@/shared/components/model-icon";
 import { resolveModelIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
 import {
@@ -20,12 +21,14 @@ export function CanvasModelSelect({
   onSelect,
   onOpenChange,
   disabled,
+  className,
 }: {
   imageModels: ChatModelOption[];
   selectedModel: ChatModelOption | null;
   onSelect: (platformModelName: string) => void;
   onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
+  className?: string;
 }) {
   const t = useTranslations("canvas");
   const [open, setOpen] = React.useState(false);
@@ -59,13 +62,14 @@ export function CanvasModelSelect({
           "flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-accent hover:text-accent-foreground",
           "disabled:pointer-events-none disabled:opacity-50",
           "[&_svg]:shrink-0",
+          className,
         )}
       >
         {selectedModel ? (
           <>
             <ModelIcon iconUrl={selectedIconURL} label={selectedModel.platformModelName} size={14} />
             <span className="max-w-40 truncate">{selectedModel.platformModelName}</span>
-            {selectedModel.kinds.includes("image_edit") ? (
+            {modelSupportsImageEditRoute(selectedModel) ? (
               <span className="hidden shrink-0 rounded-sm bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary sm:inline">
                 {t("modelEditCapable")}
               </span>
@@ -109,7 +113,7 @@ export function CanvasModelSelect({
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {model.platformModelName}
                   </span>
-                  {model.kinds.includes("image_edit") ? (
+                  {modelSupportsImageEditRoute(model) ? (
                     <span className="shrink-0 rounded-sm bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary">
                       {t("modelEditCapable")}
                     </span>

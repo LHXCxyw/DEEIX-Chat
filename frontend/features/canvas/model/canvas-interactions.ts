@@ -1,6 +1,7 @@
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
+  type CanvasDecoration,
   type CanvasViewport,
 } from "./canvas-types.ts";
 import { zoomViewportAt } from "./canvas-persist.ts";
@@ -137,39 +138,164 @@ export function canvasElementIDsCarriedByFrame(
   return new Set(elements.filter((element) => element.frameID === frameID).map((element) => element.id));
 }
 
+// ---------------------------------------------------------------------------
+// Frame 自动回弹 / 扩展：Frame 承载的成员发生增减时，边界随内容自动调整
+// ---------------------------------------------------------------------------
+export type FrameRefitElement = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  frameID?: string | null;
+};
+
+// 成员包围盒 + 内边距（顶部预留标题栏），用于成员减少后的收缩回弹
+export function frameFitBounds(
+  members: ReadonlyArray<FrameRefitElement>,
+  padding = 24,
+  topPadding = padding,
+): ElasticCanvasBounds {
+  const minX = Math.min(...members.map((item) => item.x)) - padding;
+  const minY = Math.min(...members.map((item) => item.y)) - topPadding;
+  const maxX = Math.max(...members.map((item) => item.x + item.width)) + padding;
+  const maxY = Math.max(...members.map((item) => item.y + item.height)) + padding;
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+// 在 Frame 当前边界基础上仅向外扩展以包住成员（不收缩已有边界），用于成员增加
+export function frameUnionBounds(
+  frame: ElasticCanvasBounds,
+  members: ReadonlyArray<FrameRefitElement>,
+  padding = 24,
+  topPadding = padding,
+): ElasticCanvasBounds {
+  let { x, y, width, height } = frame;
+  let right = x + width;
+  let bottom = y + height;
+  for (const member of members) {
+    x = Math.min(x, member.x - padding);
+    y = Math.min(y, member.y - topPadding);
+    right = Math.max(right, member.x + member.width + padding);
+    bottom = Math.max(bottom, member.y + member.height + padding);
+  }
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+// 成员增减后重算 Frame 边界：仅调整承载成员发生变化且未锁定/未折叠的 Frame。
+// 成员增加时只向外扩展；成员减少时收缩回剩余内容包围盒；成员清空时回弹到最小尺寸。
+export function refitFrameDecorations<T extends CanvasDecoration>(
+  prevElements: ReadonlyArray<FrameRefitElement>,
+  nextElements: ReadonlyArray<FrameRefitElement>,
+  decorations: ReadonlyArray<T>,
+  padding = 24,
+  topPadding = padding,
+): T[] {
+  const frameIDs = new Set(decorations.filter((item) => item.kind === "frame").map((item) => item.id));
+  if (frameIDs.size === 0) {
+    return [...decorations];
+  }
+  const membership = (elements: ReadonlyArray<FrameRefitElement>) => {
+    const map = new Map<string, Set<string>>();
+    for (const element of elements) {
+      if (element.frameID && frameIDs.has(element.frameID) && !frameIDs.has(element.id)) {
+        const members = map.get(element.frameID);
+        if (members) {
+          members.add(element.id);
+        } else {
+          map.set(element.frameID, new Set([element.id]));
+        }
+      }
+    }
+    return map;
+  };
+  const prevMembership = membership(prevElements);
+  const nextMembership = membership(nextElements);
+  return decorations.map((decoration) => {
+    if (decoration.kind !== "frame" || decoration.locked || decoration.collapsed) {
+      return decoration;
+    }
+    const before = prevMembership.get(decoration.id) ?? new Set<string>();
+    const after = nextMembership.get(decoration.id) ?? new Set<string>();
+    const unchanged = before.size === after.size && [...after].every((id) => before.has(id));
+    if (unchanged) {
+      return decoration;
+    }
+    const members = nextElements.filter((element) => after.has(element.id));
+    if (members.length === 0) {
+      // 成员清空：回弹到最小尺寸，锚定原位置
+      return {
+        ...decoration,
+        width: Math.min(decoration.width, FRAME_REFIT_MIN_SIZE.width),
+        height: Math.min(decoration.height, FRAME_REFIT_MIN_SIZE.height),
+      };
+    }
+    if (after.size > before.size) {
+      // 成员增加：向外扩展以容纳新成员
+      return { ...decoration, ...frameUnionBounds(decoration, members, padding, topPadding) };
+    }
+    // 成员减少：收缩回剩余内容的最小包围盒
+    const fitted = frameFitBounds(members, padding, topPadding);
+    return {
+      ...decoration,
+      x: fitted.x,
+      y: fitted.y,
+      width: Math.max(FRAME_REFIT_MIN_SIZE.width, fitted.width),
+      height: Math.max(FRAME_REFIT_MIN_SIZE.height, fitted.height),
+    };
+  });
+}
+
+export const FRAME_REFIT_MIN_SIZE = { width: 160, height: 120 };
+
 export type ElasticCanvasBounds = Pick<CanvasArrangeElement, "x" | "y" | "width" | "height">;
+
+// 橡皮筋响应曲线：边缘 1:1 跟随内容超出距离（与节点移动距离一致），
+// 达到 maxStretch 上限后停住不再扩展。只取决于该侧的超出距离，
+// 与 Frame 当前尺寸、其他侧超出量和视口位置无关，弹性手感始终一致
+function elasticFollow(distance: number, maxStretch: number): number {
+  const limit = Math.max(0, maxStretch);
+  if (limit === 0 || distance <= 0) {
+    return 0;
+  }
+  return Math.min(distance, limit);
+}
 
 export function elasticCanvasBounds(
   container: ElasticCanvasBounds,
   content: ElasticCanvasBounds | ReadonlyArray<ElasticCanvasBounds>,
-  expansionBudget: number,
+  maxStretch: number,
   padding = 24,
   topPadding = padding,
-): ElasticCanvasBounds & { requestedExpansion: number; appliedExpansion: number; tension: number; exhausted: boolean } {
+): ElasticCanvasBounds & { requestedExpansion: number; appliedExpansion: number; tension: number } {
   const contents = Array.isArray(content) ? content : [content];
   if (contents.length === 0) {
-    return { ...container, requestedExpansion: 0, appliedExpansion: 0, tension: 0, exhausted: false };
+    return { ...container, requestedExpansion: 0, appliedExpansion: 0, tension: 0 };
   }
   const contentLeft = Math.min(...contents.map((item) => item.x)) - padding;
   const contentTop = Math.min(...contents.map((item) => item.y)) - topPadding;
   const contentRight = Math.max(...contents.map((item) => item.x + item.width)) + padding;
   const contentBottom = Math.max(...contents.map((item) => item.y + item.height)) + padding;
+  // 各侧需要的扩展距离（内容包围盒超出容器的部分）
   const left = Math.max(0, container.x - contentLeft);
   const top = Math.max(0, container.y - contentTop);
   const right = Math.max(0, contentRight - (container.x + container.width));
   const bottom = Math.max(0, contentBottom - (container.y + container.height));
   const requestedExpansion = left + top + right + bottom;
-  const budget = Math.max(0, expansionBudget);
-  const ratio = requestedExpansion === 0 ? 1 : Math.min(1, budget / requestedExpansion);
-  const targetLeft = contentLeft < container.x ? container.x - left * ratio : contentLeft;
-  const targetTop = contentTop < container.y ? container.y - top * ratio : contentTop;
+  const stretchLeft = elasticFollow(left, maxStretch);
+  const stretchTop = elasticFollow(top, maxStretch);
+  const stretchRight = elasticFollow(right, maxStretch);
+  const stretchBottom = elasticFollow(bottom, maxStretch);
+  const appliedExpansion = stretchLeft + stretchTop + stretchRight + stretchBottom;
+  const limit = Math.max(0, maxStretch);
+  const targetLeft = contentLeft < container.x ? container.x - stretchLeft : contentLeft;
+  const targetTop = contentTop < container.y ? container.y - stretchTop : contentTop;
   const targetRight = contentRight > container.x + container.width
-    ? container.x + container.width + right * ratio
+    ? container.x + container.width + stretchRight
     : contentRight;
   const targetBottom = contentBottom > container.y + container.height
-    ? container.y + container.height + bottom * ratio
+    ? container.y + container.height + stretchBottom
     : contentBottom;
-  const appliedExpansion = requestedExpansion * ratio;
 
   return {
     x: targetLeft,
@@ -178,28 +304,20 @@ export function elasticCanvasBounds(
     height: Math.max(0, targetBottom - targetTop),
     requestedExpansion,
     appliedExpansion,
-    tension: budget === 0 ? (requestedExpansion > 0 ? 1 : 0) : Math.min(1, requestedExpansion / budget),
-    exhausted: requestedExpansion > budget,
+    tension: limit === 0 ? (requestedExpansion > 0 ? 1 : 0) : Math.min(1, appliedExpansion / limit),
   };
 }
 
+// 仅刻意甩出（瞬时速度达标）才触发脱离：橡皮筋拉伸到上限后节点仍然挂在 Frame 上，
+// 松手时若中心已在外则按成员变化自动回弹，避免"离边缘越近越容易脱离"的距离依赖。
 export function shouldDetachElasticBoundary({
-  overflowDistance,
   velocity,
-  requestedExpansion,
-  expansionBudget,
-  distanceThreshold = 168,
-  velocityThreshold = 1.35,
+  velocityThreshold = 3,
 }: {
-  overflowDistance: number;
   velocity: number;
-  requestedExpansion: number;
-  expansionBudget: number;
-  distanceThreshold?: number;
   velocityThreshold?: number;
 }): boolean {
-  if (overflowDistance <= 0) return false;
-  return overflowDistance >= distanceThreshold || velocity >= velocityThreshold || requestedExpansion > expansionBudget;
+  return velocity >= velocityThreshold;
 }
 
 export function arrangeCanvasElements(

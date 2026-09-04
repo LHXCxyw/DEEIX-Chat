@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { Download, Paintbrush, PencilLine, Repeat2, SlidersHorizontal, X } from "lucide-react";
+import { Download, Paintbrush, Repeat2, X } from "lucide-react";
 
 import { trappedFocusIndex } from "@/features/canvas/model/canvas-interactions";
-import type { CanvasNode } from "@/features/canvas/model/canvas-types";
+import type { OutputGraphNode } from "@/features/canvas/model/canvas-types";
 
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -14,18 +14,14 @@ export function CanvasImageLightbox({
   node,
   onClose,
   onUseAsReference,
-  onRegenerate,
   onEdit,
-  onReuseParameters,
   onDownload,
 }: {
-  node: CanvasNode | null;
+  node: OutputGraphNode | null;
   onClose: () => void;
-  onUseAsReference: (node: CanvasNode) => void;
-  onRegenerate: (node: CanvasNode) => void;
-  onEdit: (node: CanvasNode) => void;
-  onReuseParameters: (node: CanvasNode) => void;
-  onDownload: (node: CanvasNode) => void;
+  onUseAsReference: (node: OutputGraphNode) => void;
+  onEdit: (node: OutputGraphNode) => void;
+  onDownload: (node: OutputGraphNode) => void;
 }) {
   const t = useTranslations("canvas");
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
@@ -96,9 +92,7 @@ export function CanvasImageLightbox({
         <div className="flex shrink-0 items-center gap-1.5">
           {[
             { label: t("nodeUseAsReference"), icon: Repeat2, action: onUseAsReference },
-            { label: t("nodeRegenerate"), icon: PencilLine, action: onRegenerate },
             { label: t("nodeEdit"), icon: Paintbrush, action: onEdit },
-            { label: t("nodeReuseParameters"), icon: SlidersHorizontal, action: onReuseParameters },
             { label: t("nodeDownload"), icon: Download, action: onDownload },
           ].map((item) => (
             <button

@@ -4,8 +4,8 @@ import * as React from "react";
 import { useTranslations } from "next-intl";
 import { AlertTriangle, Map as MapIcon } from "lucide-react";
 
-import type { CanvasDecoration, CanvasNode, CanvasViewport } from "@/features/canvas/model/canvas-types";
-import { CANVAS_NODE_HEIGHT, CANVAS_NODE_WIDTH } from "@/features/canvas/model/canvas-types";
+import type { CanvasDecoration, CanvasViewport, GraphNode } from "@/features/canvas/model/canvas-types";
+import { graphNodeSize } from "@/features/canvas/model/canvas-types";
 import { cn } from "@/lib/utils";
 
 const MINIMAP_WIDTH = 176;
@@ -17,14 +17,17 @@ type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 type MinimapTransform = { bounds: Bounds; offsetX: number; offsetY: number; scale: number };
 type MinimapPosition = { left: number; top: number };
 
-function resolveBounds(nodes: CanvasNode[], decorations: CanvasDecoration[], viewportBox: Bounds): Bounds {
+function resolveBounds(nodes: GraphNode[], decorations: CanvasDecoration[], viewportBox: Bounds): Bounds {
   const bounds = nodes.reduce<Bounds>(
-    (current, node) => ({
-      minX: Math.min(current.minX, node.x),
-      minY: Math.min(current.minY, node.y),
-      maxX: Math.max(current.maxX, node.x + CANVAS_NODE_WIDTH),
-      maxY: Math.max(current.maxY, node.y + CANVAS_NODE_HEIGHT),
-    }),
+    (current, node) => {
+      const size = graphNodeSize(node);
+      return {
+        minX: Math.min(current.minX, node.x),
+        minY: Math.min(current.minY, node.y),
+        maxX: Math.max(current.maxX, node.x + size.width),
+        maxY: Math.max(current.maxY, node.y + size.height),
+      };
+    },
     { ...viewportBox },
   );
   // Frame / Section / Note 也纳入范围，保证小地图覆盖全部画布内容
@@ -53,7 +56,7 @@ export function CanvasMinimap({
   selectedNodeIDs,
   onNavigate,
 }: {
-  nodes: CanvasNode[];
+  nodes: GraphNode[];
   decorations: CanvasDecoration[];
   viewport: CanvasViewport;
   containerSize: { width: number; height: number };
@@ -70,6 +73,24 @@ export function CanvasMinimap({
   const [position, setPosition] = React.useState<MinimapPosition | null>(null);
   const selectedSet = React.useMemo(() => new Set(selectedNodeIDs), [selectedNodeIDs]);
 
+  // 与视口保持一致：被收缩 Frame 承载的节点与装饰只显示 Frame 本身，不在小地图重复出现
+  const collapsedFrameIDs = React.useMemo(
+    () => new Set(decorations.filter((item) => item.kind === "frame" && item.collapsed).map((item) => item.id)),
+    [decorations],
+  );
+  const visibleNodes = React.useMemo(
+    () => collapsedFrameIDs.size === 0
+      ? nodes
+      : nodes.filter((node) => !node.frameID || !collapsedFrameIDs.has(node.frameID)),
+    [nodes, collapsedFrameIDs],
+  );
+  const visibleDecorations = React.useMemo(
+    () => collapsedFrameIDs.size === 0
+      ? decorations
+      : decorations.filter((item) => !item.frameID || !collapsedFrameIDs.has(item.frameID)),
+    [decorations, collapsedFrameIDs],
+  );
+
   const viewportBox = React.useMemo<Bounds>(() => {
     const width = containerSize.width > 0 ? containerSize.width : MINIMAP_WIDTH;
     const height = containerSize.height > 0 ? containerSize.height : MINIMAP_HEIGHT;
@@ -81,7 +102,7 @@ export function CanvasMinimap({
     };
   }, [containerSize.height, containerSize.width, viewport]);
 
-  const bounds = React.useMemo(() => resolveBounds(nodes, decorations, viewportBox), [nodes, decorations, viewportBox]);
+  const bounds = React.useMemo(() => resolveBounds(visibleNodes, visibleDecorations, viewportBox), [visibleNodes, visibleDecorations, viewportBox]);
   const boundsWidth = Math.max(1, bounds.maxX - bounds.minX);
   const boundsHeight = Math.max(1, bounds.maxY - bounds.minY);
   const innerWidth = MINIMAP_WIDTH - MINIMAP_PADDING * 2;
@@ -154,7 +175,7 @@ export function CanvasMinimap({
       className="pointer-events-auto absolute z-20 hidden overflow-hidden rounded-xl border border-border/70 bg-background/80 shadow-lg shadow-black/5 backdrop-blur-xl sm:block"
       style={{
         width: MINIMAP_WIDTH,
-        ...(position ? { left: position.left, top: position.top } : { right: 12, bottom: 160 }),
+        ...(position ? { left: position.left, top: position.top } : { right: 12, bottom: 12 }),
       }}
       onPointerMove={handlePanelPointerMove}
       onPointerUp={stopPanelDragging}
@@ -245,26 +266,36 @@ export function CanvasMinimap({
           );
         })}
 
-        {/* 节点占位块：不渲染预览图，仅按状态着色 */}
-        {nodes.map((node) => {
-          const rect = toMinimapRect(node.x, node.y, CANVAS_NODE_WIDTH, CANVAS_NODE_HEIGHT);
+        {/* 节点占位块：不渲染预览图，按节点类型与状态着色 */}
+        {visibleNodes.map((node) => {
+          const size = graphNodeSize(node);
+          const rect = toMinimapRect(node.x, node.y, size.width, size.height);
+          const running = node.kind === "generate" && (node.runStatus === "pending" || node.runStatus === "streaming");
+          const errored = (node.kind === "generate" || node.kind === "output") && Boolean(node.errorMessage);
           return (
             <div
               key={node.id}
-              title={node.prompt}
               className={cn(
                 "absolute overflow-hidden rounded-[2px] border",
                 selectedSet.has(node.id)
                   ? "border-primary/80 ring-1 ring-primary/40"
-                  : node.status === "error"
+                  : errored
                     ? "border-destructive/50 bg-destructive/15"
-                    : node.status === "streaming"
+                    : running
                       ? "border-primary/40 bg-primary/15 animate-pulse"
-                      : "border-border/60 bg-muted/70",
+                      : node.kind === "output" && node.status === "done"
+                        ? "border-emerald-500/40 bg-emerald-500/15"
+                        : node.kind === "generate"
+                          ? "border-amber-500/40 bg-amber-500/10"
+                          : node.kind === "prompt"
+                            ? "border-violet-500/40 bg-violet-500/10"
+                            : node.kind === "image"
+                              ? "border-sky-500/40 bg-sky-500/10"
+                              : "border-border/60 bg-muted/70",
               )}
               style={rect}
             >
-              {node.status === "error" ? (
+              {errored ? (
                 <span className="flex size-full items-center justify-center">
                   <AlertTriangle className="size-2.5 text-destructive/70" strokeWidth={2} />
                 </span>

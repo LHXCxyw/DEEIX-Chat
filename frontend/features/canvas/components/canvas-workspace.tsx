@@ -6,54 +6,44 @@ import { Sparkles, Trash2, X } from "lucide-react";
 
 import { toast } from "sonner";
 import { useCanvasModels } from "@/features/canvas/hooks/use-canvas-models";
-import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { useCanvasStore } from "@/features/canvas/hooks/use-canvas-store";
 import { CanvasImageLightbox } from "@/features/canvas/components/canvas-image-lightbox";
 import { CanvasImageEditor } from "@/features/canvas/components/canvas-image-editor";
-import { CanvasRegenerateDialog } from "@/features/canvas/components/canvas-regenerate-dialog";
 import { CanvasAssetSidebar } from "@/features/canvas/components/canvas-asset-sidebar";
-import { CanvasCompare } from "@/features/canvas/components/canvas-compare";
 import { CanvasMinimap } from "@/features/canvas/components/canvas-minimap";
-import { CanvasPromptBar } from "@/features/canvas/components/canvas-prompt-bar";
 import { CanvasToolbar } from "@/features/canvas/components/canvas-toolbar";
 import { CanvasViewport } from "@/features/canvas/components/canvas-viewport";
+import { CanvasChatMode, type ChatTaskInput } from "@/features/canvas/components/canvas-chat-mode";
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
-  type CanvasNode,
   type CanvasViewport as Viewport,
+  type GraphNodeKind,
+  type ImageGraphNode,
+  type OutputGraphNode,
 } from "@/features/canvas/model/canvas-types";
-import { selectedNodeIDsForFilter } from "@/features/canvas/model/canvas-interactions";
 import { clampViewportScale, parseCanvasState } from "@/features/canvas/model/canvas-persist";
+import { editorSizeOptions } from "@/features/canvas/model/canvas-image-options";
 import { fetchFileContent } from "@/shared/api/file";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-
-// 参考图附带来源节点，用于生成结果与父卡片建立连线
-type WorkspaceReference = CanvasReferenceImage & { sourceNodeID?: string | null };
 
 export function CanvasWorkspace() {
   const t = useTranslations("canvas");
   const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const [prompt, setPrompt] = React.useState("");
-  const [references, setReferences] = React.useState<WorkspaceReference[]>([]);
-  const [uploadingReference, setUploadingReference] = React.useState(false);
-  const [overlayOpen, setOverlayOpen] = React.useState(false);
-  const [previewNode, setPreviewNode] = React.useState<CanvasNode | null>(null);
-  const [filter, setFilter] = React.useState<"all" | "pending" | "streaming" | "done" | "error">("all");
-  const [editingNode, setEditingNode] = React.useState<CanvasNode | null>(null);
-  const [comparing, setComparing] = React.useState(false);
+  const [previewNode, setPreviewNode] = React.useState<OutputGraphNode | null>(null);
+  const [editingNode, setEditingNode] = React.useState<OutputGraphNode | ImageGraphNode | null>(null);
+  // 参考图节点编辑时的图源 blob 地址（编辑器关闭时回收）
+  const [editingSourceURL, setEditingSourceURL] = React.useState<string | null>(null);
   const [panel, setPanel] = React.useState<"projects" | "templates" | "history" | null>(null);
   const [showStructureTip, setShowStructureTip] = React.useState(false);
   // 资产列表侧边栏折叠状态（展开时隐藏右下角小地图，避免重叠）
   const [assetsCollapsed, setAssetsCollapsed] = React.useState(false);
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
   const [containerSize, setContainerSize] = React.useState({ width: 0, height: 0 });
-  // 标记上传参考图创建的预览 URL（借用节点 objectURL 时不接管所有权）
-  const ownedPreviewRef = React.useRef(new Set<string>());
   const canvasViewportRef = React.useRef<Viewport>({ x: 0, y: 0, scale: 1 });
 
-  const { imageModels, selectedModel, selectModel, modelsLoading, modelsErrorMsg } = useCanvasModels();
+  const { imageModels, modelsLoading, modelsErrorMsg } = useCanvasModels();
 
   // 资产侧边栏折叠状态持久化（SSR 安全：挂载后再读取本地存储）
   React.useEffect(() => {
@@ -80,7 +70,7 @@ export function CanvasWorkspace() {
     };
   }, []);
 
-  const canvas = useCanvasStore({ selectedModel, getSpawnPoint });
+  const canvas = useCanvasStore({ getSpawnPoint });
   canvasViewportRef.current = canvas.viewport;
 
   // 容器尺寸用于小地图视口框与适配视图
@@ -98,41 +88,6 @@ export function CanvasWorkspace() {
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
-
-  const releaseOwnedPreviews = React.useCallback(() => {
-    for (const url of ownedPreviewRef.current) {
-      URL.revokeObjectURL(url);
-    }
-    ownedPreviewRef.current.clear();
-  }, []);
-
-  React.useEffect(() => releaseOwnedPreviews, [releaseOwnedPreviews]);
-
-  const replaceReferences = React.useCallback((next: CanvasReferenceImage[]) => {
-    setReferences(next);
-  }, []);
-
-  const handleAttachFile = React.useCallback(
-    async (file: File) => {
-      if (!file.type.startsWith("image/")) {
-        toast.error(t("referenceNotImage"));
-        return;
-      }
-      setUploadingReference(true);
-      try {
-        const uploaded = await canvas.uploadReferenceFile(file);
-        if (uploaded) {
-          if (uploaded.previewURL) {
-            ownedPreviewRef.current.add(uploaded.previewURL);
-          }
-          setReferences((current) => [...current, { ...uploaded, sourceNodeID: null }]);
-        }
-      } finally {
-        setUploadingReference(false);
-      }
-    },
-    [canvas, t],
-  );
 
   const handleZoom = React.useCallback(
     (direction: "in" | "out") => {
@@ -189,8 +144,8 @@ export function CanvasWorkspace() {
   );
 
   const handleDownloadNode = React.useCallback(
-    async (node: CanvasNode, silent = false): Promise<boolean> => {
-      if (node.status !== "done") {
+    async (node: OutputGraphNode, silent = false): Promise<boolean> => {
+      if (node.status !== "done" || !node.fileID) {
         return false;
       }
       const token = await resolveAccessToken();
@@ -217,26 +172,136 @@ export function CanvasWorkspace() {
     [t],
   );
 
-  // 将已完成节点作为参考图（预览直接借用节点 objectURL，不接管所有权）
+  // 输出节点 -> 参考图节点：新建携带该图的参考图节点（携带已缓存的 blob 预览），并自动连线回来源生成节点
   const handleUseAsReference = React.useCallback(
-    (node: CanvasNode) => {
-      if (node.status !== "done") {
+    (node: OutputGraphNode) => {
+      if (node.status !== "done" || !node.fileID) {
         return;
       }
-      setReferences((current) => current.some((item) => item.fileID === node.fileID)
-        ? current
-        : [...current, {
-          fileID: node.fileID,
-          fileName: node.fileName,
-          mimeType: node.mimeType,
-          sizeBytes: node.sizeBytes,
-          previewURL: node.objectURL,
-          sourceNodeID: node.id,
-        }]);
+      const reference = {
+        fileID: node.fileID,
+        fileName: node.fileName ?? "image.png",
+        mimeType: node.mimeType ?? "image/png",
+        sizeBytes: node.sizeBytes ?? 0,
+      };
+      const imageNodeID = canvas.addGraphNode("image", {
+        x: node.x,
+        y: node.y + 420,
+      });
+      canvas.updateGraphNode(imageNodeID, {
+        reference,
+        previewURL: node.objectURL,
+        previewLoading: !node.objectURL,
+      });
+      // 源输出节点被 Frame 承载时，新参考图节点继承归属且 Frame 自动扩展
+      canvas.adoptNodeIntoFrame(imageNodeID, node.frameID ?? null);
+      if (node.sourceGenerateID && canvas.nodes.some((item) => item.id === node.sourceGenerateID)) {
+        canvas.connectGraphNodes({
+          fromNodeID: imageNodeID,
+          fromPort: "out",
+          toNodeID: node.sourceGenerateID,
+          toPort: "image",
+        });
+      }
       toast.success(t("referenceFromNode"));
+    },
+    [canvas, t],
+  );
+
+  // 参考图节点 -> 编辑器：把 fileID 解析为 blob 地址传入（避免远程 URL 污染画布导出）
+  const handleEditReferenceNode = React.useCallback(
+    async (node: ImageGraphNode) => {
+      if (!node.reference) {
+        return;
+      }
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("needLogin"));
+        return;
+      }
+      try {
+        const result = await fetchFileContent(token, node.reference.fileID);
+        setEditingSourceURL((current) => {
+          if (current) {
+            URL.revokeObjectURL(current);
+          }
+          return URL.createObjectURL(result.blob);
+        });
+        setEditingNode(node);
+      } catch {
+        toast.error(t("editorLoadFailed"));
+      }
     },
     [t],
   );
+
+  // 粘贴 / 拖入图片：创建参考图节点并上传
+  const attachImageFile = React.useCallback(
+    async (file: File) => {
+      if (!file.type.startsWith("image/")) {
+        toast.error(t("referenceNotImage"));
+        return;
+      }
+      const nodeID = canvas.addGraphNode("image");
+      canvas.updateGraphNode(nodeID, { uploading: true });
+      const uploaded = await canvas.uploadReferenceFile(file);
+      canvas.updateGraphNode(nodeID, {
+        reference: uploaded
+          ? {
+            fileID: uploaded.fileID,
+            fileName: uploaded.fileName,
+            mimeType: uploaded.mimeType,
+            sizeBytes: uploaded.sizeBytes,
+          }
+          : null,
+        uploading: false,
+        previewURL: uploaded?.previewURL,
+      });
+    },
+    [canvas, t],
+  );
+
+  // 移动端对话模式：新任务节点的纵向生成位置（逐任务下移，避免重叠）
+  const chatSpawnYRef = React.useRef(0);
+
+  // 移动端发送任务：创建提示词节点 + 生成节点并连线，参考图上传后依次连线，随后立即开始生成
+  const handleChatTask = React.useCallback(async ({ prompt, referenceFiles, model }: ChatTaskInput) => {
+    const promptSize = { width: 288, height: 224 };
+    const imageSize = { height: 264 };
+    const y = chatSpawnYRef.current;
+    const generateID = canvas.addGraphNode("generate", { x: promptSize.width + 64, y });
+    canvas.updateGraphNode(generateID, { model: model.platformModelName });
+    if (prompt) {
+      const promptID = canvas.addGraphNode("prompt", { x: 0, y });
+      canvas.updateGraphNode(promptID, { text: prompt });
+      canvas.connectGraphNodes({ fromNodeID: promptID, fromPort: "out", toNodeID: generateID, toPort: "prompt" });
+    }
+    let bottom = y + promptSize.height;
+    for (const file of referenceFiles) {
+      const imageID = canvas.addGraphNode("image", { x: 0, y: bottom + 32 });
+      canvas.updateGraphNode(imageID, { uploading: true });
+      const uploaded = await canvas.uploadReferenceFile(file);
+      canvas.updateGraphNode(imageID, {
+        reference: uploaded
+          ? {
+            fileID: uploaded.fileID,
+            fileName: uploaded.fileName,
+            mimeType: uploaded.mimeType,
+            sizeBytes: uploaded.sizeBytes,
+          }
+          : null,
+        uploading: false,
+        previewURL: uploaded?.previewURL,
+      });
+      if (uploaded) {
+        canvas.connectGraphNodes({ fromNodeID: imageID, fromPort: "out", toNodeID: generateID, toPort: "image" });
+      }
+      bottom += 32 + imageSize.height;
+    }
+    chatSpawnYRef.current = bottom + 240;
+    // 切换回桌面时生成节点可见：把视口移到本任务附近由 fit 完成，这里不干预视口
+    void canvas.runGenerateNode(generateID);
+  }, [canvas]);
 
   React.useEffect(() => {
     const isEditable = (target: EventTarget | null) =>
@@ -268,9 +333,14 @@ export function CanvasWorkspace() {
       }
       if (
         (event.key === "Delete" || event.key === "Backspace") &&
-        (canvas.selectedNodeIDs.length > 0 || canvas.selectedDecorationIDs.length > 0)
+        (canvas.selectedNodeIDs.length > 0 || canvas.selectedDecorationIDs.length > 0 || canvas.selectedEdgeIDs.length > 0)
       ) {
         event.preventDefault();
+        if (canvas.selectedEdgeIDs.length > 0) {
+          for (const edgeID of canvas.selectedEdgeIDs) {
+            canvas.removeEdge(edgeID);
+          }
+        }
         canvas.removeSelected();
       }
     };
@@ -294,32 +364,20 @@ export function CanvasWorkspace() {
         return;
       }
       event.preventDefault();
-      void handleAttachFile(file);
+      void attachImageFile(file);
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [handleAttachFile, previewNode]);
+  }, [attachImageFile, previewNode]);
 
-  const handleGenerate = React.useCallback(
-    (nextPrompt: string, nextReferences: CanvasReferenceImage[], resultCount: number) => {
-      const sources = nextReferences as WorkspaceReference[];
-      const parentID = sources.find((item) => item.sourceNodeID)?.sourceNodeID ?? null;
-      for (let index = 0; index < resultCount; index += 1) {
-        canvas.generate(nextPrompt, nextReferences, parentID);
-      }
+  const handleAddNode = React.useCallback(
+    (kind: GraphNodeKind) => {
+      canvas.addGraphNode(kind);
     },
     [canvas],
   );
 
-  const visibleNodes = filter === "all" ? canvas.nodes : canvas.nodes.filter((node) => node.status === filter);
-  const selectedNodes = canvas.nodes.filter((node) => canvas.selectedNodeIDs.includes(node.id));
-  const selectedResultCount = selectedNodes.filter((node) => node.status === "done").length;
   const selectedElementCount = canvas.selectedNodeIDs.length + canvas.selectedDecorationIDs.length;
-
-  const handleFilterChange = React.useCallback((nextFilter: typeof filter) => {
-    setFilter(nextFilter);
-    canvas.setSelectedNodeIDs(selectedNodeIDsForFilter(canvas.selectedNodeIDs, canvas.nodes, nextFilter));
-  }, [canvas]);
 
   const reportOperation = React.useCallback((action: string, operation: () => void, valid = true) => {
     if (!valid) {
@@ -355,53 +413,37 @@ export function CanvasWorkspace() {
     reportOperation(locking ? t("lockSelected") : t("unlockSelected"), canvas.toggleLockSelected, selected.length > 0);
   }, [canvas, reportOperation, t]);
 
-  React.useEffect(() => {
-    const nextSelection = selectedNodeIDsForFilter(canvas.selectedNodeIDs, canvas.nodes, filter);
-    if (nextSelection.length !== canvas.selectedNodeIDs.length) {
-      canvas.setSelectedNodeIDs(nextSelection);
-    }
-  }, [canvas.nodes, canvas.selectedNodeIDs, canvas.setSelectedNodeIDs, filter]);
-
-  const handleReuseParameters = React.useCallback((node: CanvasNode) => {
-    setPrompt(node.prompt);
-    selectModel(node.model);
-    canvas.setImageOptions(node.options ?? {});
-    toast.success(t("parametersReused"));
-  }, [canvas, selectModel, t]);
-
-  // 编辑提示词重新生成：沿用原图的参考图/模型/参数，以原图为父节点派生新卡片
-  const [regenNode, setRegenNode] = React.useState<CanvasNode | null>(null);
-
-  const handleRegenerateSubmit = React.useCallback((prompt: string) => {
-    if (!regenNode) return;
-    selectModel(regenNode.model);
-    canvas.generate(prompt, regenNode.references ?? [], regenNode.id, null, undefined, regenNode.options ?? {});
-    setRegenNode(null);
-    toast.success(t("regenerateQueued"));
-  }, [canvas, regenNode, selectModel, t]);
-
-  const handleBatchExport = React.useCallback(async () => {
-    const downloadable = selectedNodes.filter((node) => node.status === "done");
-    const results = await Promise.all(downloadable.map((node) => handleDownloadNode(node, true)));
-    const exportedCount = results.filter(Boolean).length;
-    if (exportedCount > 0) {
-      toast.success(t("batchExported", { count: exportedCount }));
-    }
-    if (exportedCount < downloadable.length) {
-      toast.error(t("batchExportFailed", { count: downloadable.length - exportedCount }));
-    }
-  }, [handleDownloadNode, selectedNodes, t]);
-
-  const handleEditorSubmit = React.useCallback(async ({ prompt: nextPrompt, mode, image, mask, model }: { prompt: string; mode: "inpaint" | "crop" | "outpaint"; image: File; mask?: File; model: ChatModelOption }): Promise<boolean> => {
+  // 图像编辑器提交：以上传结果走图编辑管线（生成节点复用或新建）
+  const handleEditorSubmit = React.useCallback(async ({ prompt, mode, image, mask, model, outputWidth, outputHeight }: { prompt: string; mode: "inpaint" | "crop" | "outpaint"; image: File; mask?: File; model: ChatModelOption; outputWidth: number; outputHeight: number }): Promise<boolean> => {
     if (!editingNode) return false;
     const source = await canvas.uploadReferenceFile(image);
     const maskReference = mask ? await canvas.uploadReferenceFile(mask) : null;
     if (!source || (mask && !maskReference)) return false;
-    selectModel(model.platformModelName);
-    const imageOptions = model.platformModelName === editingNode.model ? editingNode.options ?? {} : {};
-    canvas.generate(nextPrompt, [source], editingNode.id, maskReference, mode, imageOptions, model);
+    // 把编辑器计算出的输出尺寸同步为模型的分辨率参数，生成节点与编辑界面保持一致
+    const sizeOptions = editorSizeOptions(model, outputWidth, outputHeight);
+    await canvas.enqueueGraphEdit({
+      sourceNodeID: editingNode.id,
+      prompt,
+      model,
+      operation: mode,
+      sizeOptions,
+      sourceImage: {
+        fileID: source.fileID,
+        fileName: source.fileName,
+        mimeType: source.mimeType,
+        sizeBytes: source.sizeBytes,
+      },
+      maskReference: maskReference
+        ? {
+          fileID: maskReference.fileID,
+          fileName: maskReference.fileName,
+          mimeType: maskReference.mimeType,
+          sizeBytes: maskReference.sizeBytes,
+        }
+        : null,
+    });
     return true;
-  }, [canvas, editingNode, selectModel]);
+  }, [canvas, editingNode]);
 
   const handleExportProject = React.useCallback(() => {
     const blob = new Blob([canvas.exportProject()], { type: "application/json" });
@@ -442,20 +484,26 @@ export function CanvasWorkspace() {
         }
         event.preventDefault();
         event.stopPropagation();
-        void Promise.all(images.map(handleAttachFile));
+        void Promise.all(images.map(attachImageFile));
       }}
     >
-      <CanvasViewport
-        nodes={visibleNodes}
+      {/* 桌面端节点图（lg 及以上显示） */}
+      <div className="hidden h-full min-h-0 lg:block">
+        <CanvasViewport
+          nodes={canvas.nodes}
+        edges={canvas.edges}
         decorations={canvas.decorations}
         viewport={canvas.viewport}
         pointerMode={canvas.pointerMode}
         selectedNodeIDs={canvas.selectedNodeIDs}
         selectedDecorationIDs={canvas.selectedDecorationIDs}
-        interactionLocked={previewNode !== null || overlayOpen || regenNode !== null}
+        selectedEdgeIDs={canvas.selectedEdgeIDs}
+        imageModels={imageModels}
+        interactionLocked={previewNode !== null || editingNode !== null}
         containerSize={containerSize}
         onSelectedNodeIDsChange={canvas.setSelectedNodeIDs}
         onSelectedDecorationIDsChange={canvas.setSelectedDecorationIDs}
+        onSelectedEdgeIDsChange={canvas.setSelectedEdgeIDs}
         onPointerModeChange={canvas.setPointerMode}
         onUpdateDecoration={canvas.updateDecoration}
         onMoveDecoration={canvas.moveDecoration}
@@ -464,21 +512,24 @@ export function CanvasWorkspace() {
         onBeginNodeMove={canvas.beginNodeMove}
         onMoveNodes={canvas.moveNodes}
         onEndNodeMove={canvas.endNodeMove}
+        onUpdateNode={canvas.updateGraphNode}
+        onEnsureNodePreview={canvas.ensureNodeImagePreview}
         onRemoveNode={canvas.removeNode}
+        onRunNode={(nodeID) => void canvas.runGenerateNode(nodeID)}
         onCancelNode={canvas.cancelNode}
-        onRetryNode={canvas.retryNode}
-        onUseAsReference={handleUseAsReference}
-        onReuseParameters={handleReuseParameters}
-        onRegenerateNode={setRegenNode}
-        onEditNode={setEditingNode}
-        onDownloadNode={(node) => void handleDownloadNode(node)}
+        onConnectNodes={canvas.connectGraphNodes}
+        onRemoveEdge={canvas.removeEdge}
         onPreviewNode={setPreviewNode}
+        onDownloadNode={(node) => void handleDownloadNode(node)}
+        onEditNode={setEditingNode}
+        onEditReferenceNode={(node) => void handleEditReferenceNode(node)}
+        onUseAsReference={handleUseAsReference}
+        uploadReferenceFile={canvas.uploadReferenceFile}
       >
         {/* 顶部工具栏 */}
         <CanvasToolbar
           viewport={canvas.viewport}
           nodeCount={canvas.nodes.length}
-          elementCount={canvas.nodes.length + canvas.decorations.length}
           generatingCount={canvas.generatingCount}
           pointerMode={canvas.pointerMode}
           onPointerModeChange={canvas.setPointerMode}
@@ -488,12 +539,8 @@ export function CanvasWorkspace() {
           canRedo={canvas.canRedo}
           onUndo={canvas.undo}
           onRedo={canvas.redo}
-          filter={filter}
-          onFilterChange={handleFilterChange}
           selectedCount={selectedElementCount}
-          selectedResultCount={selectedResultCount}
-          onCompare={() => setComparing(true)}
-          onBatchExport={() => void handleBatchExport()}
+          onAddNode={handleAddNode}
           onAddFrame={() => reportOperation(t("addFrame"), () => addStructure("frame"))}
           onAddSection={() => reportOperation(t("addSection"), () => addStructure("section"))}
           onAddNote={() => reportOperation(t("addNote"), () => canvas.addDecoration("note", getSpawnPoint()))}
@@ -542,7 +589,7 @@ export function CanvasWorkspace() {
                 {modelsErrorMsg ? t("loadModelsFailed") : t("emptyTitle")}
               </p>
               <p className="max-w-72 text-xs leading-relaxed text-muted-foreground/70">
-                {modelsErrorMsg || (imageModels.length === 0 ? t("noImageModelsHint") : t("emptyHint"))}
+                {modelsErrorMsg || (imageModels.length === 0 ? t("noImageModelsHint") : t("emptyHintGraph"))}
               </p>
             </div>
           </div>
@@ -569,30 +616,26 @@ export function CanvasWorkspace() {
           onSelectNode={(nodeID) => canvas.setSelectedNodeIDs([nodeID])}
           onLocate={handleMinimapNavigate}
         />
+        </CanvasViewport>
+      </div>
 
-        {/* 底部提示词栏 */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 pb-3 pt-16">
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-background via-background/60 to-transparent"
-            aria-hidden="true"
-          />
-          <CanvasPromptBar
-            prompt={prompt}
-            onPromptChange={setPrompt}
-            references={references}
-            onReferencesChange={replaceReferences}
-            onGenerate={handleGenerate}
-            onAttachFile={(file) => void handleAttachFile(file)}
-            uploadingReference={uploadingReference}
-            imageModels={imageModels}
-            selectedModel={selectedModel}
-            onSelectModel={selectModel}
-            imageOptions={canvas.imageOptions}
-            onImageOptionsChange={canvas.setImageOptions}
-            onOverlayOpenChange={setOverlayOpen}
-          />
-        </div>
-      </CanvasViewport>
+      {/* 移动端对话模式（lg 以下显示）：同一画布数据的对话式视图 */}
+      <div className="h-full min-h-0 lg:hidden">
+        <CanvasChatMode
+          nodes={canvas.nodes}
+          edges={canvas.edges}
+          imageModels={imageModels}
+          restoredModelName={canvas.restoredModelName}
+          generatingCount={canvas.generatingCount}
+          onRunNode={(nodeID) => void canvas.runGenerateNode(nodeID)}
+          onCancelNode={canvas.cancelNode}
+          onPreviewNode={setPreviewNode}
+          onDownloadNode={(node) => void handleDownloadNode(node)}
+          onEditNode={setEditingNode}
+          onUseAsReference={handleUseAsReference}
+          onAddTask={(input) => void handleChatTask(input)}
+        />
+      </div>
 
       {/* 图片放大查看 */}
       <CanvasImageLightbox
@@ -602,30 +645,28 @@ export function CanvasWorkspace() {
           handleUseAsReference(node);
           setPreviewNode(null);
         }}
-        onRegenerate={(node) => {
-          setPreviewNode(null);
-          setRegenNode(node);
-        }}
         onEdit={(node) => {
           setPreviewNode(null);
           setEditingNode(node);
-        }}
-        onReuseParameters={(node) => {
-          handleReuseParameters(node);
-          setPreviewNode(null);
         }}
         onDownload={(node) => void handleDownloadNode(node)}
       />
       <CanvasImageEditor
         node={editingNode}
+        sourceURL={editingSourceURL ?? undefined}
         imageModels={imageModels}
-        defaultModel={selectedModel}
-        onClose={() => setEditingNode(null)}
+        defaultModel={imageModels[0] ?? null}
+        onClose={() => {
+          setEditingNode(null);
+          setEditingSourceURL((current) => {
+            if (current) {
+              URL.revokeObjectURL(current);
+            }
+            return null;
+          });
+        }}
         onSubmit={handleEditorSubmit}
       />
-      {comparing ? <CanvasCompare nodes={selectedNodes} onClose={() => setComparing(false)} /> : null}
-      {/* 编辑提示词重新生成对话框 */}
-      <CanvasRegenerateDialog node={regenNode} onClose={() => setRegenNode(null)} onSubmit={handleRegenerateSubmit} />
     </div>
   );
 }

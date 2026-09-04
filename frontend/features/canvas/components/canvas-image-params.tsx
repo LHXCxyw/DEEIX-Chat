@@ -41,6 +41,7 @@ export function CanvasImageParams({
   onResultCountChange,
   onOpenChange,
   disabled,
+  className,
 }: {
   model: ChatModelOption | null;
   options: ConversationOptions;
@@ -49,6 +50,7 @@ export function CanvasImageParams({
   onResultCountChange: (count: number) => void;
   onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
+  className?: string;
 }) {
   const t = useTranslations("canvas");
   const tOptionLabels = useTranslations("chat.optionLabels");
@@ -94,6 +96,7 @@ export function CanvasImageParams({
         className={cn(
           "flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-background/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-accent hover:text-accent-foreground",
           "disabled:pointer-events-none disabled:opacity-50",
+          className,
         )}
       >
         <SlidersHorizontal className="size-3.5 text-muted-foreground" strokeWidth={1.8} />

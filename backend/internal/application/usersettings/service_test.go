@@ -53,7 +53,20 @@ func TestCanvasStateSettingIsAllowed(t *testing.T) {
 	if err := validateValue("canvas.state_v1", valid); err != nil {
 		t.Fatalf("expected canvas state to be accepted, got %v", err)
 	}
-	for _, value := range []string{"{}", `{"viewport":{"scale":0.1},"nodes":[]}`, `{"viewport":{"scale":1},"nodes":null}`} {
+	// v4 多画布页结构
+	validV4 := `{"version":4,"canvases":[{"id":"c1","name":"Canvas","viewport":{"x":0,"y":0,"scale":1},"nodes":[],"graphNodes":[],"edges":[],"decorations":[]}]}`
+	if err := validateValue("canvas.state_v1", validV4); err != nil {
+		t.Fatalf("expected v4 canvas state to be accepted, got %v", err)
+	}
+	for _, value := range []string{
+		"{}",
+		`{"viewport":{"scale":0.1},"nodes":[]}`,
+		`{"viewport":{"scale":1},"nodes":null}`,
+		`{"version":4}`,
+		`{"canvases":null}`,
+		`{"canvases":[]}`,
+		`{"canvases":[{"viewport":{"scale":9},"graphNodes":[]}]}`,
+	} {
 		if err := validateValue("canvas.state_v1", value); err == nil {
 			t.Fatalf("expected canvas state %s to be rejected", value)
 		}

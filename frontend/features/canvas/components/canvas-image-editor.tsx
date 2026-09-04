@@ -7,7 +7,7 @@ import { Brush, Crop, Eraser, Expand, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
 import { resolveCanvasRoute } from "@/features/canvas/model/canvas-image-options";
-import type { CanvasNode } from "@/features/canvas/model/canvas-types";
+import type { ImageGraphNode, OutputGraphNode } from "@/features/canvas/model/canvas-types";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
 
@@ -42,16 +42,19 @@ function canvasToFile(canvas: HTMLCanvasElement, name: string): Promise<File> {
 
 export function CanvasImageEditor({
   node,
+  sourceURL,
   imageModels,
   defaultModel,
   onClose,
   onSubmit,
 }: {
-  node: CanvasNode | null;
+  // 支持输出节点（自 objectURL 加载）与参考图节点（自 sourceURL 的 blob 地址加载）
+  node: OutputGraphNode | ImageGraphNode | null;
+  sourceURL?: string;
   imageModels: ChatModelOption[];
   defaultModel: ChatModelOption | null;
   onClose: () => void;
-  onSubmit: (input: { prompt: string; mode: EditorMode; image: File; mask?: File; model: ChatModelOption }) => Promise<boolean>;
+  onSubmit: (input: { prompt: string; mode: EditorMode; image: File; mask?: File; model: ChatModelOption; outputWidth: number; outputHeight: number }) => Promise<boolean>;
 }) {
   const t = useTranslations("canvas");
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -72,7 +75,7 @@ export function CanvasImageEditor({
   );
   const [selectedModelName, setSelectedModelName] = React.useState("");
   const selectedModel = editableModels.find((model) => model.platformModelName === selectedModelName)
-    ?? editableModels.find((model) => model.platformModelName === node?.model)
+    ?? editableModels.find((model) => model.platformModelName === (node?.kind === "output" ? node.model : undefined))
     ?? (defaultModel && resolveCanvasRoute(defaultModel, true).route !== null ? defaultModel : null)
     ?? editableModels[0]
     ?? null;
@@ -94,25 +97,28 @@ export function CanvasImageEditor({
     maskRef.current = mask;
   }, []);
 
+  // 图源：参考图节点用 workspace 预解析的 blob 地址（避免远程 URL 污染画布导出），输出节点用自身 objectURL
+  const sourceSrc = sourceURL ?? (node?.kind === "output" ? node.objectURL : undefined);
+
   React.useEffect(() => {
     if (!node) {
       setSelectedModelName("");
       return;
     }
-    const originalModel = editableModels.find((model) => model.platformModelName === node.model);
+    const originalModel = editableModels.find((model) => model.platformModelName === (node.kind === "output" ? node.model : undefined));
     setSelectedModelName(originalModel?.platformModelName ?? defaultModel?.platformModelName ?? editableModels[0]?.platformModelName ?? "");
   }, [defaultModel, editableModels, node]);
 
   React.useEffect(() => {
-    if (!node || node.status !== "done" || !node.objectURL) return;
+    if (!node || !sourceSrc) return;
     const image = new Image();
     image.onload = () => {
       imageRef.current = image;
       resetMask();
       setImageRevision((value) => value + 1);
     };
-    image.src = node.objectURL;
-  }, [node, resetMask]);
+    image.src = sourceSrc;
+  }, [node, sourceSrc, resetMask]);
 
   React.useEffect(() => {
     if (mode === "inpaint") resetMask();
@@ -222,6 +228,9 @@ export function CanvasImageEditor({
         image: await canvasToFile(output, `${mode}-source.png`),
         mask: mask ? await canvasToFile(mask, `${mode}-mask.png`) : undefined,
         model: selectedModel,
+        // 计算后的输出尺寸：供生成节点同步扩图/裁剪后的分辨率参数
+        outputWidth: output.width,
+        outputHeight: output.height,
       });
       if (submitted) {
         onClose();
@@ -231,7 +240,7 @@ export function CanvasImageEditor({
     }
   };
 
-  if (!node || node.status !== "done" || !node.objectURL) return null;
+  if (!node || !sourceSrc) return null;
 
   const sourceWidth = imageRef.current?.naturalWidth ?? 1;
   const sourceHeight = imageRef.current?.naturalHeight ?? 1;

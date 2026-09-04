@@ -7,8 +7,7 @@ export type CanvasRoute = "image_generation" | "image_edit" | "chat";
 export type CanvasRouteBlockReason =
   | "edit_reference_required"
   | "image_unsupported"
-  | "edit_unsupported"
-  | "chat_capability_required";
+  | "edit_unsupported";
 
 export type CanvasRouteDecision =
   | { route: CanvasRoute; blockedReason: null }
@@ -91,6 +90,15 @@ const PROTOCOL_IMAGE_CONTROLS: Record<string, ModelOptionControl[]> = {
     { path: "aspect_ratio", type: "select", options: ASPECT_RATIO_VALUES },
     { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
   ],
+  // image_edits_json：size 为宽高像素组合（auto 或 32 倍数），response_format 与 OpenAI 命名一致
+  image_edits_json: [
+    {
+      path: "size",
+      type: "select",
+      options: ["auto", "2048x2048", "2720x1536", "1536x2720", "1664x2496", "2496x1664", "4096x4096"],
+    },
+    { path: "response_format", type: "select", options: ["b64_json", "url"] },
+  ],
 };
 
 // chat 路由图像模型的通用提示词参数（与普通对话的画图参数一致）
@@ -137,11 +145,15 @@ const IMAGE_GENERATION_PROTOCOLS = new Set([
   "xai_image",
 ]);
 
+// 编辑协议集合与后端 IsRouteAllowedForTask 的 isProtocolAllowedForKind(image_edit) 保持一致。
+// openai_image_generations 的适配器会按任务端点切换到 /images/edits 执行编辑请求。
 const IMAGE_EDIT_PROTOCOLS = new Set([
   "openai_image_edits",
+  "openai_image_generations",
   "google_image_generation",
   "gemini_interactions",
   "xai_image_edits",
+  "image_edits_json",
 ]);
 
 const CHAT_PROTOCOLS = new Set([
@@ -167,6 +179,12 @@ export function modelHasImageProtocol(model: ChatModelOption | null): boolean {
     || modelHasProtocolIn(model, IMAGE_EDIT_PROTOCOLS);
 }
 
+// 模型是否真正可走 media 图像编辑路由（kinds 与编辑协议缺一不可）。
+// 仅凭 kinds 含 image_edit 判定会误导：协议不在白名单时后端无法路由。
+export function modelSupportsImageEditRoute(model: ChatModelOption | null): boolean {
+  return Boolean(model?.kinds.includes("image_edit")) && modelHasProtocolIn(model, IMAGE_EDIT_PROTOCOLS);
+}
+
 // chat 路由图像模型：有图像能力但没有图像协议，只能走对话协议并用提示词后缀传参
 export function isChatRouteImageModel(model: ChatModelOption | null): boolean {
   if (!model) {
@@ -176,16 +194,10 @@ export function isChatRouteImageModel(model: ChatModelOption | null): boolean {
   return supportsImage && !modelHasImageProtocol(model);
 }
 
-// 后端 chat 任务要求 kinds 含 chat 或 audio，且协议在 chat 允许集内；
-// 空 kinds 时后端由协议单独判定。
+// chat 路由判定：后端 chat 任务仅校验协议是否已知（IsRouteAllowedForTask 不检查 kinds），
+// 因此对话协议的图像模型（含 image_gen / image_edit kinds）可直接走对话路由生图与识图编辑。
 function modelSupportsChatRoute(model: ChatModelOption): boolean {
-  if (!modelHasProtocolIn(model, CHAT_PROTOCOLS)) {
-    return false;
-  }
-  if (model.kinds.length === 0) {
-    return true;
-  }
-  return model.kinds.includes("chat") || model.kinds.includes("audio");
+  return modelHasProtocolIn(model, CHAT_PROTOCOLS);
 }
 
 export function resolveCanvasRoute(
@@ -201,7 +213,7 @@ export function resolveCanvasRoute(
 
   if (hasReference) {
     // media 编辑路由优先；不具备编辑协议时才考虑对话协议回退
-    if (supportsImageEdit && modelHasProtocolIn(model, IMAGE_EDIT_PROTOCOLS)) {
+    if (modelSupportsImageEditRoute(model)) {
       return { route: "image_edit", blockedReason: null };
     }
     // 对话协议生图模型可携带参考图继续走 mixed Chat 请求；普通对话同样采用此行为。
@@ -215,13 +227,9 @@ export function resolveCanvasRoute(
   if (supportsImageGeneration && modelHasProtocolIn(model, IMAGE_GENERATION_PROTOCOLS)) {
     return { route: "image_generation", blockedReason: null };
   }
-  // 无图像生成协议时，仅当模型确实支持 chat 才回退，否则后端会返回 all routes unavailable
+  // 无图像生成协议时走对话路由：对话协议图像模型直接经 chat 请求生图
   if (supportsImageGeneration && canUseChatRoute) {
     return { route: "chat", blockedReason: null };
-  }
-  // 图像生成能力搭配了 chat 协议但遗漏 chat kind，明确提示修正模型配置
-  if (supportsImageGeneration && modelHasProtocolIn(model, CHAT_PROTOCOLS)) {
-    return { route: null, blockedReason: "chat_capability_required" };
   }
   // 仅支持图像编辑的模型禁止纯文本发送
   if (supportsImageEdit) {
@@ -358,4 +366,101 @@ export function countActiveImageOptions(
 ): number {
   return controls.filter((control) => getOptionAtPath(options, optionPathSegments(control.path)) !== undefined)
     .length;
+}
+
+// ---------------------------------------------------------------------------
+// 编辑器尺寸同步：把编辑界面（扩图/裁剪）计算出的输出尺寸映射为模型的尺寸类参数，
+// 使自动创建/复用的生成节点与编辑器设置保持一致
+// ---------------------------------------------------------------------------
+function parseAspectRatio(value: string): number | null {
+  const match = value.match(/^([\d.]+)\s*[:x/]\s*([\d.]+)$/);
+  if (!match) {
+    return null;
+  }
+  const denominator = Number(match[2]);
+  if (!Number.isFinite(denominator) || denominator <= 0) {
+    return null;
+  }
+  const ratio = Number(match[1]) / denominator;
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : null;
+}
+
+// 在候选枚举里找与目标宽高比最接近的值（对数距离衡量，比例失真在大小两端对称）
+function closestAspectRatioValue(values: string[], ratio: number): string | null {
+  let best: string | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const value of values) {
+    if (value.trim().toLowerCase() === "auto") {
+      continue;
+    }
+    const target = parseAspectRatio(value);
+    if (target === null) {
+      continue;
+    }
+    const score = Math.abs(Math.log(ratio / target));
+    if (score < bestScore) {
+      bestScore = score;
+      best = value;
+    }
+  }
+  return best;
+}
+
+// 按百万像素挑最接近的分辨率档位（1K≈1MP、2K≈4MP、4K≈16MP）
+function closestResolutionTier(values: string[], megapixels: number): string | null {
+  const tiers: Record<string, number> = { "1k": 1, "2k": 4, "4k": 16 };
+  let best: string | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const value of values) {
+    const target = tiers[value.trim().toLowerCase()];
+    if (target === undefined) {
+      continue;
+    }
+    const score = Math.abs(Math.log(megapixels / target));
+    if (score < bestScore) {
+      bestScore = score;
+      best = value;
+    }
+  }
+  return best;
+}
+
+export function editorSizeOptions(
+  model: ChatModelOption | null,
+  width: number,
+  height: number,
+): ConversationOptions {
+  if (!model || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return {};
+  }
+  const ratio = width / height;
+  const megapixels = (width * height) / 1_000_000;
+  let options: ConversationOptions = {};
+  for (const control of resolveCanvasImageControls(model)) {
+    const values = (control.options ?? []).map((item) => item.trim()).filter(Boolean);
+    if (values.length === 0) {
+      continue;
+    }
+    if (/aspect_?ratio$/i.test(control.path)) {
+      const matched = closestAspectRatioValue(values, ratio);
+      if (matched) {
+        options = setOptionAtPath(options, optionPathSegments(control.path), matched);
+      }
+      continue;
+    }
+    // "1024x1024" 形态的 size 枚举（OpenAI / image_edits_json）
+    if (control.path === "size" && values.some((value) => parseAspectRatio(value) !== null)) {
+      const matched = closestAspectRatioValue(values, ratio);
+      if (matched) {
+        options = setOptionAtPath(options, ["size"], matched);
+      }
+      continue;
+    }
+    // 1K/2K/4K 档位（image_size / imageSize / resolution 等）
+    const tier = closestResolutionTier(values, megapixels);
+    if (tier) {
+      options = setOptionAtPath(options, optionPathSegments(control.path), tier);
+    }
+  }
+  return options;
 }

@@ -15,32 +15,50 @@ import {
 import {
   arrangeCanvasElements,
   canvasElementIDsCarriedByFrame,
-  type CanvasArrangeAction,
+  frameUnionBounds,
+  refitFrameDecorations,
   stableFrameIDForElement,
-  nextCanvasVersion,
+  type CanvasArrangeAction,
+  type FrameRefitElement,
 } from "@/features/canvas/model/canvas-interactions";
+import {
+  gatherGraphGenerateInputs,
+  graphGenerateHasInputs,
+  canConnectGraphNodes,
+  type GraphConnectionAttempt,
+} from "@/features/canvas/model/canvas-graph";
+import type { GraphNodeUpdate } from "@/features/canvas/model/canvas-types";
 import {
   clearCanvasState,
   loadCanvasState,
+  restoreEdges,
+  restoreGraphNodes,
   saveCanvasState,
   stringifyCanvasState,
-  toPersistedNodes,
+  toPersistedEdges,
+  toPersistedGraphNodes,
 } from "@/features/canvas/model/canvas-persist";
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
-  CANVAS_NODE_HEIGHT,
-  CANVAS_NODE_WIDTH,
   type CanvasBookmark,
   type CanvasDecoration,
-  type CanvasNode,
-  type CanvasOperation,
   type CanvasNodeReference,
+  type CanvasOperation,
   type CanvasPointerMode,
   type CanvasVersion,
   type CanvasViewport,
+  type GenerateGraphNode,
+  type GraphEdge,
+  type GraphNode,
+  type GraphNodeKind,
+  type ImageGraphNode,
+  type OutputGraphNode,
   type PersistedCanvasPage,
   type PersistedCanvasState,
+  type PromptGraphNode,
+  GRAPH_NODE_SIZES,
+  graphNodeSize,
 } from "@/features/canvas/model/canvas-types";
 import {
   createConversation,
@@ -76,23 +94,14 @@ export type CanvasStoreLabels = {
   noImageOutput: string;
   editReferenceRequired: string;
   editUnsupported: string;
-  chatCapabilityRequired: string;
   imageUnsupported: string;
-};
-
-export type CanvasGenerateInput = {
-  prompt: string;
-  model: ChatModelOption;
-  imageOptions: ConversationOptions;
-  references?: CanvasNodeReference[];
-  maskReference?: CanvasNodeReference | null;
-  parentID?: string | null;
-  operation?: CanvasOperation;
-  spawnPoint?: { x: number; y: number };
+  noImageModels: string;
+  missingPromptInput: string;
 };
 
 export type CanvasState = {
-  nodes: CanvasNode[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
   decorations: CanvasDecoration[];
   bookmarks: CanvasBookmark[];
   canvases: PersistedCanvasPage[];
@@ -104,7 +113,7 @@ export type CanvasState = {
   pointerMode: CanvasPointerMode;
   selectedNodeIDs: string[];
   selectedDecorationIDs: string[];
-  imageOptions: Record<string, ConversationOptions>;
+  selectedEdgeIDs: string[];
   restoredModelName: string | null;
   generatingCount: number;
   restored: boolean;
@@ -114,6 +123,7 @@ export type CanvasState = {
 
 const initialState: CanvasState = {
   nodes: [],
+  edges: [],
   decorations: [],
   bookmarks: [],
   canvases: [],
@@ -125,7 +135,7 @@ const initialState: CanvasState = {
   pointerMode: "pan",
   selectedNodeIDs: [],
   selectedDecorationIDs: [],
-  imageOptions: {},
+  selectedEdgeIDs: [],
   restoredModelName: null,
   generatingCount: 0,
   restored: false,
@@ -138,32 +148,38 @@ const listeners = new Set<() => void>();
 const objectURLCache = new Map<string, string>();
 const abortControllers = new Map<string, AbortController>();
 let labels: CanvasStoreLabels | null = null;
+let modelCatalog: ChatModelOption[] = [];
 let persistTimer: number | null = null;
 let cloudPersist: ((raw: string) => void) | null = null;
 let lastPersistedRaw = "";
 let nodeSpawnCounter = 0;
-const undoStack: CanvasNode[][] = [];
-const redoStack: CanvasNode[][] = [];
-let nodeMoveSnapshot: CanvasNode[] | null = null;
+type GraphSnapshot = { nodes: GraphNode[]; edges: GraphEdge[] };
+const undoStack: GraphSnapshot[] = [];
+const redoStack: GraphSnapshot[] = [];
+let nodeMoveSnapshot: GraphSnapshot | null = null;
 const HISTORY_LIMIT = 100;
 
-function cloneNodes(nodes: CanvasNode[]): CanvasNode[] {
-  return nodes.map((node) => ({ ...node }));
+function cloneSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
+  return { nodes: snapshot.nodes.map((node) => ({ ...node })), edges: snapshot.edges.map((edge) => ({ ...edge })) };
+}
+
+function currentSnapshot(): GraphSnapshot {
+  return { nodes: state.nodes, edges: state.edges };
 }
 
 function updateHistoryAvailability(): void {
   state = { ...state, canUndo: undoStack.length > 0, canRedo: redoStack.length > 0 };
 }
 
-function recordNodeHistory(nodes: CanvasNode[]): void {
-  undoStack.push(cloneNodes(nodes));
+function recordGraphHistory(snapshot: GraphSnapshot): void {
+  undoStack.push(cloneSnapshot(snapshot));
   if (undoStack.length > HISTORY_LIMIT) {
     undoStack.shift();
   }
   redoStack.length = 0;
 }
 
-function abortMissingNodes(nextNodes: CanvasNode[]): void {
+function abortMissingNodes(nextNodes: GraphNode[]): void {
   const retained = new Set(nextNodes.map((node) => node.id));
   for (const [nodeID, controller] of abortControllers) {
     if (!retained.has(nodeID)) {
@@ -189,12 +205,12 @@ function setState(updater: (current: CanvasState) => CanvasState): void {
   schedulePersist();
 }
 
-function reconcileFrameMembership(nodes: CanvasNode[], decorations: CanvasDecoration[]) {
+function reconcileFrameMembership(nodes: GraphNode[], decorations: CanvasDecoration[]) {
   const frames = decorations.filter((item) => item.kind === "frame");
   return {
     nodes: nodes.map((node) => ({
       ...node,
-      frameID: stableFrameIDForElement({ ...node, width: CANVAS_NODE_WIDTH, height: CANVAS_NODE_HEIGHT }, frames),
+      frameID: stableFrameIDForGraphNode(node, frames),
     })),
     // Section 是最底层分区标记，不参与 Frame 承载（历史遗留的 frameID 一并清除）
     decorations: decorations.map((item) => item.kind === "section"
@@ -206,6 +222,11 @@ function reconcileFrameMembership(nodes: CanvasNode[], decorations: CanvasDecora
   };
 }
 
+function stableFrameIDForGraphNode(node: GraphNode, frames: ReadonlyArray<CanvasDecoration>): string | null {
+  const size = graphNodeSize(node);
+  return stableFrameIDForElement({ ...node, width: size.width, height: size.height }, frames);
+}
+
 function clampScale(scale: number): number {
   return Math.min(CANVAS_MAX_SCALE, Math.max(CANVAS_MIN_SCALE, scale));
 }
@@ -215,7 +236,8 @@ function currentPage(current: CanvasState): PersistedCanvasPage {
   const now = Date.now();
   return {
     id: current.activeCanvasID, name: existing?.name ?? "Canvas", viewport: current.viewport,
-    nodes: toPersistedNodes(current.nodes), decorations: current.decorations, bookmarks: current.bookmarks,
+    nodes: [], graphNodes: toPersistedGraphNodes(current.nodes), edges: toPersistedEdges(current.edges),
+    decorations: current.decorations, bookmarks: current.bookmarks,
     createdAt: existing?.createdAt ?? now, updatedAt: now,
   };
 }
@@ -229,11 +251,11 @@ function allPages(current: CanvasState): PersistedCanvasPage[] {
 
 function getPersistedState(): PersistedCanvasState {
   return {
-    version: 3, projectName: state.projectName, activeCanvasID: state.activeCanvasID,
+    version: 4, savedAt: Date.now(), projectName: state.projectName, activeCanvasID: state.activeCanvasID,
     canvases: allPages(state), versions: state.versions,
     conversationID: null, selectedModelName: state.restoredModelName, pointerMode: state.pointerMode,
-    viewport: state.viewport, nodes: toPersistedNodes(state.nodes), decorations: state.decorations,
-    bookmarks: state.bookmarks, imageOptions: state.imageOptions,
+    viewport: state.viewport, graphNodes: toPersistedGraphNodes(state.nodes), edges: toPersistedEdges(state.edges),
+    decorations: state.decorations, bookmarks: state.bookmarks, imageOptions: {},
   };
 }
 
@@ -265,7 +287,7 @@ function createNodeID(): string {
   return `canvas-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function updateNode(nodeID: string, updater: (node: CanvasNode) => CanvasNode): void {
+function updateNode(nodeID: string, updater: (node: GraphNode) => GraphNode): void {
   setState((current) => ({
     ...current,
     nodes: current.nodes.map((node) => (node.id === nodeID ? updater(node) : node)),
@@ -285,35 +307,21 @@ function resolveStatusLabel(status: string, fallback: string): string {
   }
 }
 
-function markNodeError(nodeID: string, errorMessage: string, errorDetail?: string): void {
+// 生成节点进入失败态：保留配置，仅更新错误信息
+function markGenerateNodeError(nodeID: string, errorMessage: string, errorDetail?: string): void {
   updateNode(nodeID, (node) => {
-    if (node.status === "done") {
+    if (node.kind !== "generate") {
       return node;
     }
-    return {
-      id: node.id,
-      x: node.x,
-      y: node.y,
-      prompt: node.prompt,
-      model: node.model,
-      createdAt: node.createdAt,
-      parentID: node.parentID ?? null,
-      references: node.references ?? [],
-      maskReference: node.maskReference ?? null,
-      options: node.options,
-      operation: node.operation,
-      batchID: node.batchID,
-      version: node.version,
-      completedAt: Date.now(),
-      durationMs: Math.max(0, Date.now() - node.createdAt),
-      locked: node.locked,
-      groupID: node.groupID ?? null,
-      frameID: node.frameID ?? null,
-      zIndex: node.zIndex,
-      status: "error" as const,
+    const next: GenerateGraphNode = {
+      ...node,
+      runStatus: "idle",
+      statusLabel: undefined,
+      previewURL: undefined,
       errorMessage,
       errorDetail,
     };
+    return next;
   });
 }
 
@@ -324,15 +332,15 @@ function setGeneratingDelta(delta: number): void {
   }));
 }
 
-async function loadNodeImage(nodeID: string, fileID: string): Promise<void> {
+async function loadOutputImage(nodeID: string, fileID: string): Promise<void> {
   const cached = objectURLCache.get(fileID);
   if (cached) {
-    updateNode(nodeID, (node) => (node.status === "done" ? { ...node, objectURL: cached } : node));
+    updateNode(nodeID, (node) => (node.kind === "output" ? { ...node, objectURL: cached, imageLoadFailed: false } : node));
     return;
   }
   const token = await resolveAccessToken();
   if (!token) {
-    updateNode(nodeID, (node) => (node.status === "done" ? { ...node, imageLoadFailed: true } : node));
+    updateNode(nodeID, (node) => (node.kind === "output" ? { ...node, imageLoadFailed: true } : node));
     return;
   }
   try {
@@ -340,43 +348,59 @@ async function loadNodeImage(nodeID: string, fileID: string): Promise<void> {
     const objectURL = URL.createObjectURL(result.blob);
     objectURLCache.set(fileID, objectURL);
     updateNode(nodeID, (node) =>
-      node.status === "done" ? { ...node, objectURL, imageLoadFailed: false } : node,
+      // 加载期间节点可能已被复用写入其他结果，避免旧图覆盖新引用
+      node.kind === "output" && node.fileID === fileID
+        ? { ...node, objectURL, imageLoadFailed: false }
+        : node,
     );
   } catch {
-    updateNode(nodeID, (node) => (node.status === "done" ? { ...node, imageLoadFailed: true } : node));
+    updateNode(nodeID, (node) => (node.kind === "output" && node.fileID === fileID ? { ...node, imageLoadFailed: true } : node));
+  }
+}
+
+// 参考图节点预览加载：本地预览地址缺失（刷新恢复、跨节点拖入）时按 fileID 拉取
+async function loadImageNodePreview(nodeID: string, fileID: string): Promise<void> {
+  const cached = objectURLCache.get(fileID);
+  if (cached) {
+    updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+      ? { ...node, previewURL: cached, previewLoading: false, previewFailed: false }
+      : node));
+    return;
+  }
+  updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+    ? { ...node, previewLoading: true, previewFailed: false }
+    : node));
+  const token = await resolveAccessToken();
+  if (!token) {
+    updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+      ? { ...node, previewLoading: false, previewFailed: true }
+      : node));
+    return;
+  }
+  try {
+    const result = await fetchFileContent(token, fileID);
+    const objectURL = URL.createObjectURL(result.blob);
+    objectURLCache.set(fileID, objectURL);
+    updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+      ? { ...node, previewURL: objectURL, previewLoading: false, previewFailed: false }
+      : node));
+  } catch {
+    updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+      ? { ...node, previewLoading: false, previewFailed: true }
+      : node));
   }
 }
 
 // 新节点落点：视口中心附近轻微错位，避免完全重叠
-function nextNodePosition(spawnPoint?: { x: number; y: number }): { x: number; y: number } {
+function nextNodePosition(kind: GraphNodeKind, spawnPoint?: { x: number; y: number }): { x: number; y: number } {
   const offset = nodeSpawnCounter % 6;
   nodeSpawnCounter += 1;
+  const size = GRAPH_NODE_SIZES[kind];
   const base = spawnPoint ?? { x: 0, y: 0 };
   return {
-    x: base.x - CANVAS_NODE_WIDTH / 2 + offset * 48,
-    y: base.y - CANVAS_NODE_HEIGHT / 2 + offset * 40,
+    x: Math.round(base.x - size.width / 2 + offset * 48),
+    y: Math.round(base.y - size.height / 2 + offset * 40),
   };
-}
-
-// 子节点默认落在父节点右侧，多个子节点向下错开，便于连线呈现继承关系
-function childNodePosition(parent: CanvasNode | undefined, spawnPoint?: { x: number; y: number }) {
-  if (!parent) {
-    return nextNodePosition(spawnPoint);
-  }
-  const siblingCount = state.nodes.filter((node) => node.parentID === parent.id).length;
-  return {
-    x: parent.x + CANVAS_NODE_WIDTH + 64,
-    y: parent.y + siblingCount * (CANVAS_NODE_HEIGHT + 32),
-  };
-}
-
-// 每个画布任务使用独立会话，避免 Chat 路由自动继承上一张图的提示词上下文。
-// 请求结束后会软删除该会话但保留生成文件，左侧对话列表不会累积画布记录。
-async function createTaskConversation(token: string): Promise<string> {
-  const conversation = await createConversation(token, {
-    title: labels?.conversationTitle ?? "Canvas",
-  });
-  return conversation.publicID;
 }
 
 function errorDetailFromApiError(error: ApiError): string | undefined {
@@ -392,81 +416,160 @@ function errorDetailFromApiError(error: ApiError): string | undefined {
   return detail || undefined;
 }
 
-function restoreNodes(items: PersistedCanvasState["nodes"]): CanvasNode[] {
-  return items.map((item): CanvasNode => {
-    const base = {
-      id: item.id,
-      x: item.x,
-      y: item.y,
-      prompt: item.prompt,
-      model: item.model,
-      createdAt: item.createdAt,
-      parentID: item.parentID ?? null,
-      references: item.references ?? [],
-      maskReference: item.maskReference ?? null,
-      options: item.options,
-      locked: item.locked,
-      groupID: item.groupID ?? null,
-      zIndex: item.zIndex,
-      operation: item.operation,
-      batchID: item.batchID,
-      version: item.version,
-      completedAt: item.completedAt,
-      durationMs: item.durationMs,
-      frameID: item.frameID ?? null,
-    };
-    if (item.status === "error") {
-      return {
-        ...base,
-        status: "error" as const,
-        errorMessage: item.errorMessage ?? "",
-        errorDetail: item.errorDetail,
-      };
+function hydrateNodeImages(nodes: ReadonlyArray<GraphNode>): void {
+  for (const node of nodes) {
+    if (node.kind === "output" && node.status === "done" && node.fileID) {
+      void loadOutputImage(node.id, node.fileID);
     }
-    if (item.status === "pending" || item.status === "streaming") {
-      return {
-        ...base,
-        status: "error" as const,
-        errorMessage: labels?.nodeGenerationInterrupted ?? "Generation was interrupted. Please retry.",
-      };
+    if (node.kind === "image" && node.reference && !node.previewURL && !node.previewLoading) {
+      void loadImageNodePreview(node.id, node.reference.fileID);
     }
-    return {
-      ...base,
-      status: "done" as const,
-      fileID: item.fileID ?? "",
-      fileName: item.fileName ?? "",
-      mimeType: item.mimeType ?? "image/png",
-      sizeBytes: item.sizeBytes ?? 0,
-    };
-  });
+  }
 }
 
-function hydrateNodeImages(nodes: CanvasNode[]): void {
-  for (const node of nodes) if (node.status === "done" && node.fileID) void loadNodeImage(node.id, node.fileID);
+// Frame 成员变化检测所需的元素列表：节点补齐固定尺寸，装饰自带宽高
+function frameRefitElements(nodes: ReadonlyArray<GraphNode>, decorations: ReadonlyArray<CanvasDecoration>): FrameRefitElement[] {
+  return [
+    ...nodes.map((node) => {
+      const size = graphNodeSize(node);
+      return { id: node.id, x: node.x, y: node.y, width: size.width, height: size.height, frameID: node.frameID };
+    }),
+    ...decorations.map((item) => ({ id: item.id, x: item.x, y: item.y, width: item.width, height: item.height, frameID: item.frameID })),
+  ];
 }
 
 function restoreFromPersisted(persisted: PersistedCanvasState): void {
   const canvases = persisted.canvases ?? [];
   const activeCanvasID = persisted.activeCanvasID ?? canvases[0]?.id ?? "canvas-main";
   const active = canvases.find((item) => item.id === activeCanvasID);
-  const restoredNodes = restoreNodes(active?.nodes ?? persisted.nodes);
+  const restoredNodes = restoreGraphNodes(active?.graphNodes ?? persisted.graphNodes ?? []);
+  const restoredEdges = restoreEdges(active?.edges ?? persisted.edges ?? [], restoredNodes);
   const restoredDecorations = active?.decorations ?? persisted.decorations ?? [];
   const reconciled = reconcileFrameMembership(restoredNodes, restoredDecorations);
   nodeSpawnCounter = restoredNodes.length;
   undoStack.length = 0;
   redoStack.length = 0;
   state = {
-    ...state, nodes: reconciled.nodes, decorations: reconciled.decorations,
+    ...state, nodes: reconciled.nodes, edges: restoredEdges, decorations: reconciled.decorations,
     bookmarks: active?.bookmarks ?? persisted.bookmarks ?? [], canvases, activeCanvasID,
     projectName: persisted.projectName ?? "Untitled project", versions: persisted.versions ?? [],
     viewport: { ...(active?.viewport ?? persisted.viewport), scale: clampScale((active?.viewport ?? persisted.viewport).scale) },
-    conversationID: null, pointerMode: persisted.pointerMode, imageOptions: persisted.imageOptions,
-    restoredModelName: persisted.selectedModelName, selectedNodeIDs: [], selectedDecorationIDs: [],
+    conversationID: null, pointerMode: persisted.pointerMode,
+    restoredModelName: persisted.selectedModelName, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [],
     restored: true, canUndo: false, canRedo: false,
   };
   lastPersistedRaw = stringifyCanvasState(persisted);
   emit();
   hydrateNodeImages(restoredNodes);
+}
+
+// 每个画布任务使用独立会话，避免 Chat 路由自动继承上一张图的提示词上下文。
+// 请求结束后会软删除该会话但保留生成文件，左侧对话列表不会累积画布记录。
+async function createTaskConversation(token: string): Promise<string> {
+  const conversation = await createConversation(token, {
+    title: labels?.conversationTitle ?? "Canvas",
+  });
+  return conversation.publicID;
+}
+
+// 将生成结果写入下游输出节点：优先复用已连接的输出节点（重复生成时覆盖写入同一节点，
+// 不再派生新节点），连接数量不足时才在生成节点右侧派生新的输出节点并连线
+function writeGenerateResults(
+  generateNode: GenerateGraphNode,
+  attachments: { fileID: string; fileName: string; mimeType: string; sizeBytes: number }[],
+  context: { prompt: string; modelName: string; durationMs: number },
+): void {
+  const size = GRAPH_NODE_SIZES.output;
+  const generateSize = graphNodeSize(generateNode);
+  setState((current) => {
+    const connectedTargets = current.edges
+      .filter((edge) => edge.fromNodeID === generateNode.id && edge.toPort === "result")
+      .map((edge) => current.nodes.find((node) => node.id === edge.toNodeID))
+      .filter((node): node is OutputGraphNode => node?.kind === "output")
+      .sort((a, b) => a.y - b.y || a.id.localeCompare(b.id));
+
+    const nodes: GraphNode[] = [...current.nodes];
+    const edges: GraphEdge[] = [...current.edges];
+    const completedAt = Date.now();
+
+    // 按纵向顺序复用已连接的输出节点承接本次结果，不足时继续派生
+    const targets: OutputGraphNode[] = connectedTargets.slice(0, attachments.length);
+    const outputX = generateNode.x + generateSize.width + 96;
+    const bottomY = connectedTargets.length > 0
+      ? Math.max(...connectedTargets.map((target) => target.y + size.height))
+      : generateNode.y + Math.round((generateSize.height - size.height) / 2);
+    let nextSpawnY = bottomY;
+    const spawned: OutputGraphNode[] = [];
+    while (targets.length < attachments.length) {
+      const outputID = createNodeID();
+      const outputNode: OutputGraphNode = {
+        id: outputID, kind: "output", x: outputX,
+        y: nextSpawnY,
+        createdAt: Date.now(), status: "empty",
+      };
+      nextSpawnY += size.height + 32;
+      nodes.push(outputNode);
+      edges.push({ id: createNodeID(), fromNodeID: generateNode.id, toNodeID: outputID, toPort: "result", createdAt: Date.now() });
+      targets.push(outputNode);
+      spawned.push(outputNode);
+    }
+
+    // 生成节点被 Frame 承载时，Frame 自动向外扩展以容纳派生的输出节点并纳入承载
+    let decorations = current.decorations;
+    if (spawned.length > 0 && generateNode.frameID) {
+      const frame = current.decorations.find((item) =>
+        item.id === generateNode.frameID && item.kind === "frame" && !item.locked && !item.collapsed);
+      if (frame) {
+        const spawnedElements: FrameRefitElement[] = spawned.map((output) => ({
+          id: output.id, x: output.x, y: output.y, width: size.width, height: size.height,
+        }));
+        decorations = decorations.map((item) =>
+          item.id === frame.id ? { ...item, ...frameUnionBounds(item, spawnedElements) } : item);
+        for (const output of spawned) {
+          output.frameID = frame.id;
+        }
+      }
+    }
+
+    const targetIDs = new Set(targets.map((target) => target.id));
+    const updatedNodes = nodes.map((node) => {
+      // 先收窄为输出节点，再匹配本次生成的落位目标（未入选的节点保持原样）
+      if (node.kind !== "output" || !targetIDs.has(node.id)) {
+        return node;
+      }
+      const targetIndex = targets.findIndex((target) => target.id === node.id);
+      const attachment = attachments[targetIndex];
+      const next: OutputGraphNode = attachment
+        ? {
+          ...node, status: "done", fileID: attachment.fileID, fileName: attachment.fileName,
+          mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes, objectURL: undefined,
+          imageLoadFailed: false, prompt: context.prompt, model: context.modelName,
+          sourceGenerateID: generateNode.id, errorMessage: undefined, errorDetail: undefined,
+          completedAt, durationMs: context.durationMs,
+        }
+        // 输出节点多于结果时重置为空状态
+        : { ...node, status: "empty", fileID: undefined, fileName: undefined, mimeType: undefined, sizeBytes: undefined, objectURL: undefined, imageLoadFailed: false, errorMessage: undefined, errorDetail: undefined, sourceGenerateID: generateNode.id };
+      return next;
+    });
+
+    return {
+      ...current,
+      nodes: updatedNodes,
+      edges,
+      decorations,
+      selectedNodeIDs: current.selectedNodeIDs,
+    };
+  });
+
+  // 结果落位后加载图像预览（仅限尚无预览的节点，已完成节点不重复加载）
+  const after = state.nodes.filter((node): node is OutputGraphNode =>
+    node.kind === "output" && node.status === "done" && node.sourceGenerateID === generateNode.id
+    && Boolean(node.fileID) && !node.objectURL);
+  for (const node of after) {
+    if (node.fileID) {
+      void loadOutputImage(node.id, node.fileID);
+    }
+  }
 }
 
 const canvasStoreImplementation = {
@@ -493,7 +596,29 @@ const canvasStoreImplementation = {
     cloudPersist = next;
   },
 
+  // 模型目录由组件层注入，供生成节点按名称解析运行时模型
+  setModelCatalog(models: ChatModelOption[]): void {
+    modelCatalog = models;
+  },
+
+  resolveModel(modelName: string | null): ChatModelOption | null {
+    if (modelCatalog.length === 0) {
+      return null;
+    }
+    const exact = modelName ? modelCatalog.find((item) => item.platformModelName === modelName) : null;
+    return exact ?? modelCatalog[0];
+  },
+
   seedPersistedState(persisted: PersistedCanvasState): void {
+    // 云端快照可能落后于本地（推送延迟或页面关闭时丢尾）：
+    // 仅当云端快照更新时才采用，否则保留本地状态并把当前状态回推云端
+    const local = loadCanvasState();
+    const localSavedAt = local?.savedAt ?? 0;
+    const cloudSavedAt = persisted.savedAt ?? 0;
+    if (localSavedAt > 0 && cloudSavedAt < localSavedAt) {
+      canvasStore.pushCurrentStateToCloud();
+      return;
+    }
     restoreFromPersisted(persisted);
     saveCanvasState(getPersistedState());
   },
@@ -510,7 +635,7 @@ const canvasStoreImplementation = {
     const persisted = loadCanvasState();
     if (!persisted) {
       const now = Date.now();
-      const page: PersistedCanvasPage = { id: "canvas-main", name: "Canvas 1", viewport: state.viewport, nodes: [], decorations: [], bookmarks: [], createdAt: now, updatedAt: now };
+      const page: PersistedCanvasPage = { id: "canvas-main", name: "Canvas 1", viewport: state.viewport, nodes: [], graphNodes: [], edges: [], decorations: [], bookmarks: [], createdAt: now, updatedAt: now };
       setState((current) => ({ ...current, canvases: [page], activeCanvasID: page.id, restored: true }));
       return;
     }
@@ -538,10 +663,11 @@ const canvasStoreImplementation = {
     let maxX = Number.NEGATIVE_INFINITY;
     let maxY = Number.NEGATIVE_INFINITY;
     for (const node of state.nodes) {
+      const size = graphNodeSize(node);
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
-      maxX = Math.max(maxX, node.x + CANVAS_NODE_WIDTH);
-      maxY = Math.max(maxY, node.y + CANVAS_NODE_HEIGHT);
+      maxX = Math.max(maxX, node.x + size.width);
+      maxY = Math.max(maxY, node.y + size.height);
     }
     for (const decoration of state.decorations) {
       minX = Math.min(minX, decoration.x);
@@ -574,8 +700,11 @@ const canvasStoreImplementation = {
 
   setSelectedNodeIDs(nodeIDs: string[]): void {
     setState((current) => {
-      if (current.selectedNodeIDs.length === nodeIDs.length && current.selectedNodeIDs.every((id, index) => id === nodeIDs[index])) return current;
-      return { ...current, selectedNodeIDs: nodeIDs };
+      const nextEdges = current.selectedEdgeIDs.length > 0 ? { selectedEdgeIDs: [] as string[] } : null;
+      if (current.selectedNodeIDs.length === nodeIDs.length && current.selectedNodeIDs.every((id, index) => id === nodeIDs[index])) {
+        return nextEdges ? { ...current, ...nextEdges } : current;
+      }
+      return { ...current, selectedNodeIDs: nodeIDs, ...(nextEdges ?? {}) };
     });
   },
 
@@ -583,6 +712,12 @@ const canvasStoreImplementation = {
     setState((current) => current.selectedDecorationIDs.length === ids.length && current.selectedDecorationIDs.every((id, index) => id === ids[index])
       ? current
       : { ...current, selectedDecorationIDs: ids });
+  },
+
+  setSelectedEdgeIDs(edgeIDs: string[]): void {
+    setState((current) => current.selectedEdgeIDs.length === edgeIDs.length && current.selectedEdgeIDs.every((id, index) => id === edgeIDs[index])
+      ? current
+      : { ...current, selectedEdgeIDs: edgeIDs });
   },
 
   setProjectName(name: string): void {
@@ -593,8 +728,8 @@ const canvasStoreImplementation = {
     const pages = allPages(state);
     const now = Date.now();
     const id = createNodeID();
-    const page: PersistedCanvasPage = { id, name: name?.trim() || `Canvas ${pages.length + 1}`, viewport: { x: 0, y: 0, scale: 1 }, nodes: [], decorations: [], bookmarks: [], createdAt: now, updatedAt: now };
-    setState((current) => ({ ...current, canvases: [...pages, page], activeCanvasID: id, nodes: [], decorations: [], bookmarks: [], viewport: page.viewport, selectedNodeIDs: [], selectedDecorationIDs: [] }));
+    const page: PersistedCanvasPage = { id, name: name?.trim() || `Canvas ${pages.length + 1}`, viewport: { x: 0, y: 0, scale: 1 }, nodes: [], graphNodes: [], edges: [], decorations: [], bookmarks: [], createdAt: now, updatedAt: now };
+    setState((current) => ({ ...current, canvases: [...pages, page], activeCanvasID: id, nodes: [], edges: [], decorations: [], bookmarks: [], viewport: page.viewport, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [] }));
   },
 
   switchCanvas(canvasID: string): void {
@@ -602,8 +737,9 @@ const canvasStoreImplementation = {
     const pages = allPages(state);
     const target = pages.find((item) => item.id === canvasID);
     if (!target) return;
-    const nodes = restoreNodes(target.nodes);
-    setState((current) => ({ ...current, canvases: pages, activeCanvasID: canvasID, nodes, decorations: target.decorations, bookmarks: target.bookmarks, viewport: target.viewport, selectedNodeIDs: [], selectedDecorationIDs: [] }));
+    const nodes = restoreGraphNodes(target.graphNodes ?? []);
+    const edges = restoreEdges(target.edges ?? [], nodes);
+    setState((current) => ({ ...current, canvases: pages, activeCanvasID: canvasID, nodes, edges, decorations: target.decorations, bookmarks: target.bookmarks, viewport: target.viewport, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [] }));
     hydrateNodeImages(nodes);
   },
 
@@ -616,8 +752,9 @@ const canvasStoreImplementation = {
     if (pages.length <= 1 || state.generatingCount > 0) return;
     const remaining = pages.filter((item) => item.id !== canvasID);
     const target = canvasID === state.activeCanvasID ? remaining[0] : pages.find((item) => item.id === state.activeCanvasID) ?? remaining[0];
-    const nodes = restoreNodes(target.nodes);
-    setState((current) => ({ ...current, canvases: remaining, activeCanvasID: target.id, nodes, decorations: target.decorations, bookmarks: target.bookmarks, viewport: target.viewport, selectedNodeIDs: [], selectedDecorationIDs: [] }));
+    const nodes = restoreGraphNodes(target.graphNodes ?? []);
+    const edges = restoreEdges(target.edges ?? [], nodes);
+    setState((current) => ({ ...current, canvases: remaining, activeCanvasID: target.id, nodes, edges, decorations: target.decorations, bookmarks: target.bookmarks, viewport: target.viewport, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [] }));
     hydrateNodeImages(nodes);
   },
 
@@ -642,11 +779,7 @@ const canvasStoreImplementation = {
       const deltaY = y - decoration.y;
       const carriedIDs = decoration.kind === "frame"
         ? canvasElementIDsCarriedByFrame(id, [
-          ...current.nodes.map((node) => ({
-            ...node,
-            width: CANVAS_NODE_WIDTH,
-            height: CANVAS_NODE_HEIGHT,
-          })),
+          ...current.nodes.map((node) => ({ ...node, ...graphNodeSize(node) })),
           ...current.decorations.filter((item) => item.id !== id),
         ])
         : new Set<string>();
@@ -665,10 +798,32 @@ const canvasStoreImplementation = {
   removeSelected(): void {
     const nodeIDs = new Set(state.selectedNodeIDs);
     const decorationIDs = new Set(state.selectedDecorationIDs);
+    const edgeIDs = new Set(state.selectedEdgeIDs);
     setState((current) => {
-      const nodes = current.nodes.filter((item) => !nodeIDs.has(item.id) || item.locked);
-      const decorations = current.decorations.filter((item) => !decorationIDs.has(item.id) || item.locked);
-      return { ...current, ...reconcileFrameMembership(nodes, decorations), selectedNodeIDs: [], selectedDecorationIDs: [] };
+      const removedNodeIDs = new Set(current.nodes.filter((item) => nodeIDs.has(item.id) && !item.locked).map((item) => item.id));
+      const removedDecorationIDs = new Set(current.decorations.filter((item) => decorationIDs.has(item.id) && !item.locked).map((item) => item.id));
+      if (removedNodeIDs.size === 0 && removedDecorationIDs.size === 0 && edgeIDs.size === 0) {
+        return current;
+      }
+      const nodes = current.nodes.filter((item) => !removedNodeIDs.has(item.id));
+      const edges = current.edges.filter((edge) =>
+        !edgeIDs.has(edge.id) && !removedNodeIDs.has(edge.fromNodeID) && !removedNodeIDs.has(edge.toNodeID));
+      const decorations = current.decorations.filter((item) => !removedDecorationIDs.has(item.id));
+      const reconciled = reconcileFrameMembership(nodes, decorations);
+      return {
+        ...current,
+        ...reconciled,
+        // Frame 成员（节点或装饰）被删除时边界自动回弹
+        decorations: refitFrameDecorations(
+          frameRefitElements(current.nodes, current.decorations),
+          frameRefitElements(reconciled.nodes, reconciled.decorations),
+          reconciled.decorations,
+        ),
+        edges,
+        selectedNodeIDs: [],
+        selectedDecorationIDs: [],
+        selectedEdgeIDs: [],
+      };
     });
   },
 
@@ -694,7 +849,7 @@ const canvasStoreImplementation = {
   arrangeSelected(action: CanvasArrangeAction): boolean {
     const selectedIDs = new Set([...state.selectedNodeIDs, ...state.selectedDecorationIDs]);
     const elements = [
-      ...state.nodes.map((item) => ({ ...item, width: CANVAS_NODE_WIDTH, height: CANVAS_NODE_HEIGHT })),
+      ...state.nodes.map((item) => ({ ...item, ...graphNodeSize(item) })),
       ...state.decorations,
     ];
     const patches = arrangeCanvasElements(elements, selectedIDs, action);
@@ -704,7 +859,16 @@ const canvasStoreImplementation = {
     setState((current) => {
       const nodes = current.nodes.map((item) => patches.has(item.id) ? { ...item, ...patches.get(item.id) } : item);
       const decorations = current.decorations.map((item) => patches.has(item.id) ? { ...item, ...patches.get(item.id) } : item);
-      return { ...current, ...reconcileFrameMembership(nodes, decorations) };
+      const reconciled = reconcileFrameMembership(nodes, decorations);
+      return {
+        ...current,
+        ...reconciled,
+        decorations: refitFrameDecorations(
+          frameRefitElements(current.nodes, current.decorations),
+          frameRefitElements(reconciled.nodes, reconciled.decorations),
+          reconciled.decorations,
+        ),
+      };
     });
     return true;
   },
@@ -720,7 +884,15 @@ const canvasStoreImplementation = {
     const versions = [{ id: createNodeID(), name: name?.trim() || `Snapshot ${state.versions.length + 1}`, createdAt: Date.now(), activeCanvasID: state.activeCanvasID, canvases: allPages(state) }, ...state.versions].slice(0, 20);
     setState((current) => ({ ...current, versions }));
   },
-  restoreVersion(id: string): void { const snapshot = state.versions.find((item) => item.id === id); if (!snapshot) return; const target = snapshot.canvases.find((item) => item.id === snapshot.activeCanvasID) ?? snapshot.canvases[0]; const nodes = restoreNodes(target.nodes); setState((current) => ({ ...current, canvases: snapshot.canvases, activeCanvasID: target.id, nodes, decorations: target.decorations, bookmarks: target.bookmarks, viewport: target.viewport, selectedNodeIDs: [], selectedDecorationIDs: [] })); hydrateNodeImages(nodes); },
+  restoreVersion(id: string): void {
+    const snapshot = state.versions.find((item) => item.id === id);
+    if (!snapshot) return;
+    const target = snapshot.canvases.find((item) => item.id === snapshot.activeCanvasID) ?? snapshot.canvases[0];
+    const nodes = restoreGraphNodes(target.graphNodes ?? []);
+    const edges = restoreEdges(target.edges ?? [], nodes);
+    setState((current) => ({ ...current, canvases: snapshot.canvases, activeCanvasID: target.id, nodes, edges, decorations: target.decorations, bookmarks: target.bookmarks, viewport: target.viewport, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [] }));
+    hydrateNodeImages(nodes);
+  },
 
   exportProject(): string { return JSON.stringify(getPersistedState(), null, 2); },
   importProject(persisted: PersistedCanvasState): void {
@@ -731,11 +903,11 @@ const canvasStoreImplementation = {
 
   applyTemplate(kind: "blank" | "storyboard" | "moodboard"): void {
     const point = { x: 0, y: 0 };
-    if (kind === "blank") { setState((current) => ({ ...current, nodes: [], decorations: [], bookmarks: [], viewport: { x: 0, y: 0, scale: 1 }, selectedNodeIDs: [], selectedDecorationIDs: [] })); return; }
+    if (kind === "blank") { setState((current) => ({ ...current, nodes: [], edges: [], decorations: [], bookmarks: [], viewport: { x: 0, y: 0, scale: 1 }, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [] })); return; }
     const decorations: CanvasDecoration[] = kind === "storyboard"
       ? [0, 1, 2].map((index) => ({ id: createNodeID(), kind: "frame", x: point.x + index * 520, y: point.y, width: 480, height: 360, title: `Scene ${index + 1}`, text: "", color: "indigo", createdAt: Date.now(), zIndex: -10 }))
       : [{ id: createNodeID(), kind: "section", x: -420, y: -260, width: 840, height: 520, title: "Moodboard", text: "", color: "cyan", createdAt: Date.now(), zIndex: -10 }, { id: createNodeID(), kind: "note", x: 460, y: -120, width: 240, height: 160, title: "Direction", text: "Collect references and define the visual language.", color: "amber", createdAt: Date.now(), zIndex: 10 }];
-    setState((current) => ({ ...current, nodes: [], decorations, bookmarks: [], viewport: { x: 0, y: 0, scale: 1 }, selectedNodeIDs: [], selectedDecorationIDs: [] }));
+    setState((current) => ({ ...current, nodes: [], edges: [], decorations, bookmarks: [], viewport: { x: 0, y: 0, scale: 1 }, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [] }));
   },
 
   // 仅在模型确实选中时记录，避免目录加载完成前把持久化模型名清空
@@ -748,16 +920,88 @@ const canvasStoreImplementation = {
     );
   },
 
-  setImageOptions(modelName: string, options: ConversationOptions): void {
-    setState((current) => ({
-      ...current,
-      imageOptions: { ...current.imageOptions, [modelName]: options },
-    }));
+  // -------------------------------------------------------------------------
+  // 图节点 CRUD
+  // -------------------------------------------------------------------------
+  addGraphNode(kind: GraphNodeKind, point?: { x: number; y: number }): string {
+    const nodeID = createNodeID();
+    const position = nextNodePosition(kind, point);
+    const base = { id: nodeID, kind, x: position.x, y: position.y, createdAt: Date.now() };
+    let node: GraphNode;
+    if (kind === "prompt") {
+      node = { ...base, kind: "prompt", text: "" } satisfies PromptGraphNode;
+    } else if (kind === "image") {
+      node = { ...base, kind: "image", reference: null } satisfies ImageGraphNode;
+    } else if (kind === "generate") {
+      node = {
+        ...base, kind: "generate", model: state.restoredModelName, options: {}, resultCount: 1,
+        operation: "generate", maskReference: null, runStatus: "idle",
+      } satisfies GenerateGraphNode;
+    } else {
+      node = { ...base, kind: "output", status: "empty" } satisfies OutputGraphNode;
+    }
+    recordGraphHistory(currentSnapshot());
+    setState((current) => {
+      const reconciled = reconcileFrameMembership([...current.nodes, node], current.decorations);
+      return {
+        ...current,
+        ...reconciled,
+        // 新节点被 Frame 承载时，Frame 自动扩展以容纳新内容
+        decorations: refitFrameDecorations(
+          frameRefitElements(current.nodes, current.decorations),
+          frameRefitElements(reconciled.nodes, reconciled.decorations),
+          reconciled.decorations,
+        ),
+        selectedNodeIDs: [nodeID],
+        selectedDecorationIDs: [],
+        selectedEdgeIDs: [],
+        canUndo: true,
+        canRedo: false,
+      };
+    });
+    return nodeID;
+  },
+
+  updateGraphNode(nodeID: string, patch: GraphNodeUpdate): void {
+    updateNode(nodeID, (node) => ({ ...node, ...patch, id: node.id, kind: node.kind }) as GraphNode);
+  },
+
+  // 参考图节点预览缺失时按 fileID 拉取（刷新恢复、跨节点拖入后由视图触发）
+  ensureNodeImagePreview(nodeID: string): void {
+    const node = state.nodes.find((item) => item.id === nodeID);
+    if (node?.kind === "image" && node.reference && !node.previewURL && !node.previewLoading) {
+      void loadImageNodePreview(nodeID, node.reference.fileID);
+    }
+  },
+
+  // 将节点纳入 Frame 承载：写入归属并扩展 Frame 以容纳该节点
+  adoptNodeIntoFrame(nodeID: string, frameID: string | null): void {
+    setState((current) => {
+      const node = current.nodes.find((item) => item.id === nodeID);
+      if (!node) {
+        return current;
+      }
+      const nodes = current.nodes.map((item) => (item.id === nodeID ? { ...item, frameID } : item));
+      let decorations = current.decorations;
+      if (frameID) {
+        const frame = decorations.find((item) =>
+          item.id === frameID && item.kind === "frame" && !item.locked && !item.collapsed);
+        if (frame) {
+          const size = graphNodeSize(node);
+          decorations = decorations.map((item) =>
+            item.id === frameID
+              ? { ...item, ...frameUnionBounds(item, [{ id: nodeID, x: node.x, y: node.y, width: size.width, height: size.height }]) }
+              : item);
+        }
+      }
+      const reconciled = reconcileFrameMembership(nodes, decorations);
+      return { ...current, nodes: reconciled.nodes, decorations: reconciled.decorations };
+    });
   },
 
   beginNodeMove(): void {
     if (!nodeMoveSnapshot) {
-      nodeMoveSnapshot = cloneNodes(state.nodes);
+      nodeMoveSnapshot = cloneSnapshot(currentSnapshot());
     }
   },
 
@@ -775,32 +1019,24 @@ const canvasStoreImplementation = {
   endNodeMove(): void {
     const snapshot = nodeMoveSnapshot;
     nodeMoveSnapshot = null;
-    if (!snapshot || !snapshot.some((node, index) => {
+    if (!snapshot || !snapshot.nodes.some((node, index) => {
       const current = state.nodes[index];
       return !current || current.id !== node.id || current.x !== node.x || current.y !== node.y;
     })) {
       return;
     }
-    recordNodeHistory(snapshot);
-    updateHistoryAvailability();
-    emit();
-  },
-
-  undo(): void {
-    const previous = undoStack.pop();
-    if (!previous) {
-      return;
-    }
-    abortMissingNodes(previous);
-    redoStack.push(cloneNodes(state.nodes));
+    recordGraphHistory(snapshot);
+    // 拖拽把节点带出/带入 Frame 时边界自动回弹或扩展（橡皮筋预览已在松手时提交）
     setState((current) => ({
       ...current,
-      nodes: cloneNodes(previous),
-      selectedNodeIDs: [],
-      canUndo: undoStack.length > 0,
-      canRedo: redoStack.length > 0,
+      decorations: refitFrameDecorations(
+        frameRefitElements(snapshot.nodes, current.decorations),
+        frameRefitElements(current.nodes, current.decorations),
+        current.decorations,
+      ),
     }));
-    hydrateNodeImages(previous);
+    updateHistoryAvailability();
+    emit();
   },
 
   removeNodes(nodeIDs: string[]): void {
@@ -817,20 +1053,87 @@ const canvasStoreImplementation = {
         abortControllers.delete(nodeID);
       }
     }
-    recordNodeHistory(state.nodes);
+    recordGraphHistory(currentSnapshot());
+    setState((current) => {
+      const nodes = current.nodes.filter((node) => !removed.has(node.id));
+      const edges = current.edges.filter((edge) => !removed.has(edge.fromNodeID) && !removed.has(edge.toNodeID));
+      return {
+        ...current,
+        nodes,
+        edges,
+        // Frame 成员被删除时边界自动回弹到剩余内容
+        decorations: refitFrameDecorations(
+          frameRefitElements(current.nodes, current.decorations),
+          frameRefitElements(nodes, current.decorations),
+          current.decorations,
+        ),
+        selectedNodeIDs: current.selectedNodeIDs.filter((id) => !removed.has(id)),
+        canUndo: true,
+        canRedo: false,
+      };
+    });
+  },
+
+  removeNode(nodeID: string): void {
+    canvasStore.removeNodes([nodeID]);
+  },
+
+  connectGraphNodes(attempt: GraphConnectionAttempt): boolean {
+    const decision = canConnectGraphNodes(state.nodes, state.edges, attempt);
+    if (!decision.ok) {
+      return false;
+    }
+    recordGraphHistory(currentSnapshot());
     setState((current) => ({
       ...current,
-      nodes: current.nodes
-        .filter((node) => !removed.has(node.id))
-        .map((node) => (node.parentID && removed.has(node.parentID) ? { ...node, parentID: null } : node)),
-      selectedNodeIDs: current.selectedNodeIDs.filter((id) => !removed.has(id)),
+      edges: [...current.edges, { id: createNodeID(), fromNodeID: attempt.fromNodeID, toNodeID: attempt.toNodeID, toPort: attempt.toPort, createdAt: Date.now() }],
+      selectedEdgeIDs: [],
+      canUndo: true,
+      canRedo: false,
+    }));
+    return true;
+  },
+
+  removeEdge(edgeID: string): void {
+    if (!state.edges.some((edge) => edge.id === edgeID)) {
+      return;
+    }
+    recordGraphHistory(currentSnapshot());
+    setState((current) => ({
+      ...current,
+      edges: current.edges.filter((edge) => edge.id !== edgeID),
+      selectedEdgeIDs: current.selectedEdgeIDs.filter((id) => id !== edgeID),
       canUndo: true,
       canRedo: false,
     }));
   },
 
-  removeNode(nodeID: string): void {
-    canvasStore.removeNodes([nodeID]);
+  undo(): void {
+    const previous = undoStack.pop();
+    if (!previous) {
+      return;
+    }
+    abortMissingNodes(previous.nodes);
+    redoStack.push(cloneSnapshot(currentSnapshot()));
+    setState((current) => {
+      const restored = cloneSnapshot(previous);
+      return {
+        ...current,
+        nodes: restored.nodes,
+        edges: previous.edges,
+        // 撤销导致的成员增减同样触发 Frame 回弹/扩展
+        decorations: refitFrameDecorations(
+          frameRefitElements(current.nodes, current.decorations),
+          frameRefitElements(restored.nodes, current.decorations),
+          current.decorations,
+        ),
+        selectedNodeIDs: [],
+        selectedEdgeIDs: [],
+        canUndo: undoStack.length > 0,
+        canRedo: redoStack.length > 0,
+      };
+    });
+    hydrateNodeImages(previous.nodes);
   },
 
   redo(): void {
@@ -838,15 +1141,22 @@ const canvasStoreImplementation = {
     if (!next) {
       return;
     }
-    undoStack.push(cloneNodes(state.nodes));
+    undoStack.push(cloneSnapshot(currentSnapshot()));
     setState((current) => ({
       ...current,
-      nodes: cloneNodes(next),
+      nodes: next.nodes,
+      edges: next.edges,
+      decorations: refitFrameDecorations(
+        frameRefitElements(current.nodes, current.decorations),
+        frameRefitElements(next.nodes, current.decorations),
+        current.decorations,
+      ),
       selectedNodeIDs: [],
+      selectedEdgeIDs: [],
       canUndo: true,
       canRedo: redoStack.length > 0,
     }));
-    hydrateNodeImages(next);
+    hydrateNodeImages(next.nodes);
   },
 
   cancelNode(nodeID: string): void {
@@ -864,45 +1174,63 @@ const canvasStoreImplementation = {
     objectURLCache.clear();
     nodeSpawnCounter = 0;
     nodeMoveSnapshot = null;
-    if (state.nodes.length > 0) {
-      recordNodeHistory(state.nodes);
+    if (state.nodes.length > 0 || state.edges.length > 0) {
+      recordGraphHistory(currentSnapshot());
     }
     clearCanvasState();
     lastPersistedRaw = "";
     setState((current) => ({
       ...current,
       nodes: [],
+      edges: [],
       decorations: [],
       bookmarks: [],
       selectedNodeIDs: [],
       selectedDecorationIDs: [],
+      selectedEdgeIDs: [],
       canUndo: undoStack.length > 0,
       canRedo: false,
     }));
   },
 
-  async generate(input: CanvasGenerateInput): Promise<void> {
-    const prompt = input.prompt.trim();
-    if (!prompt || !labels) {
+  // -------------------------------------------------------------------------
+  // 图执行引擎：生成节点汇聚上游提示词与参考图并流式生成，结果写入输出节点
+  // -------------------------------------------------------------------------
+  async runGenerateNode(generateNodeID: string): Promise<void> {
+    const generateNode = state.nodes.find((node) => node.id === generateNodeID);
+    if (!generateNode || generateNode.kind !== "generate" || !labels) {
       return;
     }
-    const references = input.references ?? [];
-    const decision = resolveCanvasRoute(input.model, references.length > 0);
+    if (abortControllers.has(generateNodeID)) {
+      return;
+    }
+    const inputs = gatherGraphGenerateInputs(generateNodeID, state.nodes, state.edges);
+    const model = canvasStore.resolveModel(generateNode.model);
+    if (!model) {
+      markGenerateNodeError(generateNodeID, labels.noImageModels);
+      toast.error(labels.noImageModels);
+      return;
+    }
+    if (!graphGenerateHasInputs(inputs)) {
+      markGenerateNodeError(generateNodeID, labels.missingPromptInput);
+      return;
+    }
+    const references = inputs.references;
+    const decision = resolveCanvasRoute(model, references.length > 0);
     if (decision.blockedReason) {
-      toast.error(
-        decision.blockedReason === "edit_reference_required"
-          ? labels.editReferenceRequired
-          : decision.blockedReason === "edit_unsupported"
-            ? labels.editUnsupported
-            : decision.blockedReason === "chat_capability_required"
-              ? labels.chatCapabilityRequired
-              : labels.imageUnsupported,
-      );
+      const message = decision.blockedReason === "edit_reference_required"
+        ? labels.editReferenceRequired
+        : decision.blockedReason === "edit_unsupported"
+          ? labels.editUnsupported
+          : labels.imageUnsupported;
+      markGenerateNodeError(generateNodeID, message);
+      toast.error(message);
       return;
     }
 
     const token = await resolveAccessToken();
     if (!token) {
+      markGenerateNodeError(generateNodeID, labels.needLogin);
       toast.error(labels.needLogin);
       return;
     }
@@ -911,93 +1239,92 @@ const canvasStoreImplementation = {
     try {
       conversationID = await createTaskConversation(token);
     } catch {
-      toast.error(labels.conversationCreateFailed);
+      markGenerateNodeError(generateNodeID, labels.conversationCreateFailed);
       return;
     }
 
-    const parent = input.parentID
-      ? state.nodes.find((node) => node.id === input.parentID)
-      : undefined;
-    const position = input.parentID
-      ? childNodePosition(parent, input.spawnPoint)
-      : nextNodePosition(input.spawnPoint);
-    const nodeID = createNodeID();
-    const batchID = input.parentID ? (parent?.batchID ?? parent?.id) : nodeID;
-    const version = nextCanvasVersion(state.nodes, parent);
+    const prompt = inputs.prompt;
+    const operation: CanvasOperation = references.length > 0 && generateNode.operation === "generate"
+      ? "edit"
+      : generateNode.operation;
+    const startedAt = Date.now();
 
-    recordNodeHistory(state.nodes);
-    setState((current) => {
-      const nodes: CanvasNode[] = [
-        ...current.nodes,
-        {
-          id: nodeID,
-          x: position.x,
-          y: position.y,
-          prompt,
-          model: input.model.platformModelName,
-          createdAt: Date.now(),
-          parentID: input.parentID ?? null,
-          references,
-          maskReference: input.maskReference ?? null,
-          options: input.imageOptions,
-          operation: input.operation ?? (references.length > 0 ? "edit" : "generate"),
-          batchID,
-          version,
-          status: "pending",
-          statusLabel: labels?.nodePreparing ?? "",
-        },
-      ];
-      return { ...current, canUndo: true, canRedo: false, ...reconcileFrameMembership(nodes, current.decorations) };
+    updateNode(generateNodeID, (node) => {
+      if (node.kind !== "generate") {
+        return node;
+      }
+      return {
+        ...node,
+        model: model.platformModelName,
+        operation,
+        runStatus: "pending",
+        statusLabel: labels?.nodePreparing ?? "",
+        previewURL: undefined,
+        errorMessage: undefined,
+        errorDetail: undefined,
+      };
     });
 
     await canvasStore.runGeneration({
-      nodeID,
+      generateNodeID,
       prompt,
-      model: input.model,
-      imageOptions: input.imageOptions,
+      model,
+      options: generateNode.options,
+      resultCount: generateNode.resultCount,
       references,
-      maskReference: input.maskReference ?? null,
+      maskReference: generateNode.maskReference ?? null,
+      operation,
+      outputEdges: inputs.outputEdges,
       route: decision.route,
       conversationID,
       token,
+      startedAt,
     });
   },
 
   async runGeneration({
-    nodeID,
+    generateNodeID,
     prompt,
     model,
-    imageOptions,
+    options,
+    resultCount,
     references,
     maskReference,
+    operation,
+    outputEdges,
     route,
     conversationID,
     token,
+    startedAt,
   }: {
-    nodeID: string;
+    generateNodeID: string;
     prompt: string;
     model: ChatModelOption;
-    imageOptions: ConversationOptions;
+    options: ConversationOptions;
+    resultCount: number;
     references: CanvasNodeReference[];
     maskReference: CanvasNodeReference | null;
+    operation: CanvasOperation;
+    outputEdges: GraphEdge[];
     route: "image_generation" | "image_edit" | "chat";
     conversationID: string;
     token: string;
+    startedAt: number;
   }): Promise<void> {
     const controller = new AbortController();
-    abortControllers.set(nodeID, controller);
+    abortControllers.set(generateNodeID, controller);
     setGeneratingDelta(1);
 
-    const mergedOptions = mergeCanvasOptions(model.defaultOptions ?? {}, imageOptions);
+    const mergedOptions = mergeCanvasOptions(model.defaultOptions ?? {}, options);
     let assistantText = "";
 
     const streamOptions: ConversationStreamOptions = {
       signal: controller.signal,
       onMediaStatus: (event) => {
         const label = resolveStatusLabel(event.status, event.message);
-        updateNode(nodeID, (node) =>
-          node.status === "pending" || node.status === "streaming"
-            ? { ...node, status: "streaming" as const, statusLabel: label }
+        updateNode(generateNodeID, (node) =>
+          node.kind === "generate" && (node.runStatus === "pending" || node.runStatus === "streaming")
+            ? { ...node, runStatus: "streaming", statusLabel: label }
             : node,
         );
       },
@@ -1009,22 +1336,22 @@ const canvasStoreImplementation = {
         const source = b64.startsWith("data:")
           ? b64
           : `data:${event.mime_type?.trim() || "image/png"};base64,${b64}`;
-        updateNode(nodeID, (node) =>
-          node.status === "pending" || node.status === "streaming"
-            ? { ...node, status: "streaming" as const, previewURL: source }
+        updateNode(generateNodeID, (node) =>
+          node.kind === "generate" && (node.runStatus === "pending" || node.runStatus === "streaming")
+            ? { ...node, runStatus: "streaming", previewURL: source }
             : node,
         );
       },
       onDelta: (delta) => {
         assistantText += delta;
-        updateNode(nodeID, (node) =>
-          node.status === "pending"
-            ? { ...node, status: "streaming" as const, statusLabel: labels?.statusRunning ?? node.statusLabel }
+        updateNode(generateNodeID, (node) =>
+          node.kind === "generate" && node.runStatus === "pending"
+            ? { ...node, runStatus: "streaming", statusLabel: labels?.statusRunning ?? node.statusLabel }
             : node,
         );
       },
       onModerationBlocked: () => {
-        markNodeError(nodeID, labels?.moderationBlocked ?? "");
+        markGenerateNodeError(generateNodeID, labels?.moderationBlocked ?? "");
       },
     };
 
@@ -1043,7 +1370,7 @@ const canvasStoreImplementation = {
             modelScope: model.modelScope === "user" ? "user" : undefined,
             userModelID: model.modelScope === "user" ? model.userModelID : undefined,
             options: Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
-            clientRunID: `canvas-${nodeID}`,
+            clientRunID: `canvas-${generateNodeID}`,
             fileIDs: references.length > 0 ? references.map((item) => item.fileID) : undefined,
           } satisfies SendMessageRequest,
           streamOptions,
@@ -1055,7 +1382,7 @@ const canvasStoreImplementation = {
             modelScope: model.modelScope === "user" ? "user" : undefined,
             userModelID: model.modelScope === "user" ? model.userModelID : undefined,
             options: Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
-            clientRunID: `canvas-${nodeID}`,
+            clientRunID: `canvas-${generateNodeID}`,
             fileIDs: references.length > 0 ? references.map((item) => item.fileID) : undefined,
             maskFileID: maskReference?.fileID,
           };
@@ -1064,9 +1391,9 @@ const canvasStoreImplementation = {
             : streamImageGeneration(token, conversationID, payload, streamOptions);
         })());
 
-      updateNode(nodeID, (node) =>
-        node.status === "pending" || node.status === "streaming"
-          ? { ...node, status: "streaming" as const, statusLabel: labels?.nodeSavingLocal ?? "" }
+      updateNode(generateNodeID, (node) =>
+        node.kind === "generate" && (node.runStatus === "pending" || node.runStatus === "streaming")
+          ? { ...node, runStatus: "streaming", statusLabel: labels?.nodeSavingLocal ?? "" }
           : node,
       );
 
@@ -1075,7 +1402,7 @@ const canvasStoreImplementation = {
       const rawResponse = completed.assistantMessage.content?.trim() || assistantText.trim();
 
       // 部分上游会在任意生成路由中把图片放进 Markdown 文本，而不是 attachments。
-      // 提取 URL / Data URL / Base64 后上传到文件服务，使画布节点仍可持久化、下载和继续编辑。
+      // 提取 URL / Data URL / Base64 后上传到文件服务，使输出节点仍可持久化、下载和继续编辑。
       if (imageAttachments.length === 0 && rawResponse) {
         const imageSource = resolveCanvasChatImageSource(rawResponse);
         if (imageSource) {
@@ -1091,61 +1418,52 @@ const canvasStoreImplementation = {
         }
       }
 
+      const sourceNode = state.nodes.find((node) => node.id === generateNodeID);
+      if (!sourceNode || sourceNode.kind !== "generate") {
+        return;
+      }
+
       if (imageAttachments.length === 0) {
-        markNodeError(
-          nodeID,
+        markGenerateNodeError(
+          generateNodeID,
           completed.assistantMessage.errorMessage?.trim() || labels?.noImageOutput || "",
           rawResponse || undefined,
         );
         return;
       }
-      const sourceNode = state.nodes.find((node) => node.id === nodeID);
-      if (!sourceNode) {
-        return;
-      }
-      const completedAt = Date.now();
-      const durationMs = Math.max(0, completedAt - sourceNode.createdAt);
-      const resultNodes = imageAttachments.map((attachment, index): CanvasNode => ({
-        ...sourceNode,
-        id: index === 0 ? nodeID : createNodeID(),
-        x: sourceNode.x,
-        y: sourceNode.y + index * (CANVAS_NODE_HEIGHT + 32),
-        createdAt: sourceNode.createdAt + index,
-        version: sourceNode.version ?? 1,
-        completedAt,
+
+      // 生成数量约束：仅保留前 N 张结果
+      const limitedAttachments = imageAttachments.slice(0, Math.max(1, resultCount));
+      const durationMs = Math.max(0, Date.now() - startedAt);
+      writeGenerateResults(sourceNode, limitedAttachments, {
+        prompt,
+        modelName: model.platformModelName,
         durationMs,
-        status: "done",
-        fileID: attachment.fileID,
-        fileName: attachment.fileName,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.sizeBytes,
-      }));
-      setState((current) => ({
-        ...current,
-        nodes: current.nodes.flatMap((node) => (node.id === nodeID ? resultNodes : [node])),
-      }));
-      for (const resultNode of resultNodes) {
-        if (resultNode.status === "done") {
-          void loadNodeImage(resultNode.id, resultNode.fileID);
-        }
-      }
+      });
+
+      // 运行完成：生成节点回到空闲态
+      updateNode(generateNodeID, (node) =>
+        node.kind === "generate"
+          ? { ...node, runStatus: "idle", statusLabel: undefined, previewURL: undefined, errorMessage: undefined, errorDetail: undefined }
+          : node,
+      );
     } catch (error) {
       if (controller.signal.aborted) {
-        markNodeError(nodeID, labels?.canceled ?? "");
+        markGenerateNodeError(generateNodeID, labels?.canceled ?? "");
       } else if (error instanceof ApiError && error.errorCode === "content_moderation.blocked") {
-        markNodeError(nodeID, labels?.moderationBlocked ?? "", errorDetailFromApiError(error));
+        markGenerateNodeError(generateNodeID, labels?.moderationBlocked ?? "", errorDetailFromApiError(error));
       } else if (error instanceof ApiError) {
-        markNodeError(
-          nodeID,
+        markGenerateNodeError(
+          generateNodeID,
           error.message || labels?.generateFailed || "",
           errorDetailFromApiError(error) ?? (assistantText.trim() || undefined),
         );
       } else {
         const message = error instanceof Error && error.message ? error.message : labels?.generateFailed || "";
-        markNodeError(nodeID, message, assistantText.trim() || undefined);
+        markGenerateNodeError(generateNodeID, message, assistantText.trim() || undefined);
       }
     } finally {
-      abortControllers.delete(nodeID);
+      abortControllers.delete(generateNodeID);
       setGeneratingDelta(-1);
       // 画布任务使用一次性会话；软删除会话但保留文件，避免左侧记录与后续上下文串联。
       try {
@@ -1156,72 +1474,122 @@ const canvasStoreImplementation = {
     }
   },
 
-  // 重试保留节点身份、父连线与参考图，实现“带图重试”
-  async retryNode(nodeID: string, model: ChatModelOption): Promise<void> {
-    const node = state.nodes.find((item) => item.id === nodeID);
-    if (!node || node.status === "pending" || node.status === "streaming" || !labels) {
+  // 图像编辑器提交：以指定输出/参考图节点为源图，创建或复用生成节点（局部重绘/裁剪/扩图）。
+  // 提交后立即返回关闭编辑器，生成在画布后台进行；布局沿正向数据流成链：
+  // 提示词节点在源节点正上方（生成节点左侧），源节点 -> 右侧生成节点 -> 生成结果输出节点
+  async enqueueGraphEdit(input: {
+    sourceNodeID: string;
+    prompt: string;
+    model: ChatModelOption;
+    operation: CanvasOperation;
+    // 编辑器同步的分辨率参数（扩图/裁剪后的尺寸映射），写入生成节点
+    sizeOptions?: ConversationOptions;
+    sourceImage: CanvasNodeReference;
+    maskReference: CanvasNodeReference | null;
+  }): Promise<void> {
+    const sourceNode = state.nodes.find((node) => node.id === input.sourceNodeID);
+    if (!sourceNode || (sourceNode.kind !== "output" && sourceNode.kind !== "image") || !labels) {
       return;
     }
-    const references = node.references ?? [];
-    const decision = resolveCanvasRoute(model, references.length > 0);
-    if (decision.blockedReason) {
-      toast.error(
-        decision.blockedReason === "edit_reference_required"
-          ? labels.editReferenceRequired
-          : decision.blockedReason === "edit_unsupported"
-            ? labels.editUnsupported
-            : decision.blockedReason === "chat_capability_required"
-              ? labels.chatCapabilityRequired
-              : labels.imageUnsupported,
-      );
-      return;
-    }
-    const token = await resolveAccessToken();
-    if (!token) {
-      toast.error(labels.needLogin);
-      return;
-    }
-    let conversationID: string;
-    try {
-      conversationID = await createTaskConversation(token);
-    } catch {
-      toast.error(labels.conversationCreateFailed);
-      return;
+    const sourceSize = graphNodeSize(sourceNode);
+    const generateSize = GRAPH_NODE_SIZES.generate;
+    const promptSize = GRAPH_NODE_SIZES.prompt;
+
+    // 复用该源节点已连接的生成节点（取最近一条连线），否则新建
+    const existingEdge = [...state.edges]
+      .filter((edge) => edge.fromNodeID === input.sourceNodeID && edge.toPort === "image")
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    const existingGenerate = existingEdge
+      ? state.nodes.find((node) => node.id === existingEdge.toNodeID && node.kind === "generate")
+      : undefined;
+
+    recordGraphHistory(currentSnapshot());
+    const generateNodeID = existingGenerate?.id ?? createNodeID();
+
+    if (!existingGenerate) {
+      const generateNode: GenerateGraphNode = {
+        id: generateNodeID, kind: "generate",
+        x: Math.round(sourceNode.x + sourceSize.width + 96),
+        y: sourceNode.y + Math.round((sourceSize.height - generateSize.height) / 2),
+        createdAt: Date.now(), model: input.model.platformModelName,
+        options: input.sizeOptions ?? {},
+        resultCount: 1, operation: input.operation, maskReference: input.maskReference,
+        runStatus: "idle",
+      };
+      const promptNodeID = createNodeID();
+      // 提示词节点放在源节点（参考图/输出图）正上方、生成节点左侧：
+      // 形成提示词/源图纵向对齐在左、生成节点在右的清晰工作流结构
+      const promptNode: PromptGraphNode = {
+        id: promptNodeID, kind: "prompt",
+        x: Math.round(sourceNode.x + (sourceSize.width - promptSize.width) / 2),
+        y: sourceNode.y - promptSize.height - 72,
+        createdAt: Date.now(), text: input.prompt,
+      };
+      setState((current) => {
+        // 源节点被 Frame 承载时，新节点继承归属且 Frame 自动扩展以容纳它们
+        const generateWithFrame = { ...generateNode, frameID: sourceNode.frameID ?? null };
+        const promptWithFrame = { ...promptNode, frameID: sourceNode.frameID ?? null };
+        let decorations = current.decorations;
+        if (sourceNode.frameID) {
+          const frame = decorations.find((item) =>
+            item.id === sourceNode.frameID && item.kind === "frame" && !item.locked && !item.collapsed);
+          if (frame) {
+            const newElements = [
+              { id: generateNodeID, x: generateNode.x, y: generateNode.y, width: generateSize.width, height: generateSize.height },
+              { id: promptNodeID, x: promptNode.x, y: promptNode.y, width: promptSize.width, height: promptSize.height },
+            ];
+            decorations = decorations.map((item) =>
+              item.id === frame.id ? { ...item, ...frameUnionBounds(item, newElements) } : item);
+          }
+        }
+        const nodes = [...current.nodes, generateWithFrame, promptWithFrame];
+        const reconciled = reconcileFrameMembership(nodes, decorations);
+        return {
+          ...current,
+          nodes: reconciled.nodes,
+          decorations: reconciled.decorations,
+          edges: [
+            ...current.edges,
+            { id: createNodeID(), fromNodeID: input.sourceNodeID, toNodeID: generateNodeID, toPort: "image", createdAt: Date.now() },
+            { id: createNodeID(), fromNodeID: promptNodeID, toNodeID: generateNodeID, toPort: "prompt", createdAt: Date.now() + 1 },
+            // 编辑结果写回已连接的输出节点，无连线时由运行时派生新的输出节点
+          ],
+          canUndo: true,
+          canRedo: false,
+        };
+      });
+    } else {
+      setState((current) => ({
+        ...current,
+        nodes: current.nodes.map((node) => {
+          if (node.id === generateNodeID && node.kind === "generate") {
+            return {
+              ...node,
+              model: input.model.platformModelName,
+              operation: input.operation,
+              // 复用节点时编辑器同步的分辨率参数覆盖同名配置，其余参数保留
+              options: input.sizeOptions ? mergeCanvasOptions(node.options, input.sizeOptions) : node.options,
+              maskReference: input.maskReference,
+              runStatus: "idle",
+              errorMessage: undefined,
+              errorDetail: undefined,
+            };
+          }
+          // 复用已连接的提示词节点：更新其文本为编辑器输入
+          const promptEdge = current.edges.find((edge) => edge.toNodeID === generateNodeID && edge.toPort === "prompt" && edge.fromNodeID === node.id);
+          if (promptEdge && node.kind === "prompt") {
+            return { ...node, text: input.prompt };
+          }
+          return node;
+        }),
+        canUndo: true,
+        canRedo: false,
+      }));
     }
 
-    updateNode(nodeID, (item) => ({
-      id: item.id,
-      x: item.x,
-      y: item.y,
-      prompt: item.prompt,
-      model: model.platformModelName,
-      createdAt: Date.now(),
-      parentID: item.parentID ?? null,
-      references,
-      maskReference: item.maskReference ?? null,
-      options: item.options,
-      operation: item.operation,
-      batchID: item.batchID,
-      version: item.version,
-      locked: item.locked,
-      groupID: item.groupID,
-      frameID: item.frameID,
-      zIndex: item.zIndex,
-      status: "pending" as const,
-      statusLabel: labels?.nodePreparing ?? "",
-    }));
-
-    await canvasStore.runGeneration({
-      nodeID,
-      prompt: node.prompt,
-      model,
-      imageOptions: node.options ?? {},
-      references,
-      maskReference: node.maskReference ?? null,
-      route: decision.route,
-      conversationID,
-      token,
-    });
+    canvasStore.setModelName(input.model.platformModelName);
+    // 不等待生成完成：提交即返回，编辑器关闭回到画布，结果由输出节点流式接收
+    void canvasStore.runGenerateNode(generateNodeID);
   },
 };
 
