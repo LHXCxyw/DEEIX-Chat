@@ -285,8 +285,8 @@ export function CanvasToolbar({
             ))}
           </PopoverContent>
         </Popover>
-        {/* 底部居中悬浮条：撤销/重做 + 指针模式 + 缩放 */}
-        <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-xl border border-border/70 bg-background/85 px-1.5 py-1.5 shadow-lg backdrop-blur-xl">
+        {/* 底部居中悬浮条：撤销/重做 + 指针模式 + 缩放（桌面端；移动端以对话输入条替代） */}
+        <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-xl border border-border/70 bg-background/85 px-1.5 py-1.5 shadow-lg backdrop-blur-xl lg:flex">
           <ToolbarButton label={t("undo")} description={t("toolbarUndo")} disabled={!canUndo} onClick={onUndo}>
             <Undo2 className="size-4" strokeWidth={1.8} />
           </ToolbarButton>
@@ -337,7 +337,7 @@ export function CanvasToolbar({
         <aside
           data-canvas-ui="shortcut-help"
           aria-label={t("shortcutHelp")}
-          className="pointer-events-none absolute bottom-3 left-3 hidden w-56 rounded-xl border border-border/40 bg-background/45 px-3 py-2.5 opacity-75 shadow-sm backdrop-blur-md sm:block"
+          className="pointer-events-none absolute bottom-3 left-3 hidden w-56 rounded-xl border border-border/40 bg-background/45 px-3 py-2.5 opacity-75 shadow-sm backdrop-blur-md lg:block"
         >
           <div className="mb-2 flex items-center gap-2 text-[10px] font-medium text-muted-foreground">
             <CircleHelp className="size-3.5 shrink-0 text-primary/80" />

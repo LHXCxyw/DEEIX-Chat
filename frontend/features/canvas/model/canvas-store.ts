@@ -596,6 +596,25 @@ const canvasStoreImplementation = {
     cloudPersist = next;
   },
 
+  // 立即完成挂起的持久化并推送云端（页面隐藏/关闭时的防抖丢尾兜底）
+  flushPersist(): void {
+    if (typeof window === "undefined" || !state.restored) {
+      return;
+    }
+    if (persistTimer !== null) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    const persisted = getPersistedState();
+    const raw = stringifyCanvasState(persisted);
+    if (raw === lastPersistedRaw) {
+      return;
+    }
+    lastPersistedRaw = raw;
+    saveCanvasState(persisted);
+    cloudPersist?.(raw);
+  },
+
   // 模型目录由组件层注入，供生成节点按名称解析运行时模型
   setModelCatalog(models: ChatModelOption[]): void {
     modelCatalog = models;

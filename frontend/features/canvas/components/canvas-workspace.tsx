@@ -14,7 +14,7 @@ import { CanvasAssetSidebar } from "@/features/canvas/components/canvas-asset-si
 import { CanvasMinimap } from "@/features/canvas/components/canvas-minimap";
 import { CanvasToolbar } from "@/features/canvas/components/canvas-toolbar";
 import { CanvasViewport } from "@/features/canvas/components/canvas-viewport";
-import { CanvasChatMode, type ChatTaskInput } from "@/features/canvas/components/canvas-chat-mode";
+import { CanvasChatComposer, type ChatTaskInput } from "@/features/canvas/components/canvas-chat-composer";
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
@@ -261,24 +261,26 @@ export function CanvasWorkspace() {
     [canvas, t],
   );
 
-  // 移动端对话模式：新任务节点的纵向生成位置（逐任务下移，避免重叠）
-  const chatSpawnYRef = React.useRef(0);
-
-  // 移动端发送任务：创建提示词节点 + 生成节点并连线，参考图上传后依次连线，随后立即开始生成
+  // 移动端对话输入条发送任务：节点生成在当前视口中心附近（保持无限画布的可视上下文），
+  // 提示词在生成节点左侧，参考图节点纵向排在提示词下方，全部自动连线后立即开始生成
   const handleChatTask = React.useCallback(async ({ prompt, referenceFiles, model }: ChatTaskInput) => {
     const promptSize = { width: 288, height: 224 };
+    const generateSize = { width: 336, height: 512 };
     const imageSize = { height: 264 };
-    const y = chatSpawnYRef.current;
-    const generateID = canvas.addGraphNode("generate", { x: promptSize.width + 64, y });
+    const base = getSpawnPoint();
+    const generateX = Math.round(base.x - generateSize.width / 2);
+    const generateY = Math.round(base.y - generateSize.height / 2);
+    const leftX = Math.round(generateX - promptSize.width - 64);
+    const generateID = canvas.addGraphNode("generate", { x: generateX, y: generateY });
     canvas.updateGraphNode(generateID, { model: model.platformModelName });
     if (prompt) {
-      const promptID = canvas.addGraphNode("prompt", { x: 0, y });
+      const promptID = canvas.addGraphNode("prompt", { x: leftX, y: generateY });
       canvas.updateGraphNode(promptID, { text: prompt });
       canvas.connectGraphNodes({ fromNodeID: promptID, fromPort: "out", toNodeID: generateID, toPort: "prompt" });
     }
-    let bottom = y + promptSize.height;
+    let bottom = generateY;
     for (const file of referenceFiles) {
-      const imageID = canvas.addGraphNode("image", { x: 0, y: bottom + 32 });
+      const imageID = canvas.addGraphNode("image", { x: leftX, y: bottom + promptSize.height + 32 });
       canvas.updateGraphNode(imageID, { uploading: true });
       const uploaded = await canvas.uploadReferenceFile(file);
       canvas.updateGraphNode(imageID, {
@@ -296,12 +298,10 @@ export function CanvasWorkspace() {
       if (uploaded) {
         canvas.connectGraphNodes({ fromNodeID: imageID, fromPort: "out", toNodeID: generateID, toPort: "image" });
       }
-      bottom += 32 + imageSize.height;
+      bottom += imageSize.height + 32;
     }
-    chatSpawnYRef.current = bottom + 240;
-    // 切换回桌面时生成节点可见：把视口移到本任务附近由 fit 完成，这里不干预视口
     void canvas.runGenerateNode(generateID);
-  }, [canvas]);
+  }, [canvas, getSpawnPoint]);
 
   React.useEffect(() => {
     const isEditable = (target: EventTarget | null) =>
@@ -487,10 +487,9 @@ export function CanvasWorkspace() {
         void Promise.all(images.map(attachImageFile));
       }}
     >
-      {/* 桌面端节点图（lg 及以上显示） */}
-      <div className="hidden h-full min-h-0 lg:block">
-        <CanvasViewport
-          nodes={canvas.nodes}
+      {/* 无限画布：桌面与移动端共用，移动端通过底部输入条发送任务 */}
+      <CanvasViewport
+        nodes={canvas.nodes}
         edges={canvas.edges}
         decorations={canvas.decorations}
         viewport={canvas.viewport}
@@ -595,47 +594,42 @@ export function CanvasWorkspace() {
           </div>
         ) : null}
 
-        {/* 右下角区域预览（资产侧边栏展开时隐藏，避免重叠） */}
+        {/* 右下角区域预览（资产侧边栏展开时隐藏，避免重叠；桌面端专属） */}
         {canvas.nodes.length > 0 && assetsCollapsed ? (
-          <CanvasMinimap
-            nodes={canvas.nodes}
-            decorations={canvas.decorations}
-            viewport={canvas.viewport}
-            containerSize={containerSize}
-            selectedNodeIDs={canvas.selectedNodeIDs}
-            onNavigate={handleMinimapNavigate}
-          />
+          <div className="hidden lg:contents">
+            <CanvasMinimap
+              nodes={canvas.nodes}
+              decorations={canvas.decorations}
+              viewport={canvas.viewport}
+              containerSize={containerSize}
+              selectedNodeIDs={canvas.selectedNodeIDs}
+              onNavigate={handleMinimapNavigate}
+            />
+          </div>
         ) : null}
 
-        {/* 资产列表侧边栏 */}
-        <CanvasAssetSidebar
-          nodes={canvas.nodes}
-          selectedNodeIDs={canvas.selectedNodeIDs}
-          collapsed={assetsCollapsed}
-          onCollapsedChange={handleAssetsCollapsedChange}
-          onSelectNode={(nodeID) => canvas.setSelectedNodeIDs([nodeID])}
-          onLocate={handleMinimapNavigate}
-        />
-        </CanvasViewport>
-      </div>
+        {/* 资产列表侧边栏（桌面端专属；移动端以对话输入条替代） */}
+        <div className="hidden lg:contents">
+          <CanvasAssetSidebar
+            nodes={canvas.nodes}
+            selectedNodeIDs={canvas.selectedNodeIDs}
+            collapsed={assetsCollapsed}
+            onCollapsedChange={handleAssetsCollapsedChange}
+            onSelectNode={(nodeID) => canvas.setSelectedNodeIDs([nodeID])}
+            onLocate={handleMinimapNavigate}
+          />
+        </div>
 
-      {/* 移动端对话模式（lg 以下显示）：同一画布数据的对话式视图 */}
-      <div className="h-full min-h-0 lg:hidden">
-        <CanvasChatMode
-          nodes={canvas.nodes}
-          edges={canvas.edges}
-          imageModels={imageModels}
-          restoredModelName={canvas.restoredModelName}
-          generatingCount={canvas.generatingCount}
-          onRunNode={(nodeID) => void canvas.runGenerateNode(nodeID)}
-          onCancelNode={canvas.cancelNode}
-          onPreviewNode={setPreviewNode}
-          onDownloadNode={(node) => void handleDownloadNode(node)}
-          onEditNode={setEditingNode}
-          onUseAsReference={handleUseAsReference}
-          onAddTask={(input) => void handleChatTask(input)}
-        />
-      </div>
+        {/* 移动端对话输入条：保留无限画布交互，任务结果作为节点出现在画布上 */}
+        <div className="lg:hidden">
+          <CanvasChatComposer
+            imageModels={imageModels}
+            restoredModelName={canvas.restoredModelName}
+            generatingCount={canvas.generatingCount}
+            onAddTask={(input) => void handleChatTask(input)}
+          />
+        </div>
+      </CanvasViewport>
 
       {/* 图片放大查看 */}
       <CanvasImageLightbox

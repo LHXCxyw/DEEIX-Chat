@@ -101,10 +101,49 @@ export function useCanvasStore({
       }
       persistCloud();
     };
-    const handlePageHide = () => flushPendingCloud();
+
+    // 云端快照拉取：多端同步的另一半。推送端 ~1.6s 内落云；
+    // 本端页面存活期间通过轮询 + 回到前台即时拉取（seedPersistedState 内部按
+    // savedAt 取更新的一方，云端更旧时自动回推本地，幂等无回环）。
+    const CLOUD_PULL_INTERVAL_MS = 10_000;
+    const pullCloud = () => {
+      // 生成中不拉取，避免云端旧快照打断进行中的任务展示
+      if (canvasStore.getState().generatingCount > 0) {
+        return;
+      }
+      void loadUserSettingsSnapshot(accessToken, { refresh: true })
+        .then((settings) => {
+          const cloudState = parseCanvasState(settings[CANVAS_CLOUD_SETTING_KEY] ?? "");
+          if (cloudState) {
+            canvasStore.seedPersistedState(cloudState);
+          }
+        })
+        .catch(() => {
+          // 拉取失败静默跳过，等待下一轮
+        });
+    };
+    const pullTimer = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        pullCloud();
+      }
+    }, CLOUD_PULL_INTERVAL_MS);
+    const pullOnVisible = () => {
+      if (document.visibilityState === "visible") {
+        pullCloud();
+      }
+    };
+
+    const handlePageHide = () => {
+      // 关页兜底：防抖中的变更立即落盘并进入云端推送
+      canvasStore.flushPersist();
+      flushPendingCloud();
+    };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
+        canvasStore.flushPersist();
         flushPendingCloud();
+      } else {
+        pullOnVisible();
       }
     };
     window.addEventListener("pagehide", handlePageHide);
@@ -125,6 +164,7 @@ export function useCanvasStore({
     return () => {
       active = false;
       canvasStore.setCloudPersist(null);
+      clearInterval(pullTimer);
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (cloudTimer) {
