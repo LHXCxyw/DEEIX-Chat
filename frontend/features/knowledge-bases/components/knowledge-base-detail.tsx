@@ -72,7 +72,7 @@ export function KnowledgeBaseDetail({
   return (
     <section
       className={cn(
-        "min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:flex",
+        "relative min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:flex",
         mobileView === "detail" ? "flex" : "hidden",
       )}
     >
@@ -86,25 +86,38 @@ export function KnowledgeBaseDetail({
             onAddFiles={onAddFiles}
             onToggleEnabled={onToggleEnabled}
           />
-          <KnowledgeBaseFileList
-            mode={mode}
-            selected={selected}
-            files={files}
-            filesTotal={filesTotal}
-            loading={loading}
-            loadingMore={loadingMore}
-            removingFileID={removingFileID}
-            selectedFileIDs={selectedFileIDs}
-            vectorizingFileIDs={vectorizingFileIDs}
-            onLoadMore={onLoadMore}
-            onRemoveFile={onRemoveFile}
-            onPreviewFile={onPreviewFile}
-            onToggleFileSelection={onToggleFileSelection}
-            onSelectVectorizableFiles={onSelectVectorizableFiles}
-            onClearFileSelection={onClearFileSelection}
-            onVectorizeFile={onVectorizeFile}
-            onVectorizeSelectedFiles={onVectorizeSelectedFiles}
-          />
+          {loading || files.length > 0 ? (
+            <KnowledgeBaseFileList
+              mode={mode}
+              selected={selected}
+              files={files}
+              filesTotal={filesTotal}
+              loading={loading}
+              loadingMore={loadingMore}
+              removingFileID={removingFileID}
+              selectedFileIDs={selectedFileIDs}
+              vectorizingFileIDs={vectorizingFileIDs}
+              onLoadMore={onLoadMore}
+              onRemoveFile={onRemoveFile}
+              onPreviewFile={onPreviewFile}
+              onToggleFileSelection={onToggleFileSelection}
+              onSelectVectorizableFiles={onSelectVectorizableFiles}
+              onClearFileSelection={onClearFileSelection}
+              onVectorizeFile={onVectorizeFile}
+              onVectorizeSelectedFiles={onVectorizeSelectedFiles}
+            />
+          ) : (
+            <div className="pointer-events-none absolute inset-0">
+              <CenteredEmptyState
+                title={t("noFiles")}
+                description={
+                  mode === "admin" || selected.scope === "user"
+                    ? t("noFilesDescription")
+                    : undefined
+                }
+              />
+            </div>
+          )}
         </>
       ) : (
         <CenteredEmptyState title={t("selectHint")} description={t("selectHintDescription")} />
@@ -280,7 +293,7 @@ function KnowledgeBaseFileList({
         <div className="flex h-full items-center justify-center text-muted-foreground">
           <Spinner className="size-4" />
         </div>
-      ) : files.length > 0 ? (
+      ) : (
         <div className="w-full">
           <div className="space-y-0.5">
             {files.map((file) => {
@@ -399,13 +412,6 @@ function KnowledgeBaseFileList({
             </div>
           ) : null}
         </div>
-      ) : (
-        <CenteredEmptyState
-          title={t("noFiles")}
-          description={
-            mode === "admin" || selected.scope === "user" ? t("noFilesDescription") : undefined
-          }
-        />
       )}
       </div>
     </div>

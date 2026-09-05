@@ -1,9 +1,9 @@
 "use client";
 
-import * as React from "react";
 import { ChevronDown, CircleDollarSign, ImageIcon, Info, Star } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Unplug } from "@/components/animate-ui/icons/unplug";

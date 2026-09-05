@@ -1,12 +1,11 @@
 "use client";
 
-import * as React from "react";
-import { createPortal } from "react-dom";
 import { Maximize2, Minimize2, Minus, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
-
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import * as React from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cn } from "@/lib/utils";
 import { useFileScale } from "@/shared/components/file-preview/file-scale";
 import { PreviewLoading } from "@/shared/components/file-preview/preview-loading";

@@ -1,34 +1,17 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import { Box, ChevronDown, ChevronUp, Focus, LayoutTemplate, LockKeyhole, MousePointer2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import { type GraphNodeActionHandlers, GraphNodeView } from "@/features/canvas/components/canvas-graph-nodes";
 import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
-import type {
-  CanvasDecoration,
-  CanvasPointerMode,
-  CanvasViewport as Viewport,
-  GraphEdge,
-  GraphNode,
-  GraphNodeKind,
-  ImageGraphNode,
-  OutputGraphNode,
-} from "@/features/canvas/model/canvas-types";
 import {
-  CANVAS_UI_ATTRIBUTE,
-  graphNodeSize,
-  snapToGrid,
-  type GraphNodeUpdate,
-} from "@/features/canvas/model/canvas-types";
-import {
+  type GraphPortID,
   graphEdgeMidpoint,
   graphEdgePath,
   graphPortCanvasPosition,
-  type GraphPortID,
 } from "@/features/canvas/model/canvas-graph";
 import {
   activeElasticDecorationForElement,
@@ -39,7 +22,23 @@ import {
   viewportForCanvasKey,
 } from "@/features/canvas/model/canvas-interactions";
 import { zoomViewportAt } from "@/features/canvas/model/canvas-persist";
-import { GraphNodeView, type GraphNodeActionHandlers } from "@/features/canvas/components/canvas-graph-nodes";
+import type {
+  CanvasDecoration,
+  CanvasPointerMode,
+  GraphEdge,
+  GraphNode,
+  GraphNodeKind,
+  ImageGraphNode,
+  OutputGraphNode,
+  CanvasViewport as Viewport,
+} from "@/features/canvas/model/canvas-types";
+import {
+  CANVAS_UI_ATTRIBUTE,
+  type GraphNodeUpdate,
+  graphNodeSize,
+  snapToGrid,
+} from "@/features/canvas/model/canvas-types";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
 
 type ActivePointer = {

@@ -1,3 +1,4 @@
+import { chatImagePromptSuffix, isChatRouteImageModel } from "@/features/canvas/model/canvas-image-options";
 import {
   type ChatSubmitBlockReason,
   type ChatSubmitTask,
@@ -17,7 +18,6 @@ import {
   type QueuedChatSubmission,
 } from "@/features/chat/model/message-submit-branching";
 import { resolveImageLoadingAspectRatio } from "@/features/chat/model/message-submit-media";
-import { chatImagePromptSuffix, isChatRouteImageModel } from "@/features/canvas/model/canvas-image-options";
 import type { ChatModelOption, PendingAttachment } from "@/features/chat/types/chat-runtime";
 import type { ChatAreaMessage, ImageLoadingAspectRatio } from "@/features/chat/types/messages";
 import type { ConversationOptions } from "@/shared/api/conversation.types";

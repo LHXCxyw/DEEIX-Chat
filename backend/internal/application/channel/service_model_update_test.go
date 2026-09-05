@@ -25,7 +25,7 @@ func TestUpdateModelResetsIconToAutoWhenExplicitlyEmpty(t *testing.T) {
 			Status:            "active",
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 
 	emptyIcon := ""
 	view, err := service.UpdateModel(context.Background(), 1, UpdateModelInput{Icon: &emptyIcon})
@@ -54,7 +54,7 @@ func TestUpdateModelUsesCatalogVendorAndOptionalDisplayGroup(t *testing.T) {
 			Status:            "active",
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 
 	vendor := "acme-ai"
 	displayGroupID := uint(7)
@@ -99,7 +99,7 @@ func TestUpdateModelRejectsInvalidModelCapsWithDedicatedError(t *testing.T) {
 			Status:            "active",
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 	capabilities := `{"contextWindow":4096,"maxOutputTokens":4096}`
 
 	_, err := service.UpdateModel(context.Background(), 1, UpdateModelInput{CapabilitiesJSON: &capabilities})
@@ -120,7 +120,7 @@ func TestUpdateModelClearsAutomaticContextWindowWhenIdentityChanges(t *testing.T
 			Status:            "active",
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 	name := "claude-sonnet-4.6"
 
 	_, err := service.UpdateModel(context.Background(), 1, UpdateModelInput{PlatformModelName: &name})
@@ -148,7 +148,7 @@ func TestUpdateModelPreservesManualContextWindowWhenIdentityChanges(t *testing.T
 			Status:            "active",
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 	name := "private-model-v2"
 
 	_, err := service.UpdateModel(context.Background(), 1, UpdateModelInput{PlatformModelName: &name})
@@ -193,7 +193,7 @@ func TestUpdateModelUpstreamSourceUpdatesRouteCircuitSettings(t *testing.T) {
 			UpstreamModelStatus:    "active",
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 
 	threshold := 4
 	duration := 15
@@ -258,7 +258,7 @@ func TestUpdateCircuitBreakerDefaultsClearsExistingStates(t *testing.T) {
 		Key:   "circuit_breaker.defaults",
 		Value: `{"enabled":true}`,
 	}}
-	service := NewService(config.Config{}, repo, repo, cache, nil)
+	service := newTestService(config.Config{}, repo, repo, cache, nil)
 
 	if _, err := service.UpdateLLMSetting(t.Context(), "circuit_breaker.defaults", `{"enabled":false}`); err != nil {
 		t.Fatalf("UpdateLLMSetting() error = %v", err)
@@ -281,7 +281,7 @@ func TestUpdateCircuitBreakerDefaultsDoesNotClearEnabledStateBeforeFailedWrite(t
 		},
 		upsertLLMSettingErr: writeErr,
 	}
-	service := NewService(config.Config{}, repo, repo, cache, nil)
+	service := newTestService(config.Config{}, repo, repo, cache, nil)
 
 	if _, err := service.UpdateLLMSetting(t.Context(), "circuit_breaker.defaults", `{"enabled":true,"model_failure_threshold":7}`); !errors.Is(err, writeErr) {
 		t.Fatalf("UpdateLLMSetting() error = %v, want %v", err, writeErr)
@@ -300,7 +300,7 @@ func TestUpdateCircuitBreakerDefaultsClearsStateBeforeEnabling(t *testing.T) {
 		Key:   "circuit_breaker.defaults",
 		Value: `{"enabled":false}`,
 	}}
-	service := NewService(config.Config{}, repo, repo, cache, nil)
+	service := newTestService(config.Config{}, repo, repo, cache, nil)
 
 	if _, err := service.UpdateLLMSetting(t.Context(), "circuit_breaker.defaults", `{"enabled":true}`); err != nil {
 		t.Fatalf("UpdateLLMSetting() error = %v", err)
@@ -322,7 +322,7 @@ func TestOpenCircuitRejectsWhenBreakerDisabled(t *testing.T) {
 			RouteID:       1,
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, memory.NewChannelCache(memory.New()), nil)
+	service := newTestService(config.Config{}, repo, repo, memory.NewChannelCache(memory.New()), nil)
 
 	if err := service.OpenUpstreamCircuit(t.Context(), 1); !errors.Is(err, ErrCircuitBreakerDisabled) {
 		t.Fatalf("OpenUpstreamCircuit() error = %v, want ErrCircuitBreakerDisabled", err)
@@ -334,7 +334,7 @@ func TestOpenCircuitRejectsWhenBreakerDisabled(t *testing.T) {
 
 func TestOpenCircuitValidatesTargetBeforeGlobalState(t *testing.T) {
 	repo := &modelUpdateRepo{breakerDefaults: domainchannel.BreakerDefaults{Enabled: false}}
-	service := NewService(config.Config{}, repo, repo, memory.NewChannelCache(memory.New()), nil)
+	service := newTestService(config.Config{}, repo, repo, memory.NewChannelCache(memory.New()), nil)
 
 	if err := service.OpenUpstreamCircuit(t.Context(), 1); !errors.Is(err, ErrUpstreamNotFound) {
 		t.Fatalf("OpenUpstreamCircuit() error = %v, want ErrUpstreamNotFound", err)
@@ -368,7 +368,7 @@ func TestListModelsNormalizesCircuitOpenSourceCount(t *testing.T) {
 			{PlatformModelRoute: domainchannel.PlatformModelRoute{ID: 2, Status: "active"}, UpstreamID: 11, BindingCode: "upm_b", UpstreamStatus: "active", UpstreamModelStatus: "active"},
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, cache, nil)
+	service := newTestService(config.Config{}, repo, repo, cache, nil)
 
 	items, _, err := service.ListModels(ctx, 1, 20, ListModelsInput{})
 	if err != nil {
@@ -390,7 +390,7 @@ func TestListModelsSkipsCircuitSourceQueriesWhenBreakerDisabled(t *testing.T) {
 			SourceCount:   2, ActiveSourceCount: 2,
 		}},
 	}
-	service := NewService(config.Config{}, repo, repo, memory.NewChannelCache(memory.New()), nil)
+	service := newTestService(config.Config{}, repo, repo, memory.NewChannelCache(memory.New()), nil)
 
 	items, _, err := service.ListModels(t.Context(), 1, 20, ListModelsInput{})
 	if err != nil {
@@ -425,7 +425,7 @@ func TestListUpstreamsNormalizesCircuitOpenModelCount(t *testing.T) {
 		},
 		activeBindingCodes: []string{"upm_a", "upm_b"},
 	}
-	service := NewService(config.Config{}, repo, repo, cache, nil)
+	service := newTestService(config.Config{}, repo, repo, cache, nil)
 
 	items, _, err := service.ListUpstreams(ctx, 1, 20, ListUpstreamsInput{})
 	if err != nil {
@@ -441,7 +441,7 @@ func TestListUpstreamsNormalizesCircuitOpenModelCount(t *testing.T) {
 
 func TestSetModelsDisplayGroupNormalizesIDsAndMapsRepositoryErrors(t *testing.T) {
 	repo := &modelUpdateRepo{}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 
 	if err := service.SetModelsDisplayGroup(t.Context(), []uint{3, 3, 7}, 9); err != nil {
 		t.Fatalf("SetModelsDisplayGroup() error = %v", err)
@@ -466,7 +466,7 @@ func TestDeleteModelVendorMapsStructuredBlockers(t *testing.T) {
 		ReferenceCount: 2,
 		Models:         []repository.ModelVendorReference{{ID: 7, PlatformModelName: "acme-chat"}},
 	}}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 
 	err := service.DeleteModelVendor(t.Context(), "acme")
 	var blocked *ModelVendorDeleteBlockedError
@@ -504,7 +504,7 @@ func TestSetModelProtocolsReplacesEveryBindingInOneTransaction(t *testing.T) {
 			modelProtocolSource(3, 20, 200, "openai_image_generations"),
 		},
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 
 	view, err := service.SetModelProtocols(t.Context(), 1, SetModelProtocolsInput{
 		Protocols: []string{"openai_image_generations"},
@@ -556,7 +556,7 @@ func TestSetModelProtocolsDoesNotLimitSourceCount(t *testing.T) {
 		model:   domainchannel.PlatformModel{ID: 1, PlatformModelName: "large-model", KindsJSON: `["chat"]`, Status: "active"},
 		sources: sources,
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 
 	if _, err := service.SetModelProtocols(t.Context(), 1, SetModelProtocolsInput{
 		Protocols: []string{"openai_responses"},
@@ -578,7 +578,7 @@ func TestSetModelProtocolsRollsBackWhenAReplacementConflicts(t *testing.T) {
 		},
 		replaceErrAt: 2,
 	}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 
 	_, err := service.SetModelProtocols(t.Context(), 1, SetModelProtocolsInput{
 		Protocols: []string{"openai_responses"},
@@ -593,7 +593,7 @@ func TestSetModelProtocolsRollsBackWhenAReplacementConflicts(t *testing.T) {
 }
 
 func TestSetModelProtocolsRejectsMalformedExplicitSets(t *testing.T) {
-	service := NewService(config.Config{}, &modelUpdateRepo{}, &modelUpdateRepo{}, nil, nil)
+	service := newTestService(config.Config{}, &modelUpdateRepo{}, &modelUpdateRepo{}, nil, nil)
 	tests := []struct {
 		name      string
 		protocols []string
@@ -645,7 +645,7 @@ func TestReconcileRemoteModelSnapshotSoftlyReconcilesManagedCatalog(t *testing.T
 			ID: 3, UpstreamID: 9, BindingCode: "removed-code", UpstreamModelName: "removed", Status: "active", Source: "sync",
 		},
 	}}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 	result, err := service.reconcileRemoteModelSnapshot(t.Context(), &domainchannel.Upstream{
 		ID: 9, Name: "test", Compatible: "openai", BaseURL: "https://example.com",
 	}, []llm.ModelItem{
@@ -685,7 +685,7 @@ func TestReconcileRemoteModelSnapshotRequiresConfirmationForEmptyCatalog(t *test
 	repo := &modelUpdateRepo{upstreamModels: map[string]domainchannel.UpstreamModel{
 		"existing": {ID: 1, UpstreamID: 9, UpstreamModelName: "existing", Status: "active", Source: "sync"},
 	}}
-	service := NewService(config.Config{}, repo, repo, nil, nil)
+	service := newTestService(config.Config{}, repo, repo, nil, nil)
 	upstream := &domainchannel.Upstream{ID: 9}
 
 	if _, err := service.reconcileRemoteModelSnapshot(t.Context(), upstream, nil, false); !errors.Is(err, ErrEmptyRemoteModels) {

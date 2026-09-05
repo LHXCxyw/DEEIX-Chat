@@ -230,7 +230,7 @@ type FileObject struct {
 	ProcessingAttemptID    string     `gorm:"size:64;not null;default:'';comment:当前文件处理执行令牌"`
 	ProcessingStartedAt    *time.Time `gorm:"comment:处理开始时间"`
 	ProcessingCompletedAt  *time.Time `gorm:"comment:处理完成时间"`
-	RagOptOut              bool       `gorm:"not null;default:false;comment:用户是否关闭此文件的RAG检索"`
+	RAGOptOut              bool       `gorm:"not null;default:false;comment:用户是否关闭此文件的RAG检索"`
 }
 
 // TableName 指定表名。
@@ -344,8 +344,14 @@ type ChatRunEvent struct {
 	MCPServerName    string     `gorm:"size:128;not null;default:'';comment:MCP服务器名称快照"`
 	LatencyMS        int64      `gorm:"not null;default:0;comment:调用时长毫秒"`
 	InputJSON        string     `gorm:"type:text;not null;default:'';comment:输入JSON"`
+	InputSizeBytes   int64      `gorm:"->;-:migration;column:input_size_bytes"`
+	InputOmitted     bool       `gorm:"->;-:migration;column:input_omitted"`
 	OutputJSON       string     `gorm:"type:text;not null;default:'';comment:输出JSON"`
+	OutputSizeBytes  int64      `gorm:"->;-:migration;column:output_size_bytes"`
+	OutputOmitted    bool       `gorm:"->;-:migration;column:output_omitted"`
 	ErrorJSON        string     `gorm:"type:text;not null;default:'';comment:错误JSON"`
+	ErrorSizeBytes   int64      `gorm:"->;-:migration;column:error_size_bytes"`
+	ErrorOmitted     bool       `gorm:"->;-:migration;column:error_omitted"`
 	StartedAt        time.Time  `gorm:"not null;comment:开始时间"`
 	EndedAt          *time.Time `gorm:"comment:结束时间"`
 }

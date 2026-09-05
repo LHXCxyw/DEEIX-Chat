@@ -1,6 +1,6 @@
 import type { Announcements } from "@deeix/api-contract";
-import { authedRequest } from "@/shared/api/authed-client";
 import type { AnnouncementDTO } from "@/shared/api/announcements.types";
+import { authedRequest } from "@/shared/api/authed-client";
 
 type ListAnnouncementsOptions = {
   includeDismissed?: boolean;

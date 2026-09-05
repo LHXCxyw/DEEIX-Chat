@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import { Download, Paintbrush, Repeat2, X } from "lucide-react";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { trappedFocusIndex } from "@/features/canvas/model/canvas-interactions";
 import type { OutputGraphNode } from "@/features/canvas/model/canvas-types";

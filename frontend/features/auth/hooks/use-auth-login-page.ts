@@ -1,10 +1,25 @@
 "use client";
 
-import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
+import {
+  createProviderClientState,
+  createProviderPKCE,
+  DEFAULT_LOGIN_OPTIONS,
+  DEFAULT_LOGIN_SETTINGS,
+  isTwoFactorChallengeExpired,
+  type LoginMode,
+  normalizeRegisterCode,
+  normalizeTwoFactorInput,
+  type ProviderAuthIntent,
+  providerAuthBridgeStorageKey,
+  providerPKCEStorageKey,
+  TWO_FACTOR_CHALLENGE_STORAGE_KEY,
+  TWO_FACTOR_METHODS_STORAGE_KEY,
+} from "@/features/auth/model/login-page";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { completeEmailRegistration, completePasswordReset, getLoginOptions, getLoginPageSettings, login, startEmailRegistration, startPasswordReset, startProviderAuthBridge, startTwoFactorEmailVerification, verifyTwoFactorLogin } from "@/shared/api/auth";
 import type { LoginOptionsData, LoginPageSettings, SecurityVerificationMethod } from "@/shared/api/auth.types";
 import { resolveApiBaseURL } from "@/shared/api/http-client";
@@ -12,22 +27,6 @@ import { isPasswordPolicyValid } from "@/shared/auth/account-policy";
 import { normalizeAuthNextPath } from "@/shared/auth/local-path";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { writeSessionSnapshot } from "@/shared/auth/session";
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
-import {
-  createProviderPKCE,
-  createProviderClientState,
-  DEFAULT_LOGIN_OPTIONS,
-  DEFAULT_LOGIN_SETTINGS,
-  isTwoFactorChallengeExpired,
-  normalizeRegisterCode,
-  normalizeTwoFactorInput,
-  providerAuthBridgeStorageKey,
-  providerPKCEStorageKey,
-  TWO_FACTOR_CHALLENGE_STORAGE_KEY,
-  TWO_FACTOR_METHODS_STORAGE_KEY,
-  type LoginMode,
-  type ProviderAuthIntent,
-} from "@/features/auth/model/login-page";
 
 type UseLoginPageInput = {
   nextPath: string;

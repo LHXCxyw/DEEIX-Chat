@@ -1,5 +1,5 @@
-import type { UpstreamDebugInfo } from "@/shared/api/conversation.types";
 import { resolveLocalizedErrorMessage } from "@/i18n/resolve-error-message";
+import type { UpstreamDebugInfo } from "@/shared/api/conversation.types";
 
 const DEFAULT_MAX_FILES_PER_MESSAGE = 10;
 const ZH_DETAIL_PREFIX = "\u8be6\u60c5\uff1a";

@@ -141,6 +141,7 @@ export function AppFiles() {
             {!sidebarCollapsed ? (
               <SidebarList
                 items={files}
+                emptyState={query.trim() || filterKeys.length > 0 ? "filtered" : "all"}
                 selectedFileID={selectedFileID}
                 selectedFileIDs={selectedFileIDs}
                 loading={loading}

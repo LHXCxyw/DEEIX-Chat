@@ -58,7 +58,7 @@ export function ContentHeader({
   const { locale } = useAppLocale();
 
   if (!file) {
-    return null;
+    return <div aria-hidden="true" className="h-15 min-w-0 shrink-0 border-b border-border/40" />;
   }
 
   const fileIcon = resolveFileIcon(file);

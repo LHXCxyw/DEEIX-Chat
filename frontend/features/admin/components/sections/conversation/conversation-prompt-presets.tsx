@@ -1,12 +1,9 @@
 "use client";
 
-import * as React from "react";
 import { Box, FileBox, Plus, Save, Trash2 } from "lucide-react";
-import { useLocale } from "next-intl";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,7 +30,6 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -45,16 +41,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import { listAdminSettingsByNamespace, patchAdminSettings } from "@/features/admin/api";
-import { useAdminSkills } from "@/features/admin/hooks/use-admin-skills";
 import { useAdminPromptPresets } from "@/features/admin/hooks/use-admin-prompt-presets";
-import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { useAdminSkills } from "@/features/admin/hooks/use-admin-skills";
 import { formatDateTime } from "@/features/admin/utils/account-display";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import type { PromptPresetDTO } from "@/shared/api/prompt-presets.types";
-import type { SkillDTO } from "@/shared/api/skills.types";
 import type { PatchSettingItem } from "@/shared/api/settings.types";
+import type { SkillDTO } from "@/shared/api/skills.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import {
   SettingsFieldItem,
@@ -63,6 +60,7 @@ import {
 } from "@/shared/components/settings-layout";
 import { PROMPT_PRESET_LIMITS } from "@/shared/model/prompt-presets";
 import { SKILL_LIMITS } from "@/shared/model/skills";
+import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
 
 const PROMPT_PRESET_TABLE_COLUMN_COUNT = 6;
 type PromptLibraryType = "prompts" | "skills";

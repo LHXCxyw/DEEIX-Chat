@@ -10110,7 +10110,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "boolean",
-                        "description": "是否返回可替换当前正文的权威文本快照",
+                        "description": "是否返回正文与当前思考轮次的权威内容快照",
                         "name": "snapshot",
                         "in": "query"
                     }
@@ -10124,6 +10124,68 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/conversation-runs/{run_id}/tool-calls/{tool_call_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "查询当前用户指定会话运行内的持久化工具调用结果；超限字段仅返回原始大小与省略标记",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "查询工具调用结果详情",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "运行 ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "工具调用 ID",
+                        "name": "tool_call_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationToolCallDetailResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/ConversationErrorDoc"
                         }
@@ -13852,6 +13914,30 @@ const docTemplate = `{
                 }
             }
         },
+        "/settings/feature-policy": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "查询用户侧功能开关策略",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            }
+        },
         "/settings/login-page": {
             "get": {
                 "produces": [
@@ -16369,7 +16455,9 @@ const docTemplate = `{
                 "periodUsedNanousd",
                 "periodUsedUSD",
                 "plan",
-                "subscriptionEntitlements"
+                "subscriptionEntitlements",
+                "totalSpentNanousd",
+                "totalSpentUSD"
             ],
             "properties": {
                 "account": {
@@ -16426,6 +16514,12 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/SubscriptionEntitlementResponse"
                     }
+                },
+                "totalSpentNanousd": {
+                    "type": "integer"
+                },
+                "totalSpentUSD": {
+                    "type": "number"
                 }
             }
         },
@@ -16460,7 +16554,6 @@ const docTemplate = `{
             "required": [
                 "code",
                 "description",
-                "discountPercent",
                 "featureJSON",
                 "id",
                 "isActive",
@@ -16477,9 +16570,6 @@ const docTemplate = `{
                 },
                 "description": {
                     "type": "string"
-                },
-                "discountPercent": {
-                    "type": "integer"
                 },
                 "featureJSON": {
                     "type": "string"
@@ -17752,14 +17842,20 @@ const docTemplate = `{
                 "createdAt",
                 "endedAt",
                 "errorJSON",
+                "errorOmitted",
+                "errorSizeBytes",
                 "eventID",
                 "eventScope",
                 "eventType",
                 "id",
                 "inputJSON",
+                "inputOmitted",
+                "inputSizeBytes",
                 "latencyMS",
                 "messageID",
                 "outputJSON",
+                "outputOmitted",
+                "outputSizeBytes",
                 "parentEventID",
                 "payloadJSON",
                 "payloadOmitted",
@@ -17804,6 +17900,12 @@ const docTemplate = `{
                 "errorJSON": {
                     "type": "string"
                 },
+                "errorOmitted": {
+                    "type": "boolean"
+                },
+                "errorSizeBytes": {
+                    "type": "integer"
+                },
                 "eventID": {
                     "type": "string"
                 },
@@ -17819,6 +17921,12 @@ const docTemplate = `{
                 "inputJSON": {
                     "type": "string"
                 },
+                "inputOmitted": {
+                    "type": "boolean"
+                },
+                "inputSizeBytes": {
+                    "type": "integer"
+                },
                 "latencyMS": {
                     "type": "integer"
                 },
@@ -17827,6 +17935,12 @@ const docTemplate = `{
                 },
                 "outputJSON": {
                     "type": "string"
+                },
+                "outputOmitted": {
+                    "type": "boolean"
+                },
+                "outputSizeBytes": {
+                    "type": "integer"
                 },
                 "parentEventID": {
                     "type": "string"
@@ -18459,6 +18573,68 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/ConversationShareResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "ConversationToolCallDetailResponse": {
+            "type": "object",
+            "required": [
+                "errorJSON",
+                "errorOmitted",
+                "errorSizeBytes",
+                "outputJSON",
+                "outputOmitted",
+                "outputSizeBytes",
+                "runID",
+                "status",
+                "toolCallID",
+                "toolName"
+            ],
+            "properties": {
+                "errorJSON": {
+                    "type": "string"
+                },
+                "errorOmitted": {
+                    "type": "boolean"
+                },
+                "errorSizeBytes": {
+                    "type": "integer"
+                },
+                "outputJSON": {
+                    "type": "string"
+                },
+                "outputOmitted": {
+                    "type": "boolean"
+                },
+                "outputSizeBytes": {
+                    "type": "integer"
+                },
+                "runID": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "toolCallID": {
+                    "type": "string"
+                },
+                "toolName": {
+                    "type": "string"
+                }
+            }
+        },
+        "ConversationToolCallDetailResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ConversationToolCallDetailResponse"
                 },
                 "errorMsg": {
                     "type": "string"
@@ -20978,7 +21154,7 @@ const docTemplate = `{
                 },
                 "options": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {}
                 },
                 "parentMessagePublicID": {
                     "type": "string",
@@ -25092,7 +25268,7 @@ const docTemplate = `{
                 },
                 "options": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {}
                 },
                 "parentMessagePublicID": {
                     "type": "string",
@@ -26159,7 +26335,7 @@ const docTemplate = `{
                 },
                 "options": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {}
                 },
                 "selectedToolIDs": {
                     "type": "array",
@@ -26327,7 +26503,6 @@ const docTemplate = `{
                 "amountUSD",
                 "billingInterval",
                 "description",
-                "discountPercent",
                 "name",
                 "periodCreditUSD"
             ],
@@ -26351,11 +26526,6 @@ const docTemplate = `{
                 "description": {
                     "type": "string",
                     "maxLength": 255
-                },
-                "discountPercent": {
-                    "type": "integer",
-                    "maximum": 100,
-                    "minimum": 0
                 },
                 "name": {
                     "type": "string",
@@ -29067,7 +29237,7 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "0.4.0",
+	Version:          "0.4.1",
 	Host:             "",
 	BasePath:         "/api/v1",
 	Schemes:          []string{},

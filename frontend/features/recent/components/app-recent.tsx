@@ -1,12 +1,11 @@
 "use client";
 
 import * as React from "react";
-
-import { useRecentPage } from "@/features/recent/hooks/use-recent-page";
 import { RecentDialogs } from "@/features/recent/components/sections/recent-dialogs";
 import { RecentHeader } from "@/features/recent/components/sections/recent-header";
 import { RecentList } from "@/features/recent/components/sections/recent-list";
 import { RecentToolbar } from "@/features/recent/components/sections/recent-toolbar";
+import { useRecentPage } from "@/features/recent/hooks/use-recent-page";
 import type { RecentBulkConfirmAction } from "@/features/recent/types/recent";
 
 export function AppRecent() {

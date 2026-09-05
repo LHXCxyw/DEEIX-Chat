@@ -1,5 +1,3 @@
-import { authedRequest } from "@/shared/api/authed-client";
-import { pathParam } from "@/shared/api/http-client";
 import type {
 	IdentityProviderDeleteResponse,
 	IdentityProviderListResponse,
@@ -8,6 +6,8 @@ import type {
 	UpsertIdentityProviderRequest,
 } from "@deeix/api-contract";
 import type { IdentityProviderDTO } from "@/shared/api/auth.types";
+import { authedRequest } from "@/shared/api/authed-client";
+import { pathParam } from "@/shared/api/http-client";
 
 export async function listAdminIdentityProviders(accessToken: string): Promise<{ total: number; results: IdentityProviderDTO[] }> {
   const data = await authedRequest<IdentityProviderListResponse>(

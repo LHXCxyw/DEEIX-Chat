@@ -3,8 +3,8 @@
 import * as React from "react";
 
 import {
-  subscribeFileLibraryInvalidated,
   type FileLibraryInvalidatedDetail,
+  subscribeFileLibraryInvalidated,
 } from "@/shared/events/file-library-events";
 
 export function useFileInvalidation(

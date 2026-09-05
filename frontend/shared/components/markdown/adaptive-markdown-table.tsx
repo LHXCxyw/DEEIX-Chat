@@ -111,7 +111,7 @@ export function AdaptiveMarkdownTable({ children, className, node: _node, ...pro
         </div>
         <div className="mt-3 shrink-0" data-streamdown="table-download-actions">
           <TableDownloadDropdown
-            className="inline-flex size-5 items-center justify-center rounded-none p-1 align-middle hover:bg-foreground/[0.04] focus-visible:bg-foreground/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            className="inline-flex size-5 items-center justify-center rounded-none p-1 align-middle outline-none hover:bg-foreground/[0.04] focus-visible:bg-foreground/[0.04] focus-visible:ring-0"
             onError={() => toast.error(t("table.downloadFailed"))}
           />
         </div>

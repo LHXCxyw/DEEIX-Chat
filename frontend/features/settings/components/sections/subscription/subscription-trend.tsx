@@ -1,21 +1,18 @@
 "use client";
 
-import * as React from "react";
 import { Activity, BadgeDollarSign, Braces, Timer } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { useTranslations } from "next-intl";
-
+import * as React from "react";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import type { ChartConfig, ChartInteractiveLegendItem } from "@/components/ui/chart";
 import {
   ChartContainer,
   ChartInteractiveLegend,
   ChartTooltip,
   createStackedBarTopRoundedShape,
 } from "@/components/ui/chart";
-import type { ChartConfig, ChartInteractiveLegendItem } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAppLocale } from "@/i18n/app-i18n-provider";
-import type { BillingUsageDailyDTO, BillingUsageMonthlyDTO } from "@/shared/api/billing.types";
 import {
   formatDay,
   formatFormulaTokenCount,
@@ -28,6 +25,8 @@ import {
   formatUsageTrendLatency,
   modelDisplayLabel,
 } from "@/features/settings/model/subscription-format";
+import { useAppLocale } from "@/i18n/app-i18n-provider";
+import type { BillingUsageDailyDTO, BillingUsageMonthlyDTO } from "@/shared/api/billing.types";
 import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
 
 type DailyUsageChartModel = BillingUsageDailyDTO["models"][number] & {
@@ -142,12 +141,12 @@ function MetricTile({ label, value, icon }: { label: string; value: string; icon
   );
 }
 
-function UsageTrendMetricTiles({ stats, billingDisplay }: { stats: UsageTrendStats; billingDisplay: BillingDisplayOptions }) {
+function UsageTrendMetricTiles({ view, stats, billingDisplay }: { view: UsageTrendView; stats: UsageTrendStats; billingDisplay: BillingDisplayOptions }) {
   const t = useTranslations("settings.subscriptionPage.usageTrend.metrics");
   return (
     <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
       <MetricTile
-        label={t("totalCost")}
+        label={t(view === "daily" ? "periodCost" : "yearCost")}
         value={formatUsageSummaryCost(stats.totalBilled, billingDisplay)}
         icon={<BadgeDollarSign className="size-4" />}
       />
@@ -691,7 +690,7 @@ export function SubscriptionTrend({
           </TabsList>
         </Tabs>
       </div>
-      <UsageTrendMetricTiles stats={trendStats} billingDisplay={billingDisplay} />
+      <UsageTrendMetricTiles view={view} stats={trendStats} billingDisplay={billingDisplay} />
       {view === "daily" ? (
         <DailyUsageChart items={dailyUsage} loading={loading} billingDisplay={billingDisplay} />
       ) : (

@@ -3,15 +3,15 @@
 import {
   CHAT_FONT_STORAGE_KEY,
   CHAT_FONT_WEIGHT_STORAGE_KEY,
-  isChatFontOption,
-  isChatFontWeightOption,
   type ChatFontOption,
   type ChatFontWeightOption,
+  isChatFontOption,
+  isChatFontWeightOption,
 } from "@/features/settings/utils/chat-font";
 import {
   FONT_SIZE_STORAGE_KEY,
-  isFontSizeOption,
   type FontSizeOption,
+  isFontSizeOption,
 } from "@/features/settings/utils/font-size";
 import {
   THEME_PRESET_STORAGE_KEY,

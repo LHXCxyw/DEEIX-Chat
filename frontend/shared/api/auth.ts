@@ -1,26 +1,24 @@
-import { ApiError, apiRequest, pathParam } from "@/shared/api/http-client";
-import { authedRequest } from "@/shared/api/authed-client";
 import type {
-  ActiveSessionListData,
   ActiveSessionDTO,
+  ActiveSessionListData,
   ChangePasswordData,
   ChangePasswordPayload,
   CompleteOnboardingPayload,
   DeleteAccountPayload,
   EmailBootstrapCompletePayload,
   EmailChangeCompletePayload,
-  EmailVerificationStartData,
   EmailRegistrationStartData,
+  EmailVerificationStartData,
   LoginData,
   LoginOptionsData,
   LoginPageSettings,
   LogoutData,
   MeData,
-  PatchMePayload,
-  PatchUsernamePayload,
+  PasswordChangeVerificationStartData,
   PasswordResetCompleteData,
   PasswordResetStartData,
-  PasswordChangeVerificationStartData,
+  PatchMePayload,
+  PatchUsernamePayload,
   SecurityVerificationMethod,
   TwoFactorDisableData,
   TwoFactorRecoveryCodesData,
@@ -31,6 +29,8 @@ import type {
   UserIdentityData,
   UserIdentityListData,
 } from "@/shared/api/auth.types";
+import { authedRequest } from "@/shared/api/authed-client";
+import { ApiError, apiRequest, pathParam } from "@/shared/api/http-client";
 
 export const AUTH_ERROR_CODES = {
   passwordReuseNotAllowed: "auth.password_reuse_not_allowed",

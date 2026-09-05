@@ -1,16 +1,15 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import { BookmarkPlus, Check, LibraryBig, Trash2 } from "lucide-react";
-
+import { useTranslations } from "next-intl";
+import * as React from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   createUserPromptTemplate,
   loadPromptTemplates,
-  saveUserPromptTemplates,
   type PromptTemplate,
+  saveUserPromptTemplates,
 } from "@/features/canvas/model/canvas-graph";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 // 提示词模板库：内置模板 + 用户自建模板（localStorage 持久化），点击应用到节点

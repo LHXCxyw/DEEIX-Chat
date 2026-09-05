@@ -498,7 +498,8 @@
     },
     "usageBilling": {
       "title": "按量付费",
-      "balance": "账户余额 {value}",
+      "balanceLabel": "账户余额",
+      "totalSpentLabel": "累计花费",
       "topUp": "充值"
     },
     "selfMode": {
@@ -534,7 +535,8 @@
       "otherModels": "其他",
       "empty": "暂无用量数据。",
       "metrics": {
-        "totalCost": "总费用",
+        "periodCost": "本周期费用",
+        "yearCost": "近 12 个月费用",
         "totalTokens": "总 Tokens",
         "totalCalls": "总调用",
         "averageLatency": "平均耗时"

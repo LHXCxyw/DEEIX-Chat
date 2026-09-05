@@ -1,10 +1,10 @@
 "use client";
 
-import * as React from "react";
 import { NextIntlClientProvider } from "next-intl";
+import * as React from "react";
 
-import { DEFAULT_LOCALE, LOCALE_COOKIE_NAME, normalizeAppLocale, resolveBrowserLocale, type AppLocale } from "@/i18n/config";
-import { applyBrandingToMessages, DEFAULT_MESSAGES, loadLocaleMessages, type AppMessages } from "@/i18n/messages";
+import { type AppLocale, DEFAULT_LOCALE, LOCALE_COOKIE_NAME, normalizeAppLocale, resolveBrowserLocale } from "@/i18n/config";
+import { type AppMessages, applyBrandingToMessages, DEFAULT_MESSAGES, loadLocaleMessages } from "@/i18n/messages";
 import { useBranding } from "@/shared/config/branding-provider";
 
 type AppI18nContextValue = {

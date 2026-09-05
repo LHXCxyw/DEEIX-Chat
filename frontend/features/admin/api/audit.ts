@@ -4,7 +4,6 @@ import type {
   CleanupLogsRequest,
   CleanupLogsResponse,
 } from "@deeix/api-contract";
-import { authedRequest } from "@/shared/api/authed-client";
 import type {
   AdminAuditLogDTO,
   AdminConversationEventDTO,
@@ -14,9 +13,10 @@ import type {
   AdminUsageLogDTO,
   AdminUserAuthEventDTO,
 } from "@/features/admin/api/admin.types";
+import { authedRequest } from "@/shared/api/authed-client";
 import type { PagePayload } from "@/shared/api/common.types";
 
-import { normalizeAdminPagePayload, resolveAdminPage, type AdminPageOptions } from "./shared";
+import { type AdminPageOptions, normalizeAdminPagePayload, resolveAdminPage } from "./shared";
 
 type ListAdminUserAuthEventsOptions = AdminPageOptions & {
   userID?: number;

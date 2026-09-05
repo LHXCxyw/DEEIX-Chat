@@ -1,10 +1,8 @@
 "use client";
 
-import { useSyncExternalStore, useState } from "react";
-import { useTranslations } from "next-intl";
 import { CircleArrowUp, RefreshCw } from "lucide-react";
-
-import packageMeta from "@/package.json";
+import { useTranslations } from "next-intl";
+import { useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,14 +20,15 @@ import {
   getCachedLatestReleaseSnapshot,
   getServerLatestReleaseSnapshot,
   LATEST_RELEASE_ENDPOINT,
+  type ReleaseInfo,
   resolveAvailableRelease,
   subscribeLatestReleaseChange,
-  type ReleaseInfo,
   writeCachedLatestRelease,
 } from "@/features/admin/model/update-check";
+import { cn } from "@/lib/utils";
+import packageMeta from "@/package.json";
 import { AboutSettingsContent } from "@/shared/components/about-settings-content";
 import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
-import { cn } from "@/lib/utils";
 
 type GitHubRelease = {
   tag_name?: string;

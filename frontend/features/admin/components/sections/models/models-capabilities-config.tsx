@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { Check, ChevronDownIcon, CircleHelp, CopyPlus, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
-
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -27,9 +26,9 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
 import type { AdminLLMModelDTO } from "@/features/admin/api/llm.types";
 import { ModelCapabilitiesPresetDialog } from "@/features/admin/components/sections/models/models-capabilities-presets";
+import { cn } from "@/lib/utils";
 import type { NativeToolDefinition } from "@/shared/lib/model-option-policy";
 import { MODEL_OPTION_POLICY_PROTOCOL_LABELS, resolveModelOptionPolicyProtocol } from "@/shared/lib/model-option-policy";
 import { nativeToolPayloadMatchesShape, nativeToolPayloadSignature } from "@/shared/lib/native-tool-payload";

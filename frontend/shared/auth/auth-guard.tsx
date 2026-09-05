@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { AuthSessionProvider } from "@/shared/auth/auth-session-context";

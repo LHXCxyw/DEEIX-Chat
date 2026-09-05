@@ -1,14 +1,14 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
+import * as React from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { ChatPromptTrace, ChatTraceBlock, RAGCitation } from "@/features/chat/types/messages";
 import type { ProcessTraceLabels } from "@/features/chat/hooks/use-chat-trace-labels";
 import {
   displayTraceStageLabel,
   displayTraceTrigger,
+  type FileContextBadge,
   filterProcessTraceStages,
   isFileContextTraceStage,
   isRAGTraceStage,
@@ -18,11 +18,11 @@ import {
   normalizeTraceListItem,
   parseStructuredTraceStages,
   parseTraceStages,
-  type FileContextBadge,
   type TraceStage,
 } from "@/features/chat/model/message-process-trace";
-import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import type { ChatPromptTrace, ChatTraceBlock, RAGCitation } from "@/features/chat/types/messages";
 import { cn } from "@/lib/utils";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 
 export const TRACE_ROOT_CLASS = "chat-screenshot-omit mb-2 w-full pr-4 sm:pr-6";
 

@@ -1,43 +1,43 @@
 "use client";
 
-import * as React from "react";
 import { Save } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { invalidateAdminReferenceDataCache, patchAdminBillingConfig, patchAdminSettings } from "@/features/admin/api";
 import type { AdminBillingConfigDTO, AdminBillingMode } from "@/features/admin/api/billing.types";
-import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import {
   flattenPaymentSettings,
   formatBillingAmountInput,
   normalizePaymentProviders,
+  type PaymentProvider,
+  type PaymentSettings,
   parseEPayTypesJSON,
   paymentPatchItems,
   paymentProviderSetting,
   paymentSettingsChanged,
-  type PaymentProvider,
-  type PaymentSettings,
 } from "@/features/admin/model/billing-settings";
-import { CopyActionButton } from "@/shared/components/copy-action";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { resolveApiBaseURL } from "@/shared/api/http-client";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
+import { CopyActionButton } from "@/shared/components/copy-action";
 import {
   SettingsFieldItem,
   SettingsFieldList,
   SettingsFieldRow,
   SettingsSection,
 } from "@/shared/components/settings-layout";
-import { resolveApiBaseURL } from "@/shared/api/http-client";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { configuredSettingsMap } from "@/shared/lib/settings-meta";
 
 type BillingConfigSectionProps = {

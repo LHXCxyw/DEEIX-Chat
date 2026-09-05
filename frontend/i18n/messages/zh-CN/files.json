@@ -4,6 +4,8 @@
   "searchPlaceholder": "搜索文件",
   "empty": "暂无文件",
   "emptyDescription": "从右上角上传你的第一个文件",
+  "searchEmpty": "没有匹配的文件",
+  "searchEmptyDescription": "请尝试其他关键词或调整筛选条件。",
   "upload": "上传",
   "delete": "删除文件",
   "rename": "重命名文件",

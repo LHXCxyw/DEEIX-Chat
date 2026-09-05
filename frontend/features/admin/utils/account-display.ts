@@ -1,7 +1,7 @@
 import type { AdminUserDTO } from "@/features/admin/api/admin.types";
 import {
-  formatBillingDisplayBalanceFromUSD,
   type BillingDisplayOptions,
+  formatBillingDisplayBalanceFromUSD,
 } from "@/shared/lib/billing-display";
 
 const USER_STATUS_LABELS: Record<string, string> = {

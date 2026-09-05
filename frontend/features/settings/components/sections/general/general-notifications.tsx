@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Switch } from "@/components/ui/switch";
 import { SettingsFieldRow, SettingsSection } from "@/shared/components/settings-layout";

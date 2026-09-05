@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { FileText } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { PreviewLoading } from "@/shared/components/file-preview/preview-loading";
 

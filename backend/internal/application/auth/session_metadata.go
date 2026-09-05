@@ -269,7 +269,7 @@ func resolveSessionDeviceLabel(session *domainuser.Session) string {
 }
 
 func marshalSessionAuthEventDetail(sessionID string, snapshot sessionAuditSnapshot) string {
-	return marshalAuthEventDetail(map[string]interface{}{
+	return marshalAuthEventDetail(map[string]any{
 		"session_id":   strings.TrimSpace(sessionID),
 		"device_name":  snapshot.DeviceName,
 		"browser_name": snapshot.BrowserName,

@@ -1,13 +1,13 @@
 import type { UserDTO } from "@/shared/api/auth.types";
 import type { BillingPlanDTO, BillingPlanPriceDTO } from "@/shared/api/billing.types";
+import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
 import {
-  formatBillingDisplayBalanceFromUSD,
   formatBillingDisplayAmountFromUSD,
+  formatBillingDisplayBalanceFromUSD,
   formatBillingDisplayCompactAmountFromUSD,
   formatBillingDisplayPreciseAmountFromUSD,
   formatBillingDisplayUnitPriceFromUSD,
 } from "@/shared/lib/billing-display";
-import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
 
 const DEFAULT_BILLING_DISPLAY: BillingDisplayOptions = { currency: "USD" };
 type PaymentProvider = "stripe" | "epay";

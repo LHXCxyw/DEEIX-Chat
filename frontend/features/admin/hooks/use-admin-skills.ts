@@ -1,7 +1,7 @@
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import {
   createAdminSkill,
   deleteAdminSkill,
@@ -13,16 +13,16 @@ import type {
   SkillDTO,
 } from "@/shared/api/skills.types";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
+import { useDebouncedValue } from "@/shared/hooks/use-debounced-value";
 import { removeByID, replaceByID } from "@/shared/lib/optimistic-list";
 import {
   EMPTY_SKILL_FORM,
+  type SkillFormValue,
   skillFormFromDTO,
   skillFormIsWithinLimits,
   skillPayloadFromForm,
   skillPayloadIsComplete,
-  type SkillFormValue,
 } from "@/shared/model/skills";
-import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 
 export type AdminSkillForm = SkillFormValue;
 
@@ -34,7 +34,7 @@ export function useAdminSkills() {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSizeState] = React.useState(25);
   const [query, setQueryState] = React.useState("");
-  const [debouncedQuery, setDebouncedQuery] = React.useState("");
+  const debouncedQuery = useDebouncedValue(query.trim());
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [form, setForm] = React.useState<AdminSkillForm>(EMPTY_SKILL_FORM);
@@ -49,13 +49,6 @@ export function useAdminSkills() {
     requestControllerRef.current?.abort();
     requestControllerRef.current = null;
   }, []);
-
-  React.useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebouncedQuery(query.trim());
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [query]);
 
   const load = React.useCallback(async () => {
     const requestSeq = requestSeqRef.current + 1;

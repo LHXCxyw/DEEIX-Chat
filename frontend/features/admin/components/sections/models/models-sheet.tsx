@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Check, ChevronDownIcon, CircleHelp, Plus, ShieldAlert, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 import { useLocale, useTranslations } from "next-intl";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import {
   Accordion,
@@ -52,61 +52,43 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { getModelOptionPolicy } from "@/shared/api/settings";
 import {
   bindAdminLLMModelUpstreamSource,
   createAdminLLMModel,
   getAdminReferenceData,
   invalidateAdminReferenceDataCache,
-  listAdminSettingsByNamespace,
   listAdminLLMModelUpstreamSources,
   listAdminLLMUpstreamModels,
   listAdminLLMUpstreams,
+  listAdminSettingsByNamespace,
   updateAdminLLMModel,
 } from "@/features/admin/api";
 import { getAdminOpenRouterOfficialPricing } from "@/features/admin/api/billing";
-import { listAllAdminPages } from "@/features/admin/api/shared";
 import type { AdminOfficialPricingCatalogItemDTO } from "@/features/admin/api/billing.types";
-import { resolveAutomaticModelContextWindow } from "@/features/admin/model/openrouter-model-catalog";
-import {
-  listModelPermissionGroups,
-  listPermissionGroups,
-  setModelPermissionGroups,
-  type PermissionGroup,
-} from "@/features/admin/api/permission-groups";
-import { ModelIcon } from "@/shared/components/model-icon";
-import { resolveModelIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
 import type {
-  AdminLLMModelDisplayGroupDTO,
-  AdminLLMModelDTO,
+  AdminLLMAdapter,
   AdminLLMModelAccessScope,
   AdminLLMModelCbPolicyMode,
+  AdminLLMModelDisplayGroupDTO,
+  AdminLLMModelDTO,
   AdminLLMModelUpstreamSourceDTO,
   AdminLLMModelVendor,
   AdminLLMModelVendorDTO,
   AdminLLMStatus,
   AdminLLMUpstreamModelDTO,
   AdminLLMUpstreamView,
-  AdminLLMAdapter,
   UpdateAdminLLMModelRequest,
 } from "@/features/admin/api/llm.types";
-
 import {
-  ADAPTER_LABELS,
-  MODEL_STATUS_OPTIONS,
-  MODEL_KIND_OPTIONS,
-  formatDateTime,
-  resolveValue,
-} from "@/features/admin/types/llm";
-import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
-import {
-  parseKindsJSON,
-  stringifyKinds,
-} from "@/shared/model/llm-schema";
-import { parseProtocolsJSON } from "@/shared/lib/model-protocols";
-import { JsonCodeEditor } from "@/shared/components/json-code-editor";
+  listModelPermissionGroups,
+  listPermissionGroups,
+  type PermissionGroup,
+  setModelPermissionGroups,
+} from "@/features/admin/api/permission-groups";
+import { listAllAdminPages } from "@/features/admin/api/shared";
+import { PermissionGroupSelector } from "@/features/admin/components/sections/groups/permission-group-selector";
+import { ModelContextWindowField } from "@/features/admin/components/sections/models/model-context-window-field";
+import { ModelIconField } from "@/features/admin/components/sections/models/model-icon-field";
 import {
   imageStreamEnabledFromCapabilities,
   MODEL_CAPABILITIES_PLACEHOLDER,
@@ -120,18 +102,35 @@ import {
   setAutomaticModelContextWindowInCapabilities,
   setModelContextWindowInCapabilities,
 } from "@/features/admin/model/model-context-window";
-import type { NativeToolDefinition } from "@/shared/lib/model-option-policy";
 import {
-  DEFAULT_MODEL_SOURCE_BIND_DRAFT,
   createModelSourceBindDraftRow,
-  modelSourceBindDraftHasSelection,
+  DEFAULT_MODEL_SOURCE_BIND_DRAFT,
   type ModelSourceBindDraftRow,
+  modelSourceBindDraftHasSelection,
   resolveModelSourceBindDraftRows,
   uniqueUpstreamModels,
 } from "@/features/admin/model/models-source-binding";
-import { PermissionGroupSelector } from "@/features/admin/components/sections/groups/permission-group-selector";
-import { ModelContextWindowField } from "@/features/admin/components/sections/models/model-context-window-field";
-import { ModelIconField } from "@/features/admin/components/sections/models/model-icon-field";
+import { resolveAutomaticModelContextWindow } from "@/features/admin/model/openrouter-model-catalog";
+import {
+  ADAPTER_LABELS,
+  formatDateTime,
+  MODEL_KIND_OPTIONS,
+  MODEL_STATUS_OPTIONS,
+  resolveValue,
+} from "@/features/admin/types/llm";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { cn } from "@/lib/utils";
+import { getModelOptionPolicy } from "@/shared/api/settings";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { JsonCodeEditor } from "@/shared/components/json-code-editor";
+import { ModelIcon } from "@/shared/components/model-icon";
+import { resolveModelIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
+import type { NativeToolDefinition } from "@/shared/lib/model-option-policy";
+import { parseProtocolsJSON } from "@/shared/lib/model-protocols";
+import {
+  parseKindsJSON,
+  stringifyKinds,
+} from "@/shared/model/llm-schema";
 
 // ---------------------------------------------------------------------------
 // Form state

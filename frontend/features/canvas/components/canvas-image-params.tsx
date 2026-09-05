@@ -1,17 +1,8 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import { RotateCcw, SlidersHorizontal } from "lucide-react";
-
-import type { ChatModelOption, ModelOptionControl } from "@/features/chat/types/chat-runtime";
-import {
-  countActiveImageOptions,
-  deleteOptionAtPath,
-  getOptionAtPath,
-  resolveCanvasImageControls,
-  setOptionAtPath,
-} from "@/features/canvas/model/canvas-image-options";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -21,8 +12,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ConversationOptions } from "@/shared/api/conversation.types";
+import {
+  countActiveImageOptions,
+  deleteOptionAtPath,
+  getOptionAtPath,
+  resolveCanvasImageControls,
+  setOptionAtPath,
+} from "@/features/canvas/model/canvas-image-options";
+import type { ChatModelOption, ModelOptionControl } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
+import type { ConversationOptions } from "@/shared/api/conversation.types";
 
 const DEFAULT_VALUE = "__canvas_default__";
 

@@ -1,12 +1,10 @@
 "use client";
 
-import * as React from "react";
+import type { UpsertIdentityProviderRequest } from "@deeix/api-contract";
 import { ArrowRight, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
-import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   AlertDialog,
@@ -23,9 +21,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableLoadingRow, TableRow } from "@/components/ui/table";
 import { createAdminIdentityProvider, deleteAdminIdentityProvider, listAdminIdentityProviders, listAdminSettings, patchAdminSettings, reorderAdminIdentityProviders, updateAdminIdentityProvider } from "@/features/admin/api";
 import {
   AdminSortableHandle,
@@ -33,15 +32,39 @@ import {
   AdminSortableList,
   moveSortableItem,
 } from "@/features/admin/components/sections/shared/admin-sortable-list";
-import type { UpsertIdentityProviderRequest } from "@deeix/api-contract";
-import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableLoadingRow, TableRow } from "@/components/ui/table";
-import { ApiError } from "@/shared/api/http-client";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { CopyActionButton } from "@/shared/components/copy-action";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
-import { configuredSettingsMap } from "@/shared/lib/settings-meta";
+import {
+  applyLoginDefaults,
+  buildLoginSettingsGroups,
+  createProviderForm,
+  DEFAULT_PROVIDER_FORM,
+  fieldID,
+  flattenLoginSettings,
+  type IdentityProviderForm,
+  includesEmailVerificationSettings,
+  includesPasswordLoginSettings,
+  includesTurnstileSettings,
+  isEmailSMTPField,
+  isRateLimitChildField,
+  isTurnstileChildField,
+  type LoginSettingsField,
+  type LoginSettingsGroup,
+  normalizeProviderSlugPreview,
+  PROVIDER_TEMPLATES,
+  type ProviderTemplate,
+  providerToForm,
+  toEditorField,
+  validateEmailVerificationSettings,
+  validatePasswordLoginSettings,
+  validateTurnstileSettings,
+} from "@/features/admin/model/login-settings";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { getLoginOptions } from "@/shared/api/auth";
 import type { IdentityProviderDTO } from "@/shared/api/auth.types";
+import { ApiError } from "@/shared/api/http-client";
 import type { PatchSettingItem } from "@/shared/api/settings.types";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
+import { CopyActionButton } from "@/shared/components/copy-action";
 import { IdentityProviderIcon } from "@/shared/components/identity-provider-icon";
 import {
   SettingsFieldInset,
@@ -51,33 +74,9 @@ import {
   SettingsSection,
   SettingsSectionSeparator,
 } from "@/shared/components/settings-layout";
-import {
-  applyLoginDefaults,
-  buildLoginSettingsGroups,
-  createProviderForm,
-  DEFAULT_PROVIDER_FORM,
-  type IdentityProviderForm,
-  fieldID,
-  flattenLoginSettings,
-  includesEmailVerificationSettings,
-  includesPasswordLoginSettings,
-  includesTurnstileSettings,
-  isEmailSMTPField,
-  isRateLimitChildField,
-  isTurnstileChildField,
-  normalizeProviderSlugPreview,
-  providerToForm,
-  PROVIDER_TEMPLATES,
-  toEditorField,
-  validateEmailVerificationSettings,
-  validatePasswordLoginSettings,
-  validateTurnstileSettings,
-  type LoginSettingsField,
-  type LoginSettingsGroup,
-  type ProviderTemplate,
-} from "@/features/admin/model/login-settings";
-import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
-import { getLoginOptions } from "@/shared/api/auth";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { configuredSettingsMap } from "@/shared/lib/settings-meta";
+import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
 
 function RequiredMark() {
   return <span className="ml-0.5 text-destructive">*</span>;

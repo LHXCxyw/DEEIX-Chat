@@ -14,4 +14,5 @@ export type PatchSettingItem = Omit<PatchItem, "value"> & { value: string };
 export type PatchSettingsRequest = Omit<SettingsPatchSettingsRequest, "items"> & {
   items: PatchSettingItem[];
 };
+
 import type { PatchItem, SettingsPatchSettingsRequest } from "@deeix/api-contract";

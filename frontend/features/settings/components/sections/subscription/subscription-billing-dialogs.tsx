@@ -6,12 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { SpinnerLabel } from "@/components/ui/spinner";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import {
   billingDisplayAmountToUSD,
   billingDisplayInputSymbol,
   formatProviderPaymentAmountFromUSD,
 } from "@/features/settings/model/subscription-format";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
 
 type PaymentProvider = "stripe" | "epay";

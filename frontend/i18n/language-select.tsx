@@ -3,8 +3,8 @@
 import { useTranslations } from "next-intl";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { APP_LOCALE_LABELS, APP_LOCALES, type AppLocale } from "@/i18n/config";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
+import { APP_LOCALE_LABELS, APP_LOCALES, type AppLocale } from "@/i18n/config";
 import { cn } from "@/lib/utils";
 
 export function LanguageSelect({

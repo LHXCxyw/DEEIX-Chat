@@ -1,13 +1,21 @@
 "use client";
 
-import * as React from "react";
-import dynamic from "next/dynamic";
 import { Database, Globe, Plus, Settings, ShieldCheck, ShieldX, Trash2, Upload, UserCheck, WalletCards } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,14 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
@@ -41,23 +41,11 @@ import {
   TableLoadingRow,
   TableRow,
 } from "@/components/ui/table";
+import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
 import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import { importOpenWebUIUsers } from "@/features/admin/api";
-import type { ImportOpenWebUIUsersData, ImportOpenWebUIUsersRequest } from "@/features/admin/api/admin.types";
-import { resolveAvatarImageSrc } from "@/shared/lib/avatar";
-import { useAuthSession } from "@/shared/auth/auth-session-context";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
-import { TimeZoneSelect } from "@/shared/components/time-zone-select";
-import type { AdminUserDTO, AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
+import type { AdminUserDTO, AdminUserRole, AdminUserStatus, ImportOpenWebUIUsersData, ImportOpenWebUIUsersRequest } from "@/features/admin/api/admin.types";
 import type { AdminBillingMode } from "@/features/admin/api/billing.types";
-import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
-
-import { AccountAvatarEditorDialog } from "./accounts-avatar-dialog";
-import { AccountConfirmationDialog } from "./accounts-confirm-dialog";
-import { AccountOpenWebUIImportDialog } from "./accounts-import-dialog";
-import { AccountPasswordResetDialog } from "./accounts-password-dialog";
-import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
 import { AdminBulkConfirmDialog } from "@/features/admin/components/bulk-confirm-dialog";
 import { useAdminUsersPage } from "@/features/admin/hooks/use-admin-users-page";
 import {
@@ -77,6 +65,16 @@ import {
   resolveValue,
 } from "@/features/admin/utils/account-display";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { useAuthSession } from "@/shared/auth/auth-session-context";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { TimeZoneSelect } from "@/shared/components/time-zone-select";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { resolveAvatarImageSrc } from "@/shared/lib/avatar";
+import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
+import { AccountAvatarEditorDialog } from "./accounts-avatar-dialog";
+import { AccountConfirmationDialog } from "./accounts-confirm-dialog";
+import { AccountOpenWebUIImportDialog } from "./accounts-import-dialog";
+import { AccountPasswordResetDialog } from "./accounts-password-dialog";
 
 const CreateUserDialog = dynamic(
   () => import("./accounts-user-editor").then((module) => module.CreateUserDialog),

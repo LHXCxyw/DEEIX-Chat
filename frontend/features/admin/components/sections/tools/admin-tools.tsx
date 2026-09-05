@@ -1,14 +1,9 @@
 "use client";
 
-import * as React from "react";
 import { CheckCircle2, FileBraces, ListOrdered, Pencil, Plus, RefreshCw, Save, Trash2, Wrench, X, XCircle } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
-import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +14,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -33,12 +30,15 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableLoadingRow, TableRow } from "@/components/ui/table";
+import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
 import { Textarea } from "@/components/ui/textarea";
+import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import {
   createAdminMCPServer,
   deleteAdminMCPServer,
-  listAdminMCPServerTools,
   listAdminMCPServers,
+  listAdminMCPServerTools,
   listAdminSettings,
   patchAdminSettings,
   syncAdminMCPServerTools,
@@ -47,9 +47,6 @@ import {
   updateAdminMCPTool,
 } from "@/features/admin/api";
 import type { AdminMCPServerDTO, AdminMCPServerPayload } from "@/features/admin/api/mcp.types";
-import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableLoadingRow, TableRow } from "@/components/ui/table";
-import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
-import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import { AdminBulkConfirmDialog } from "@/features/admin/components/bulk-confirm-dialog";
 import { MCPOrderSheet } from "@/features/admin/components/sections/tools/mcp-order-sheet";
 import {
@@ -58,25 +55,27 @@ import {
 } from "@/features/admin/components/sections/tools/mcp-tool-edit-dialog";
 import { toolSchemaArgumentMetadata } from "@/features/admin/components/sections/tools/mcp-tool-schema";
 import {
-  TOOL_SETTINGS_FIELDS,
   applyToolSettingsDefaults,
   flattenToolSettings,
-  toToolEditorField,
+  TOOL_SETTINGS_FIELDS,
   toolFieldID,
+  toToolEditorField,
 } from "@/features/admin/model/tool-settings";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { cn } from "@/lib/utils";
+import type { MCPToolDTO } from "@/shared/api/mcp.types";
+import type { PatchSettingItem } from "@/shared/api/settings.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
 import { CopyActionButton } from "@/shared/components/copy-action";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import {
   SettingsFieldItem,
   SettingsFieldList,
   SettingsPage,
   SettingsSection,
 } from "@/shared/components/settings-layout";
-import type { MCPToolDTO } from "@/shared/api/mcp.types";
-import type { PatchSettingItem } from "@/shared/api/settings.types";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
 
 type ServerFormState = {
   id?: number;

@@ -1,6 +1,8 @@
 package channel
 
-import appbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
+import (
+	appbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
+)
 
 const (
 	BatchDeleteStatusDeleted  = "deleted"

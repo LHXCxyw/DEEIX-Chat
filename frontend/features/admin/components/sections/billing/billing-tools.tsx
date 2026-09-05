@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { CircleHelp, Save } from "lucide-react";
 import { useMessages, useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import type {
   NativeToolPricingDTO,
 } from "@/features/admin/api/billing.types";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
 import {
   SettingsFieldItem,
@@ -26,7 +27,6 @@ import {
   SettingsFieldRow,
   SettingsSection,
 } from "@/shared/components/settings-layout";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { localizedNativeToolText } from "@/shared/lib/native-tool-i18n";
 
 type BillingToolsSectionProps = {

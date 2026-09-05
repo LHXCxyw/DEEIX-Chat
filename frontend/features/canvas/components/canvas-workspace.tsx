@@ -1,30 +1,30 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import { Sparkles, Trash2, X } from "lucide-react";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { toast } from "sonner";
-import { useCanvasModels } from "@/features/canvas/hooks/use-canvas-models";
-import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
-import { useCanvasStore } from "@/features/canvas/hooks/use-canvas-store";
-import { CanvasImageLightbox } from "@/features/canvas/components/canvas-image-lightbox";
-import { CanvasImageEditor } from "@/features/canvas/components/canvas-image-editor";
 import { CanvasAssetSidebar } from "@/features/canvas/components/canvas-asset-sidebar";
+import { CanvasChatComposer, type ChatTaskInput } from "@/features/canvas/components/canvas-chat-composer";
+import { CanvasImageEditor } from "@/features/canvas/components/canvas-image-editor";
+import { CanvasImageLightbox } from "@/features/canvas/components/canvas-image-lightbox";
 import { CanvasMinimap } from "@/features/canvas/components/canvas-minimap";
 import { CanvasToolbar } from "@/features/canvas/components/canvas-toolbar";
 import { CanvasViewport } from "@/features/canvas/components/canvas-viewport";
-import { CanvasChatComposer, type ChatTaskInput } from "@/features/canvas/components/canvas-chat-composer";
+import { useCanvasModels } from "@/features/canvas/hooks/use-canvas-models";
+import { useCanvasStore } from "@/features/canvas/hooks/use-canvas-store";
+import { editorSizeOptions } from "@/features/canvas/model/canvas-image-options";
+import { clampViewportScale, parseCanvasState } from "@/features/canvas/model/canvas-persist";
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
-  type CanvasViewport as Viewport,
   type GraphNodeKind,
   type ImageGraphNode,
   type OutputGraphNode,
+  type CanvasViewport as Viewport,
 } from "@/features/canvas/model/canvas-types";
-import { clampViewportScale, parseCanvasState } from "@/features/canvas/model/canvas-persist";
-import { editorSizeOptions } from "@/features/canvas/model/canvas-image-options";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { fetchFileContent } from "@/shared/api/file";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 

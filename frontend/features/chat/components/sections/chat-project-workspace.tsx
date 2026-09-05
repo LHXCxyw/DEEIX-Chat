@@ -1,7 +1,5 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import {
   ChevronDown,
   ChevronRight,
@@ -19,25 +17,26 @@ import {
   X,
 } from "lucide-react";
 import type * as Monaco from "monaco-editor";
-import { useTheme } from "@/shared/components/theme-provider";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import type { ChatAreaMessage } from "@/features/chat/types/messages";
+import { cn } from "@/lib/utils";
 import {
   deleteProjectFile,
   downloadProjectArchive,
   fetchProjectFileBlob,
   fetchProjectFileContent,
   getProjectWorkspace,
+  type ProjectWorkspaceFileDTO,
   saveProjectFile,
   uploadProjectArchive,
-  type ProjectWorkspaceFileDTO,
 } from "@/shared/api/conversation";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { cn } from "@/lib/utils";
+import { useTheme } from "@/shared/components/theme-provider";
 
 type MonacoModule = typeof Monaco;
 

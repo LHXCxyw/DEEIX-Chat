@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import {
   AlertDialog,
@@ -25,9 +25,9 @@ import {
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import { resolveProtocolLabel } from "@/features/admin/utils/llm-display";
 import type { AdminLLMModelProbeDebug, AdminLLMModelProbeResult } from "@/features/admin/api/llm.types";
+import { resolveProtocolLabel } from "@/features/admin/utils/llm-display";
+import { cn } from "@/lib/utils";
 
 type ModelProbeDialogProps = {
   open: boolean;

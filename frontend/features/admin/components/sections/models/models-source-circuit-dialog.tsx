@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,12 +15,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SpinnerLabel } from "@/components/ui/spinner";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import type {
-  AdminLLMModelUpstreamSourceDTO,
   AdminLLMModelCbPolicyMode,
+  AdminLLMModelUpstreamSourceDTO,
   UpdateAdminLLMModelUpstreamSourceRequest,
 } from "@/features/admin/api/llm.types";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 
 export type ModelSourceCircuitPayload = Required<
   Pick<UpdateAdminLLMModelUpstreamSourceRequest, "cbFailureThreshold" | "cbDurationMin" | "cbWindowMin">

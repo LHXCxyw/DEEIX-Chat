@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { motion } from "motion/react";
 import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +16,8 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import {
-  DialogCollapsible,
   Dialog,
+  DialogCollapsible,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -42,25 +42,25 @@ import {
 } from "@/components/ui/sheet";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import type { AdminUserDTO, AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
+import type { AdminBillingMode, AdminBillingPlanDTO } from "@/features/admin/api/billing.types";
+import { AdminDateTimePicker } from "@/features/admin/components/admin-date-time-picker";
+import {
+  type CreateUserPayload,
+  type EditUserPayload,
+  USER_STATUS_OPTIONS,
+  type UserTier,
+} from "@/features/admin/types/accounts";
+import { formatBillingBalance, resolveDetailValue } from "@/features/admin/utils/account-display";
+import { cn } from "@/lib/utils";
 import {
   DISPLAY_NAME_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   USERNAME_MAX_LENGTH,
 } from "@/shared/auth/account-policy";
-import { resolveAvatarImageSrc } from "@/shared/lib/avatar";
 import { TimeZoneSelect } from "@/shared/components/time-zone-select";
-import { cn } from "@/lib/utils";
-import { AdminDateTimePicker } from "@/features/admin/components/admin-date-time-picker";
-import type { AdminUserDTO, AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
-import {
-  USER_STATUS_OPTIONS,
-  type CreateUserPayload,
-  type EditUserPayload,
-  type UserTier,
-} from "@/features/admin/types/accounts";
-import type { AdminBillingMode, AdminBillingPlanDTO } from "@/features/admin/api/billing.types";
+import { resolveAvatarImageSrc } from "@/shared/lib/avatar";
 import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
-import { formatBillingBalance, resolveDetailValue } from "@/features/admin/utils/account-display";
 
 const DIALOG_LAYOUT_TRANSITION = {
   layout: {

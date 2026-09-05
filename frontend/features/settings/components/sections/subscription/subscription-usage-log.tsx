@@ -1,17 +1,13 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableLoadingRow, TableRow } from "@/components/ui/table";
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
-import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useAppLocale } from "@/i18n/app-i18n-provider";
-import type { BillingUsageLedgerDTO } from "@/shared/api/billing.types";
-import { billingRateMultiplierNote, cacheWriteBillingLabel, cacheWriteBillingNote } from "@/shared/lib/billing-display";
-import type { BillingDisplayLabels, BillingDisplayOptions } from "@/shared/lib/billing-display";
+import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import {
   formatAccountBalance,
   formatFormulaTokenCount,
@@ -23,6 +19,10 @@ import {
   modelDisplayLabel,
   nanousdToUSD,
 } from "@/features/settings/model/subscription-format";
+import { useAppLocale } from "@/i18n/app-i18n-provider";
+import type { BillingUsageLedgerDTO } from "@/shared/api/billing.types";
+import type { BillingDisplayLabels, BillingDisplayOptions } from "@/shared/lib/billing-display";
+import { billingRateMultiplierNote, cacheWriteBillingLabel, cacheWriteBillingNote } from "@/shared/lib/billing-display";
 
 type BillingTooltipLabels = {
   display: BillingDisplayLabels;

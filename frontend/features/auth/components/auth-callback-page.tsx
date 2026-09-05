@@ -1,9 +1,9 @@
 "use client";
 
-import * as React from "react";
+import { Link2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Link2 } from "lucide-react";
+import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import {
@@ -16,9 +16,9 @@ import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { completeProviderBind, completeProviderLogin, exchangeProviderAuthBridgeGrant } from "@/shared/api/auth";
 import { ApiError } from "@/shared/api/http-client";
 import { DEFAULT_AUTH_NEXT_PATH, normalizeAuthNextPath } from "@/shared/auth/local-path";
-import { AppLogo } from "@/shared/components/app-logo";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { writeSessionSnapshot } from "@/shared/auth/session";
+import { AppLogo } from "@/shared/components/app-logo";
 
 const PROVIDER_EMAIL_CONFLICT_ERROR_CODE = "auth.provider_email_conflict";
 const PROVIDER_EMAIL_CONFLICT_ACTION_SIGN_IN_THEN_BIND = "sign_in_then_bind";

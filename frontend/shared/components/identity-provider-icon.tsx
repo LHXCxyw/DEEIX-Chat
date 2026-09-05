@@ -1,14 +1,13 @@
 "use client";
 
 import * as React from "react";
-
+import { cn } from "@/lib/utils";
 import {
   resolveIdentityProviderIconScale,
   resolveIdentityProviderIconURL,
   resolveSafeIdentityProviderIconURL,
   shouldInvertIdentityProviderIcon,
 } from "@/shared/lib/identity-provider-icons";
-import { cn } from "@/lib/utils";
 
 export function IdentityProviderIcon({
   name,

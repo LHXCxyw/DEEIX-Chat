@@ -1,10 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-
-import packageMeta from "@/package.json";
 import type { ReleaseInfo } from "@/features/admin/model/update-check";
 import { formatReleaseVersion } from "@/features/admin/model/update-check";
+import packageMeta from "@/package.json";
 
 export function AdminUpdateTooltipContent({ updateRelease }: { updateRelease: ReleaseInfo | null }) {
   const t = useTranslations("adminUsers.aboutPage");

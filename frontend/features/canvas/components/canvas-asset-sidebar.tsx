@@ -1,7 +1,5 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import {
   ChevronDown,
   ChevronRight,
@@ -17,13 +15,14 @@ import {
   TextCursorInput,
   TriangleAlert,
 } from "lucide-react";
-
-import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 import {
-  graphNodeSize,
   type GraphNode,
   type GraphNodeKind,
+  graphNodeSize,
 } from "@/features/canvas/model/canvas-types";
+import { cn } from "@/lib/utils";
 
 const GROUPS_COLLAPSED_STORAGE_KEY = "deeix-canvas-asset-groups-collapsed";
 

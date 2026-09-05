@@ -3,14 +3,14 @@
 import { useTranslations } from "next-intl";
 
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import {
-  type ChatFontOption,
-  type ChatFontWeightOption,
-} from "@/features/settings/utils/chat-font";
 import type {
   ChatFontPreview,
   ChatFontWeightPreview,
 } from "@/features/settings/types/settings";
+import {
+  type ChatFontOption,
+  type ChatFontWeightOption,
+} from "@/features/settings/utils/chat-font";
 import { cn } from "@/lib/utils";
 import {
   CHAT_CONTENT_WIDTH_OPTIONS,
@@ -47,7 +47,7 @@ function ChatContentWidthPreviewCard({
     <button
       type="button"
       onClick={() => onSelect(item.value)}
-      className="group text-left disabled:pointer-events-none disabled:opacity-60"
+      className="group rounded-xl text-left disabled:pointer-events-none disabled:opacity-60"
       aria-pressed={active}
       disabled={disabled}
     >
@@ -79,7 +79,7 @@ function ChatFontPreviewCard({
     <button
       type="button"
       onClick={() => onSelect(item.value)}
-      className="group text-left"
+      className="group rounded-xl text-left"
       aria-pressed={active}
     >
       <div
@@ -112,7 +112,7 @@ function ChatFontWeightPreviewCard({
     <button
       type="button"
       onClick={() => onSelect(item.value)}
-      className="group text-left"
+      className="group rounded-xl text-left"
       aria-pressed={active}
     >
       <div

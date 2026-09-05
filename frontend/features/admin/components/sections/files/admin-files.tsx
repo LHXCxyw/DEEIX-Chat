@@ -203,7 +203,10 @@ export function AdminFilesSettingsPage() {
     setServiceStates((prev) => ({ ...prev, [name]: { ...prev[name], loading: true } }));
     try {
       const token = await resolveAccessToken();
-      if (!token) return;
+      if (!token) {
+        setServiceStates((prev) => ({ ...prev, [name]: { ...prev[name], loading: false } }));
+        return;
+      }
       const data = await SERVICE_LOADERS[name](token);
       setServiceStates((prev) => ({ ...prev, [name]: { ...prev[name], data, loading: false } }));
     } catch {

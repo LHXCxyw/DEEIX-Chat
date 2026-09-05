@@ -11,7 +11,9 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/extraction"
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/textutil"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/apperr"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/background"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -19,13 +21,14 @@ import (
 
 const (
 	// DefaultExtractorVersion 是当前文件处理流水线版本标识。
-	DefaultExtractorVersion  = "file-pipeline-v1"
-	fileProcessingMaxRetries = 3
-	defaultProcessingPreview = 280
-	defaultExtractTimeout    = 60 * time.Second
-	fixedEmbeddingTimeout    = 5 * time.Minute
-	failurePersistTimeout    = 5 * time.Second
-	fileProcessingLeaseRenew = 15 * time.Second
+	DefaultExtractorVersion       = "file-pipeline-v1"
+	fileProcessingMaxRetries      = 3
+	defaultProcessingPreview      = 280
+	defaultExtractTimeout         = 60 * time.Second
+	fixedEmbeddingTimeout         = 5 * time.Minute
+	failurePersistTimeout         = 5 * time.Second
+	processingQueueFailureMessage = "文件处理失败，请稍后重试。"
+	fileProcessingLeaseRenew      = 15 * time.Second
 	// fallbackProcessingConcurrency 限制无队列缓存降级模式下的并发处理 goroutine 数。
 	fallbackProcessingConcurrency = 4
 	// fallbackProcessingTimeout 是降级模式单个任务的硬超时。
@@ -35,7 +38,11 @@ const (
 
 var (
 	// ErrFileProcessingFailed 表示文件处理失败。
-	ErrFileProcessingFailed    = errors.New("file processing failed")
+	ErrFileProcessingFailed = errors.New("file processing failed")
+	// errExtractionServiceNotConfigured 表示文件处理服务未注入抽取服务。
+	errExtractionServiceNotConfigured = errors.New("extraction service not configured")
+	// ErrFileNotFound 表示当前用户名下不存在该活跃文件。
+	ErrFileNotFound            = apperr.New("file.not_found", "file not found")
 	errFileProcessingClaimLost = errors.New("file processing claim lost")
 )
 
@@ -89,40 +96,27 @@ type Service struct {
 	fallbackSlots chan struct{}
 }
 
-// NewService 创建文件处理服务。
-func NewService(
-	cfg config.Config,
-	repo repository.FileProcessingStatusRepository,
-	cache repository.FileProcessingQueueRepository,
-	extractSvc *extraction.Service,
-	embeddingSvc *appembedding.Service,
-	logger *zap.Logger,
-	extractorVersion string,
-) *Service {
-	return NewServiceWithRuntime(config.NewRuntime(cfg), repo, cache, extractSvc, embeddingSvc, logger, extractorVersion)
+// Dependencies 描述文件处理服务的运行时依赖。
+type Dependencies struct {
+	Config           *config.Runtime
+	Repository       repository.FileProcessingStatusRepository
+	Cache            repository.FileProcessingQueueRepository
+	ExtractService   *extraction.Service
+	EmbeddingService *appembedding.Service
+	Logger           *zap.Logger
+	ExtractorVersion string
 }
 
 // NewServiceWithRuntime 创建使用运行时配置容器的文件处理服务。
-func NewServiceWithRuntime(
-	cfg *config.Runtime,
-	repo repository.FileProcessingStatusRepository,
-	cache repository.FileProcessingQueueRepository,
-	extractSvc *extraction.Service,
-	embeddingSvc *appembedding.Service,
-	logger *zap.Logger,
-	extractorVersion string,
-) *Service {
-	if extractSvc == nil {
-		extractSvc = extraction.NewServiceWithRuntime(cfg)
-	}
+func NewServiceWithRuntime(deps Dependencies) *Service {
 	return &Service{
-		cfg:              cfg,
-		repo:             repo,
-		cache:            cache,
-		extractSvc:       extractSvc,
-		embeddingSvc:     embeddingSvc,
-		logger:           logger,
-		extractorVersion: strings.TrimSpace(extractorVersion),
+		cfg:              deps.Config,
+		repo:             deps.Repository,
+		cache:            deps.Cache,
+		extractSvc:       deps.ExtractService,
+		embeddingSvc:     deps.EmbeddingService,
+		logger:           deps.Logger,
+		extractorVersion: strings.TrimSpace(deps.ExtractorVersion),
 		fallbackSlots:    make(chan struct{}, fallbackProcessingConcurrency),
 	}
 }
@@ -193,7 +187,7 @@ func (s *Service) SubmitFileEmbeddings(
 			result.SubmittedFileIDs = append(result.SubmittedFileIDs, job.FileID)
 			continue
 		}
-		if releaseErr := s.embeddingSvc.FailTargetedJob(ctx, job, "embedding queue is unavailable"); releaseErr != nil && s.logger != nil {
+		if releaseErr := s.embeddingSvc.FailTargetedJob(ctx, job, appembedding.ErrEmbeddingQueueUnavailable); releaseErr != nil && s.logger != nil {
 			s.logger.Warn("release_unqueued_embedding_failed", zap.Uint("user_id", job.UserID), zap.String("file_id", job.FileID), zap.Error(errors.Join(err, releaseErr)))
 		}
 		result.Skipped = append(result.Skipped, appembedding.TargetedFileSkip{
@@ -258,7 +252,7 @@ func (s *Service) InitializeUploadedFile(ctx context.Context, fileObj *domaincon
 		if errors.Is(err, repository.ErrFileProcessingQueueFull) {
 			code = "queue_full"
 		}
-		if failErr := s.markFileProcessingFailed(ctx, fileObj, code, err.Error()); failErr != nil && s.logger != nil {
+		if failErr := s.markFileProcessingFailed(ctx, fileObj, code, HumanizeFileProcessingError(fileObj.FileCategory, code, "")); failErr != nil && s.logger != nil {
 			s.logger.Warn("mark_file_failed_after_enqueue_error",
 				zap.Uint("user_id", fileObj.UserID),
 				zap.String("file_id", fileObj.FileID),
@@ -362,10 +356,10 @@ func (s *Service) processClaimedFile(
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return s.markClaimedFileProcessingFailed(runCtx, fileObj, attemptID, "extract_failed", err.Error())
+		return s.markClaimedFileProcessingFailed(runCtx, fileObj, attemptID, "extract_failed", HumanizeFileProcessingError(fileObj.FileCategory, "extract_failed", ""))
 	}
 	now := time.Now()
-	preview := compactSnippet(extractResult.Text, defaultProcessingPreview)
+	preview := textutil.CompactSnippet(extractResult.Text, defaultProcessingPreview)
 	ragAvailable, ragReason := s.embeddingSvc.Available(runCtx)
 	indexingAvailable, _ := s.embeddingSvc.IndexingAvailable(runCtx)
 	resultRAGReady := false
@@ -434,7 +428,7 @@ func (s *Service) processClaimedFile(
 				RAGReady:           false,
 				RAGReason:          "embed_failed",
 				ErrorCode:          "embed_failed",
-				ErrorMessage:       truncateError(embedErr.Error(), 255),
+				ErrorMessage:       appembedding.ErrorSummary(embedErr),
 				ExtractorVersion:   s.version(),
 				StartedAt:          &startedAt,
 				CompletedAt:        &now,
@@ -481,8 +475,14 @@ func (s *Service) processClaimedFile(
 // GetFileProcessingStatus 查询文件处理状态。
 func (s *Service) GetFileProcessingStatus(ctx context.Context, userID uint, fileID string) (*FileProcessingStatusDTO, error) {
 	fileObj, err := s.repo.GetActiveFileObjectByID(ctx, userID, fileID)
-	if err != nil || fileObj == nil {
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrFileNotFound
+		}
 		return nil, err
+	}
+	if fileObj == nil {
+		return nil, ErrFileNotFound
 	}
 	result := fileProcessingStatusFromFileObject(fileObj)
 	if capability, ok := s.ResolveFileVectorizationCapabilities(ctx, []domainconversation.FileObject{*fileObj})[fileObj.FileID]; ok {
@@ -746,6 +746,7 @@ func (s *Service) handleProcessingMessage(ctx context.Context, consumerName stri
 			}
 			return
 		}
+		failureMessage := processingErrorSummary(err)
 		if msg.Retry < fileProcessingMaxRetries {
 			reset, resetErr := s.repo.ResetFileObjectProcessingForRetry(ctx, msg.UserID, msg.FileID, attemptID)
 			if resetErr != nil || !reset {
@@ -764,7 +765,7 @@ func (s *Service) handleProcessingMessage(ctx context.Context, consumerName stri
 				consumerName,
 				msg,
 				msg.Retry+1,
-				err.Error(),
+				failureMessage,
 			)
 			if requeueErr != nil || !settled {
 				if s.logger != nil {
@@ -778,7 +779,7 @@ func (s *Service) handleProcessingMessage(ctx context.Context, consumerName stri
 				return
 			}
 		} else {
-			if finalizeErr := s.forceFinalizeFailed(msg.UserID, msg.FileID, attemptID, err); finalizeErr != nil {
+			if finalizeErr := s.forceFinalizeFailed(ctx, msg.UserID, msg.FileID, attemptID, err); finalizeErr != nil {
 				if s.logger != nil {
 					s.logger.Warn("force_finalize_file_processing_failed",
 						zap.Uint("user_id", msg.UserID),
@@ -788,7 +789,7 @@ func (s *Service) handleProcessingMessage(ctx context.Context, consumerName stri
 				}
 				return
 			}
-			if !s.deadLetterProcessingMessage(ctx, consumerName, msg, err.Error()) {
+			if !s.deadLetterProcessingMessage(ctx, consumerName, msg) {
 				return
 			}
 		}
@@ -809,7 +810,7 @@ func (s *Service) handleProcessingMessage(ctx context.Context, consumerName stri
 			return
 		}
 		if fileObj != nil && fileObj.ProcessingStatus == "failed" {
-			s.deadLetterProcessingMessage(ctx, consumerName, msg, msg.LastError)
+			s.deadLetterProcessingMessage(ctx, consumerName, msg)
 			return
 		}
 	}
@@ -867,8 +868,9 @@ func (s *Service) handleEmbeddingMessage(ctx context.Context, consumerName strin
 		s.settleProcessingMessage(ctx, consumerName, msg)
 		return
 	}
+	failureMessage := appembedding.ErrorSummary(err)
 	if msg.Retry < fileProcessingMaxRetries {
-		if retryStateErr := s.embeddingSvc.RequeueTargetedJob(ctx, job, err.Error()); retryStateErr != nil {
+		if retryStateErr := s.embeddingSvc.RequeueTargetedJob(ctx, job, err); retryStateErr != nil {
 			if s.logger != nil {
 				s.logger.Warn("mark_requeued_embedding_failed",
 					zap.Uint("user_id", msg.UserID),
@@ -884,7 +886,7 @@ func (s *Service) handleEmbeddingMessage(ctx context.Context, consumerName strin
 			consumerName,
 			msg,
 			msg.Retry+1,
-			err.Error(),
+			failureMessage,
 		)
 		if requeueErr != nil || !settled {
 			if s.logger != nil {
@@ -898,7 +900,7 @@ func (s *Service) handleEmbeddingMessage(ctx context.Context, consumerName strin
 			return
 		}
 	} else {
-		if failErr := s.embeddingSvc.FailTargetedJob(ctx, job, err.Error()); failErr != nil {
+		if failErr := s.embeddingSvc.FailTargetedJob(ctx, job, err); failErr != nil {
 			if s.logger != nil {
 				s.logger.Warn("finalize_queued_embedding_failed",
 					zap.Uint("user_id", msg.UserID),
@@ -909,7 +911,7 @@ func (s *Service) handleEmbeddingMessage(ctx context.Context, consumerName strin
 			}
 			return
 		}
-		if !s.deadLetterProcessingMessage(ctx, consumerName, msg, err.Error()) {
+		if !s.deadLetterProcessingMessage(ctx, consumerName, msg) {
 			return
 		}
 	}
@@ -979,9 +981,8 @@ func (s *Service) deadLetterProcessingMessage(
 	ctx context.Context,
 	consumerName string,
 	msg repository.FileProcessingMessage,
-	lastError string,
 ) bool {
-	settled, err := s.cache.DeadLetterFileProcessingMessage(ctx, consumerName, msg, lastError)
+	settled, err := s.cache.DeadLetterFileProcessingMessage(ctx, consumerName, msg, processingQueueFailureMessage)
 	if err == nil && settled {
 		return true
 	}
@@ -997,11 +998,11 @@ func (s *Service) deadLetterProcessingMessage(
 	return false
 }
 
-func (s *Service) forceFinalizeFailed(userID uint, fileID string, attemptID string, processingErr error) error {
+func (s *Service) forceFinalizeFailed(parent context.Context, userID uint, fileID string, attemptID string, processingErr error) error {
 	if s == nil || s.repo == nil || strings.TrimSpace(fileID) == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), failurePersistTimeout)
+	ctx, cancel := background.WithTimeout(parent, failurePersistTimeout)
 	defer cancel()
 
 	fileObj, err := s.repo.GetActiveFileObjectByID(ctx, userID, fileID)
@@ -1026,16 +1027,16 @@ func (s *Service) forceFinalizeFailed(userID uint, fileID string, attemptID stri
 // enqueueFileProcessing 将文件处理任务放入队列；无队列缓存时退化为进程内受限并发的异步处理。
 func (s *Service) enqueueFileProcessing(ctx context.Context, userID uint, fileID string, retry int, lastError string) error {
 	if s.cache == nil {
-		return s.processInFallbackMode(userID, fileID)
+		return s.processInFallbackMode(ctx, userID, fileID)
 	}
-	return s.cache.EnqueueFileProcessing(ctx, userID, fileID, retry, lastError)
+	return s.cache.EnqueueFileProcessing(ctx, userID, fileID, retry, processingQueueFailureMessage)
 }
 
 // processInFallbackMode 在无队列缓存的降级模式下异步处理文件：
 // 并发由 fallbackSlots 信号量限制，超出容量返回 ErrFileProcessingQueueFull，
 // 由 InitializeUploadedFile 将文件标为 failed，避免永远停在 queued。
 // 单个任务由硬超时兜底退出；超时后按同一 attemptID 落失败态。
-func (s *Service) processInFallbackMode(userID uint, fileID string) error {
+func (s *Service) processInFallbackMode(parent context.Context, userID uint, fileID string) error {
 	select {
 	case s.fallbackSlots <- struct{}{}:
 	default:
@@ -1044,14 +1045,14 @@ func (s *Service) processInFallbackMode(userID uint, fileID string) error {
 	background.Go(s.logger, "fallback_file_processing", func() {
 		defer func() { <-s.fallbackSlots }()
 		attemptID := uuid.NewString()
-		taskCtx, cancel := context.WithTimeout(context.Background(), fallbackProcessingTimeout)
+		taskCtx, cancel := background.WithTimeout(parent, fallbackProcessingTimeout)
 		defer cancel()
 		claimed, err := s.processFile(taskCtx, userID, fileID, false, attemptID)
 		if err == nil {
 			return
 		}
 		if claimed || taskCtx.Err() != nil {
-			_ = s.forceFinalizeFailed(userID, fileID, attemptID, err)
+			_ = s.forceFinalizeFailed(taskCtx, userID, fileID, attemptID, err)
 		}
 		if s.logger != nil {
 			s.logger.Warn("fallback_file_processing_failed",
@@ -1071,7 +1072,7 @@ func (s *Service) markFileProcessingFailed(ctx context.Context, fileObj *domainc
 	writeCtx := ctx
 	if writeCtx == nil || writeCtx.Err() != nil {
 		var cancel context.CancelFunc
-		writeCtx, cancel = context.WithTimeout(context.Background(), failurePersistTimeout)
+		writeCtx, cancel = background.WithTimeout(ctx, failurePersistTimeout)
 		defer cancel()
 	}
 	return s.repo.UpdateFileObjectProcessingState(
@@ -1093,7 +1094,7 @@ func (s *Service) markClaimedFileProcessingFailed(
 	writeCtx := ctx
 	if writeCtx == nil || writeCtx.Err() != nil {
 		var cancel context.CancelFunc
-		writeCtx, cancel = context.WithTimeout(context.Background(), failurePersistTimeout)
+		writeCtx, cancel = background.WithTimeout(ctx, failurePersistTimeout)
 		defer cancel()
 	}
 	return s.updateClaimedFileProcessingState(
@@ -1120,7 +1121,7 @@ func (s *Service) failedFileProcessingState(
 		RAGReady:         false,
 		RAGReason:        code,
 		ErrorCode:        code,
-		ErrorMessage:     truncateError(message, 255),
+		ErrorMessage:     textutil.TruncateTrimmed(HumanizeFileProcessingError(fileObj.FileCategory, code, message), 255),
 		ExtractorVersion: s.version(),
 		CompletedAt:      &now,
 	}
@@ -1142,6 +1143,10 @@ func (s *Service) updateClaimedFileProcessingState(
 }
 
 func (s *Service) extractTextForProcessing(ctx context.Context, fileObj domainconversation.FileObject) (extraction.Result, error) {
+	if s == nil || s.extractSvc == nil {
+		return extraction.Result{}, errExtractionServiceNotConfigured
+	}
+
 	type extractOutcome struct {
 		result extraction.Result
 		err    error
@@ -1249,118 +1254,37 @@ func classifyProcessingErrorCode(err error) string {
 	if errors.Is(err, repository.ErrFileProcessingQueueFull) {
 		return "queue_full"
 	}
-	msg := strings.ToLower(strings.TrimSpace(err.Error()))
-	switch {
-	case strings.Contains(msg, "tesseract_ocr_disabled"):
-		return "tesseract_ocr_disabled"
-	case strings.Contains(msg, "tesseract_ocr_failed"):
-		return "tesseract_ocr_failed"
-	case strings.Contains(msg, "tesseract_ocr_empty_content"):
-		return "tesseract_ocr_empty_content"
-	case strings.Contains(msg, "tesseract_ocr_unprocessable"):
-		return "tesseract_ocr_unprocessable"
-	case strings.Contains(msg, "tesseract_ocr_invalid_response"):
-		return "tesseract_ocr_invalid_response"
-	case strings.Contains(msg, "tesseract_ocr_unauthorized"):
-		return "tesseract_ocr_unauthorized"
-	case strings.Contains(msg, "tesseract_ocr_forbidden"):
-		return "tesseract_ocr_forbidden"
-	case strings.Contains(msg, "tesseract_ocr_http_"):
-		return "tesseract_ocr_http_error"
-	case strings.Contains(msg, "tesseract_ocr_unavailable"):
-		return "tesseract_ocr_unavailable"
-	case strings.Contains(msg, "rapidocr_ocr_disabled"):
-		return "rapidocr_ocr_disabled"
-	case strings.Contains(msg, "rapidocr_ocr_failed"):
-		return "rapidocr_ocr_failed"
-	case strings.Contains(msg, "rapidocr_ocr_empty_content"):
-		return "rapidocr_ocr_empty_content"
-	case strings.Contains(msg, "rapidocr_ocr_unprocessable"):
-		return "rapidocr_ocr_unprocessable"
-	case strings.Contains(msg, "rapidocr_ocr_invalid_response"):
-		return "rapidocr_ocr_invalid_response"
-	case strings.Contains(msg, "rapidocr_ocr_unauthorized"):
-		return "rapidocr_ocr_unauthorized"
-	case strings.Contains(msg, "rapidocr_ocr_forbidden"):
-		return "rapidocr_ocr_forbidden"
-	case strings.Contains(msg, "rapidocr_ocr_http_"):
-		return "rapidocr_ocr_http_error"
-	case strings.Contains(msg, "rapidocr_ocr_unavailable"):
-		return "rapidocr_ocr_unavailable"
-	case strings.Contains(msg, "llm_ocr_disabled"):
-		return "llm_ocr_disabled"
-	case strings.Contains(msg, "llm_ocr_failed"):
-		return "llm_ocr_failed"
-	case strings.Contains(msg, "llm_ocr_empty_content"):
-		return "llm_ocr_empty_content"
-	case strings.Contains(msg, "llm_ocr_unprocessable"):
-		return "llm_ocr_unprocessable"
-	case strings.Contains(msg, "llm_ocr_invalid_response"):
-		return "llm_ocr_invalid_response"
-	case strings.Contains(msg, "llm_ocr_unauthorized"):
-		return "llm_ocr_unauthorized"
-	case strings.Contains(msg, "llm_ocr_forbidden"):
-		return "llm_ocr_forbidden"
-	case strings.Contains(msg, "llm_ocr_http_"):
-		return "llm_ocr_http_error"
-	case strings.Contains(msg, "llm_ocr_unavailable"):
-		return "llm_ocr_unavailable"
-	case strings.Contains(msg, "ocr_disabled"):
-		return "ocr_disabled"
-	case strings.Contains(msg, "ocr_failed"):
-		return "ocr_failed"
-	case strings.Contains(msg, "ocr_empty_content"):
-		return "ocr_empty_content"
-	case strings.Contains(msg, "ocr_unprocessable"):
-		return "ocr_unprocessable"
-	case strings.Contains(msg, "ocr_unauthorized"):
-		return "ocr_unauthorized"
-	case strings.Contains(msg, "ocr_forbidden"):
-		return "ocr_forbidden"
-	case strings.Contains(msg, "ocr_http_"):
-		return "ocr_http_error"
-	case strings.Contains(msg, "tika_empty_content"):
-		return "tika_empty_content"
-	case strings.Contains(msg, "tika_unprocessable"):
-		return "tika_unprocessable"
-	case strings.Contains(msg, "tika_unauthorized"):
-		return "tika_unauthorized"
-	case strings.Contains(msg, "tika_forbidden"):
-		return "tika_forbidden"
-	case strings.Contains(msg, "tika_unsupported_media_type"):
-		return "tika_unsupported_media_type"
-	case strings.Contains(msg, "tika_http_"):
-		return "tika_http_error"
-	case strings.Contains(msg, "deadline") || strings.Contains(msg, "timeout"):
-		return "extract_timeout"
-	default:
-		return "extract_failed"
+	if code := extraction.ErrorCode(err); code != "" {
+		return code
 	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "extract_timeout"
+	}
+	return "extract_failed"
 }
 
 func resolveProcessingFailure(fileObj *domainconversation.FileObject, err error) (string, string) {
 	code := classifyProcessingErrorCode(err)
-	return code, resolveProcessingFailureMessage(fileObj, code, err)
-}
-
-func resolveProcessingFailureMessage(fileObj *domainconversation.FileObject, code string, err error) string {
-	if err == nil {
-		return ""
-	}
 	category := ""
 	if fileObj != nil {
 		category = fileObj.FileCategory
 	}
-	return HumanizeFileProcessingError(category, code, err.Error())
+	return code, HumanizeFileProcessingError(category, code, "")
 }
 
-func HumanizeFileProcessingError(fileCategory string, code string, message string) string {
-	raw := strings.TrimSpace(message)
-	normalizedCode := strings.ToLower(strings.TrimSpace(code))
-	if raw == "" {
-		raw = normalizedCode
+func processingErrorSummary(err error) string {
+	if err == nil {
+		return ""
 	}
-	lower := strings.ToLower(raw)
+	code := classifyProcessingErrorCode(err)
+	return HumanizeFileProcessingError("", code, "")
+}
+
+func HumanizeFileProcessingError(fileCategory string, code string, _ string) string {
+	normalizedCode := strings.ToLower(strings.TrimSpace(code))
+	if normalizedCode == "" {
+		normalizedCode = "extract_failed"
+	}
 
 	switch normalizedCode {
 	case "queue_full":
@@ -1369,6 +1293,10 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 		return "文件处理队列暂时不可用，请稍后重试。"
 	case "extract_timeout":
 		return "文件提取超时，请稍后重试，或缩小文件后重试。"
+	case "mime_blocked":
+		return "当前文件类型不支持处理。"
+	case "embed_failed":
+		return "文件已完成文本提取，但向量化失败。"
 	case "tesseract_ocr_disabled":
 		return "PDF 未提取到可读文本，且当前未启用 Tesseract OCR。该文件可能是扫描件、图片型 PDF 或加密 PDF。"
 	case "tesseract_ocr_failed":
@@ -1376,11 +1304,7 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 	case "tesseract_ocr_empty_content":
 		return "Tesseract OCR 未识别出可读文本。该 PDF 可能是空白页、图片质量过低，或内容本身不可识别。"
 	case "tesseract_ocr_unprocessable":
-		detail := strings.TrimSpace(strings.TrimPrefix(raw, "tesseract_ocr_unprocessable:"))
-		if detail == "" || detail == raw {
-			return "Tesseract OCR 服务无法处理该 PDF。文件可能已损坏、加密，或超出当前 OCR 服务能力。"
-		}
-		return "Tesseract OCR 服务无法处理该 PDF: " + detail
+		return "Tesseract OCR 服务无法处理该 PDF。文件可能已损坏、加密，或超出当前 OCR 服务能力。"
 	case "tesseract_ocr_invalid_response":
 		return "Tesseract OCR 服务返回格式不符合当前页级协议，无法合并识别结果。"
 	case "tesseract_ocr_unauthorized":
@@ -1388,18 +1312,7 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 	case "tesseract_ocr_forbidden":
 		return "Tesseract OCR 服务拒绝访问，请检查服务端鉴权或访问控制配置。"
 	case "tesseract_ocr_http_error":
-		if strings.HasPrefix(lower, "tesseract_ocr_http_") {
-			if idx := strings.Index(raw, ":"); idx >= 0 {
-				codePart := strings.TrimSpace(raw[:idx])
-				msgPart := strings.TrimSpace(raw[idx+1:])
-				if msgPart == "" {
-					return "Tesseract OCR 服务请求失败: " + codePart
-				}
-				return "Tesseract OCR 服务请求失败: " + codePart + " - " + msgPart
-			}
-			return "Tesseract OCR 服务请求失败: " + raw
-		}
-		return "Tesseract OCR 服务请求失败。"
+		return "Tesseract OCR 服务请求失败，请稍后重试。"
 	case "tesseract_ocr_unavailable":
 		return "当前 Tesseract OCR 服务不可用，无法从扫描件中提取文本。"
 	case "rapidocr_ocr_disabled":
@@ -1409,11 +1322,7 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 	case "rapidocr_ocr_empty_content":
 		return "RapidOCR 未识别出可读文本。该 PDF 可能是空白页、图片质量过低，或内容本身不可识别。"
 	case "rapidocr_ocr_unprocessable":
-		detail := strings.TrimSpace(strings.TrimPrefix(raw, "rapidocr_ocr_unprocessable:"))
-		if detail == "" || detail == raw {
-			return "RapidOCR 服务无法处理该 PDF。文件可能已损坏、加密，或超出当前 OCR 服务能力。"
-		}
-		return "RapidOCR 服务无法处理该 PDF: " + detail
+		return "RapidOCR 服务无法处理该 PDF。文件可能已损坏、加密，或超出当前 OCR 服务能力。"
 	case "rapidocr_ocr_invalid_response":
 		return "RapidOCR 服务返回格式不符合当前页级协议，无法合并识别结果。"
 	case "rapidocr_ocr_unauthorized":
@@ -1421,18 +1330,7 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 	case "rapidocr_ocr_forbidden":
 		return "RapidOCR 服务拒绝访问，请检查服务端鉴权或访问控制配置。"
 	case "rapidocr_ocr_http_error":
-		if strings.HasPrefix(lower, "rapidocr_ocr_http_") {
-			if idx := strings.Index(raw, ":"); idx >= 0 {
-				codePart := strings.TrimSpace(raw[:idx])
-				msgPart := strings.TrimSpace(raw[idx+1:])
-				if msgPart == "" {
-					return "RapidOCR 服务请求失败: " + codePart
-				}
-				return "RapidOCR 服务请求失败: " + codePart + " - " + msgPart
-			}
-			return "RapidOCR 服务请求失败: " + raw
-		}
-		return "RapidOCR 服务请求失败。"
+		return "RapidOCR 服务请求失败，请稍后重试。"
 	case "rapidocr_ocr_unavailable":
 		return "当前 RapidOCR 服务不可用，无法从扫描件中提取文本。"
 	case "llm_ocr_disabled":
@@ -1442,11 +1340,7 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 	case "llm_ocr_empty_content":
 		return "LLM OCR 未识别出可读文本。该 PDF 可能是空白页、图片质量过低，或内容本身不可识别。"
 	case "llm_ocr_unprocessable":
-		detail := strings.TrimSpace(strings.TrimPrefix(raw, "llm_ocr_unprocessable:"))
-		if detail == "" || detail == raw {
-			return "LLM OCR 服务无法处理该 PDF。文件可能已损坏、加密，或超出当前 OCR 服务能力。"
-		}
-		return "LLM OCR 服务无法处理该 PDF: " + detail
+		return "LLM OCR 服务无法处理该 PDF。文件可能已损坏、加密，或超出当前 OCR 服务能力。"
 	case "llm_ocr_invalid_response":
 		return "LLM OCR 服务返回格式不符合当前页级协议，无法合并识别结果。"
 	case "llm_ocr_unauthorized":
@@ -1454,18 +1348,7 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 	case "llm_ocr_forbidden":
 		return "LLM OCR 服务拒绝访问，请检查服务端鉴权或访问控制配置。"
 	case "llm_ocr_http_error":
-		if strings.HasPrefix(lower, "llm_ocr_http_") {
-			if idx := strings.Index(raw, ":"); idx >= 0 {
-				codePart := strings.TrimSpace(raw[:idx])
-				msgPart := strings.TrimSpace(raw[idx+1:])
-				if msgPart == "" {
-					return "LLM OCR 服务请求失败: " + codePart
-				}
-				return "LLM OCR 服务请求失败: " + codePart + " - " + msgPart
-			}
-			return "LLM OCR 服务请求失败: " + raw
-		}
-		return "LLM OCR 服务请求失败。"
+		return "LLM OCR 服务请求失败，请稍后重试。"
 	case "llm_ocr_unavailable":
 		return "当前 LLM OCR 服务不可用，无法从扫描件中提取文本。"
 	case "ocr_disabled":
@@ -1475,39 +1358,20 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 	case "ocr_empty_content":
 		return "OCR 未识别出可读文本。该 PDF 可能是空白页、图片质量过低，或内容本身不可识别。"
 	case "ocr_unprocessable":
-		detail := strings.TrimSpace(strings.TrimPrefix(raw, "ocr_unprocessable:"))
-		if detail == "" || detail == raw {
-			return "OCR 服务无法处理该 PDF。文件可能已损坏、加密，或超出当前 OCR 服务能力。"
-		}
-		return "OCR 服务无法处理该 PDF: " + detail
+		return "OCR 服务无法处理该 PDF。文件可能已损坏、加密，或超出当前 OCR 服务能力。"
 	case "ocr_unauthorized":
 		return "OCR 服务鉴权失败，请检查 OCR 鉴权密钥配置。"
 	case "ocr_forbidden":
 		return "OCR 服务拒绝访问，请检查服务端鉴权或访问控制配置。"
 	case "ocr_http_error":
-		if strings.HasPrefix(lower, "ocr_http_") {
-			if idx := strings.Index(raw, ":"); idx >= 0 {
-				codePart := strings.TrimSpace(raw[:idx])
-				msgPart := strings.TrimSpace(raw[idx+1:])
-				if msgPart == "" {
-					return "OCR 服务请求失败: " + codePart
-				}
-				return "OCR 服务请求失败: " + codePart + " - " + msgPart
-			}
-			return "OCR 服务请求失败: " + raw
-		}
-		return "OCR 服务请求失败。"
+		return "OCR 服务请求失败，请稍后重试。"
 	case "tika_empty_content":
 		if strings.ToLower(strings.TrimSpace(fileCategory)) == "pdf" {
 			return "Tika 未提取到可读文本。该 PDF 可能是扫描件、图片型 PDF、加密 PDF，或文档内容本身不可复制。"
 		}
 		return "Tika 未提取到可读文本。文件内容可能主要为图片、空白页，或文档本身不含可复制文本。"
 	case "tika_unprocessable":
-		detail := strings.TrimSpace(strings.TrimPrefix(raw, "tika_unprocessable:"))
-		if detail == "" || detail == raw {
-			return "Tika 无法处理该文件。文件可能已损坏、加密，或格式超出当前解析能力。"
-		}
-		return "Tika 无法处理该文件: " + detail
+		return "Tika 无法处理该文件。文件可能已损坏、加密，或格式超出当前解析能力。"
 	case "tika_unauthorized":
 		return "Tika 服务鉴权失败，请检查 Tika Token 配置。"
 	case "tika_forbidden":
@@ -1515,71 +1379,28 @@ func HumanizeFileProcessingError(fileCategory string, code string, message strin
 	case "tika_unsupported_media_type":
 		return "Tika 不支持当前文件类型或 MIME 类型。"
 	case "tika_http_error":
-		detail := raw
-		if strings.HasPrefix(lower, "tika_http_") {
-			if idx := strings.Index(raw, ":"); idx >= 0 {
-				codePart := strings.TrimSpace(raw[:idx])
-				msgPart := strings.TrimSpace(raw[idx+1:])
-				if msgPart == "" {
-					return "Tika 服务请求失败: " + codePart
-				}
-				return "Tika 服务请求失败: " + codePart + " - " + msgPart
-			}
-			return "Tika 服务请求失败: " + raw
-		}
-		if detail == "" {
-			return "Tika 服务请求失败。"
-		}
-		return "Tika 服务请求失败: " + detail
+		return "Tika 服务请求失败，请稍后重试。"
 	}
 
 	if strings.ToLower(strings.TrimSpace(fileCategory)) == "pdf" {
 		switch {
-		case raw == "extract_failed", raw == "pdf_no_extractable_text":
+		case normalizedCode == "extract_failed", normalizedCode == "pdf_no_extractable_text":
 			return "PDF 未提取到可读文本。该文件可能是扫描件、图片型 PDF、加密 PDF，或文档内容本身不可复制。"
-		case raw == "ocr_unavailable":
+		case normalizedCode == "ocr_unavailable":
 			return "PDF 未提取到可读文本，且当前 OCR 服务不可用。该文件可能是扫描件、图片型 PDF 或加密 PDF。"
-		case strings.HasPrefix(lower, "pdf_parse_failed:"):
-			detail := strings.TrimSpace(raw[len("pdf_parse_failed:"):])
-			if detail == "" {
-				return "PDF 解析失败，请检查文件是否损坏、加密，或格式是否异常。"
-			}
-			return "PDF 解析失败: " + detail
+		case normalizedCode == "pdf_parse_failed":
+			return "PDF 解析失败，请检查文件是否损坏、加密，或格式是否异常。"
 		}
 	}
 
-	switch raw {
+	switch normalizedCode {
 	case "extract_failed":
 		return "无法提取文本，请检查文件是否损坏、加密，或内容是否主要为图片。"
 	case "ocr_unavailable":
 		return "当前 OCR 服务不可用，无法从扫描件中提取文本。"
 	}
 
-	return raw
-}
-
-func compactSnippet(content string, maxLen int) string {
-	value := strings.Join(strings.Fields(strings.TrimSpace(content)), " ")
-	if value == "" {
-		return ""
-	}
-	if maxLen <= 0 {
-		maxLen = 120
-	}
-	runes := []rune(value)
-	if len(runes) <= maxLen {
-		return value
-	}
-	return string(runes[:maxLen]) + "..."
-}
-
-func truncateError(message string, limit int) string {
-	value := strings.TrimSpace(message)
-	if limit <= 0 || len([]rune(value)) <= limit {
-		return value
-	}
-	runes := []rune(value)
-	return string(runes[:limit])
+	return "文件处理失败，请稍后重试。"
 }
 
 func supportsExtraction(category string) bool {

@@ -1,11 +1,14 @@
 import { toast } from "sonner";
-
-import { parseAttachments } from "@/features/chat/model/chat-thread";
-import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import {
   canvasChatImageSourceToFile,
   resolveCanvasChatImageSource,
 } from "@/features/canvas/model/canvas-chat-image";
+import {
+  canConnectGraphNodes,
+  type GraphConnectionAttempt,
+  gatherGraphGenerateInputs,
+  graphGenerateHasInputs,
+} from "@/features/canvas/model/canvas-graph";
 import {
   chatImagePromptSuffix,
   isChatRouteImageModel,
@@ -14,20 +17,13 @@ import {
 } from "@/features/canvas/model/canvas-image-options";
 import {
   arrangeCanvasElements,
+  type CanvasArrangeAction,
   canvasElementIDsCarriedByFrame,
+  type FrameRefitElement,
   frameUnionBounds,
   refitFrameDecorations,
   stableFrameIDForElement,
-  type CanvasArrangeAction,
-  type FrameRefitElement,
 } from "@/features/canvas/model/canvas-interactions";
-import {
-  gatherGraphGenerateInputs,
-  graphGenerateHasInputs,
-  canConnectGraphNodes,
-  type GraphConnectionAttempt,
-} from "@/features/canvas/model/canvas-graph";
-import type { GraphNodeUpdate } from "@/features/canvas/model/canvas-types";
 import {
   clearCanvasState,
   loadCanvasState,
@@ -38,6 +34,7 @@ import {
   toPersistedEdges,
   toPersistedGraphNodes,
 } from "@/features/canvas/model/canvas-persist";
+import type { GraphNodeUpdate } from "@/features/canvas/model/canvas-types";
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
@@ -49,17 +46,20 @@ import {
   type CanvasVersion,
   type CanvasViewport,
   type GenerateGraphNode,
+  GRAPH_NODE_SIZES,
   type GraphEdge,
   type GraphNode,
   type GraphNodeKind,
+  graphNodeSize,
   type ImageGraphNode,
   type OutputGraphNode,
   type PersistedCanvasPage,
   type PersistedCanvasState,
   type PromptGraphNode,
-  GRAPH_NODE_SIZES,
-  graphNodeSize,
 } from "@/features/canvas/model/canvas-types";
+import { parseAttachments } from "@/features/chat/model/chat-thread";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import type { ConversationStreamOptions } from "@/shared/api/conversation";
 import {
   createConversation,
   deleteConversation,
@@ -67,7 +67,6 @@ import {
   streamImageGeneration,
   streamMessage,
 } from "@/shared/api/conversation";
-import type { ConversationStreamOptions } from "@/shared/api/conversation";
 import type {
   ConversationOptions,
   MediaImageRequest,

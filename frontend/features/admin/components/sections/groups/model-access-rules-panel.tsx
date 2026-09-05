@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,11 +14,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AdminLLMUpstreamView } from "@/features/admin/api/llm.types";
-import { ADAPTER_LABELS } from "@/features/admin/types/llm";
 import type {
   PermissionGroupModelRule,
   PermissionGroupModelRuleType,
 } from "@/features/admin/api/permission-groups";
+import { ADAPTER_LABELS } from "@/features/admin/types/llm";
 
 type ModelAccessRulesPanelProps = {
   rules: PermissionGroupModelRule[];

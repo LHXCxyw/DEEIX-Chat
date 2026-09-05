@@ -1,10 +1,9 @@
 "use client";
 
-import * as React from "react";
 import { X } from "lucide-react";
-
+import * as React from "react";
+import { type GraphPortDefinition, graphNodePorts } from "@/features/canvas/model/canvas-graph";
 import type { GraphNodeKind } from "@/features/canvas/model/canvas-types";
-import { graphNodePorts, type GraphPortDefinition } from "@/features/canvas/model/canvas-graph";
 import { cn } from "@/lib/utils";
 
 // 各类节点的主题色：用于标题栏点缀、端口与选中态的层次区分

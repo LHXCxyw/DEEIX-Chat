@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { getPublicBranding, type BrandingDTO } from "@/shared/api/branding";
+import { type BrandingDTO, getPublicBranding } from "@/shared/api/branding";
 import { resolveApiBaseURL } from "@/shared/api/http-client";
 import {
   DEFAULT_BRANDING,

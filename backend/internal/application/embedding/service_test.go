@@ -9,11 +9,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/extraction"
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
 	infraembedding "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/embedding"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
+	"go.uber.org/zap"
 )
+
+func newTestService(cfg config.Config, repo repository.EmbeddingRepository, extractSvc *extraction.Service, embedClient EmbeddingClient, logger *zap.Logger) *Service {
+	return NewServiceWithRuntime(config.NewRuntime(cfg), repo, extractSvc, embedClient, logger)
+}
+
+func TestNewServiceWithRuntimeDoesNotSynthesizeExtractionDependency(t *testing.T) {
+	service := NewServiceWithRuntime(config.NewRuntime(config.Config{}), nil, nil, nil, nil)
+	if service.extractSvc != nil {
+		t.Fatal("expected nil extraction dependency to remain explicit")
+	}
+}
 
 func TestL2NormalizeSupportsMaximumConfiguredDimensions(t *testing.T) {
 	input := make([]float32, 4096)
@@ -29,7 +43,7 @@ func TestL2NormalizeSupportsMaximumConfiguredDimensions(t *testing.T) {
 }
 
 func TestShouldTriggerIncludesOCRImages(t *testing.T) {
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:             true,
 		EmbeddingEnabled:       true,
 		EmbedTriggerOnUpload:   true,
@@ -52,7 +66,7 @@ func TestShouldTriggerIncludesOCRImages(t *testing.T) {
 }
 
 func TestShouldTriggerSkipsImagesWhenOCRDisabled(t *testing.T) {
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:             true,
 		EmbeddingEnabled:       true,
 		EmbedTriggerOnUpload:   true,
@@ -75,7 +89,7 @@ func TestShouldTriggerSkipsImagesWhenOCRDisabled(t *testing.T) {
 }
 
 func TestShouldTriggerSkipsVideos(t *testing.T) {
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:           true,
 		EmbeddingEnabled:     true,
 		EmbedTriggerOnUpload: true,
@@ -97,7 +111,7 @@ func TestShouldTriggerSkipsVideos(t *testing.T) {
 }
 
 func TestShouldTriggerDoesNotRequireRAGEnabled(t *testing.T) {
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:           false,
 		EmbeddingEnabled:     true,
 		EmbedTriggerOnUpload: true,
@@ -118,7 +132,7 @@ func TestShouldTriggerDoesNotRequireRAGEnabled(t *testing.T) {
 }
 
 func TestShouldTriggerIncludesPresentations(t *testing.T) {
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		EmbeddingEnabled:     true,
 		EmbedTriggerOnUpload: true,
 		RAGModel:             "text-embedding-test",
@@ -152,7 +166,7 @@ func TestShouldTriggerIncludesPresentations(t *testing.T) {
 
 func TestIndexingAvailableDoesNotRequireRAGEnabled(t *testing.T) {
 	repo := &reindexRepo{vectorAvailable: true}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:       false,
 		EmbeddingEnabled: true,
 		RAGModel:         "text-embedding-test",
@@ -167,7 +181,7 @@ func TestIndexingAvailableDoesNotRequireRAGEnabled(t *testing.T) {
 
 func TestIndexingAvailableCachesVectorStoreStructureCheck(t *testing.T) {
 	repo := &reindexRepo{vectorAvailable: true}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		EmbeddingEnabled: true,
 		RAGModel:         "text-embedding-test",
 		EmbeddingHost:    "http://127.0.0.1:8081",
@@ -186,7 +200,7 @@ func TestIndexingAvailableCachesVectorStoreStructureCheck(t *testing.T) {
 
 func TestReindexStaleFilesDoesNotRequireRAGEnabled(t *testing.T) {
 	repo := &reindexRepo{vectorAvailable: true}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:       false,
 		EmbeddingEnabled: true,
 		RAGModel:         "text-embedding-test",
@@ -220,7 +234,7 @@ func TestCanEmbedFileDoesNotRequireAutoTrigger(t *testing.T) {
 		Status:      "active",
 	}
 
-	service := NewService(cfg, nil, nil, nil, nil)
+	service := newTestService(cfg, nil, nil, nil, nil)
 	if service.ShouldTrigger(fileObj) {
 		t.Fatal("auto-trigger should honor EmbedTriggerOnUpload=false")
 	}
@@ -248,7 +262,7 @@ func TestPlanFilesReturnsEligibleFilesWithoutAutoTrigger(t *testing.T) {
 			{ID: 5, UserID: 7, FileID: "queued", FileName: "queued.txt", MimeType: "text/plain", StoragePath: "uploads/queued.txt", Status: "active", ProcessingReady: true, ExtractStatus: "ready", EmbedStatus: "queued", EmbedSignature: signature},
 		},
 	}
-	service := NewService(cfg, repo, nil, infraembedding.New(security.OutboundPolicy{}), nil)
+	service := newTestService(cfg, repo, nil, infraembedding.New(security.OutboundPolicy{}), nil)
 
 	plan, err := service.PlanFiles(context.Background(), 7, []string{"eligible", "complete", "video", "extracting", "queued", "missing", "eligible"})
 	if err != nil {
@@ -292,7 +306,7 @@ func TestResolveFileVectorizationCapabilitiesDistinguishesOutdatedIndex(t *testi
 		EmbeddingOutputDimensions: 1536,
 	}
 	signature := configuredModelSignature(cfg)
-	service := NewService(
+	service := newTestService(
 		cfg,
 		&reindexRepo{vectorAvailable: true},
 		nil,
@@ -320,19 +334,19 @@ func TestPlanFilesDistinguishesConfigurationFromRuntimeAvailability(t *testing.T
 		EmbeddingHost:             "http://127.0.0.1:8081",
 		EmbeddingOutputDimensions: 1536,
 	}
-	service := NewService(configured, &reindexRepo{vectorAvailable: false}, nil, infraembedding.New(security.OutboundPolicy{}), nil)
+	service := newTestService(configured, &reindexRepo{vectorAvailable: false}, nil, infraembedding.New(security.OutboundPolicy{}), nil)
 	if _, err := service.PlanFiles(context.Background(), 7, []string{"file_1"}); !errors.Is(err, ErrEmbeddingServiceUnavailable) {
 		t.Fatalf("runtime error = %v, want ErrEmbeddingServiceUnavailable", err)
 	}
 
-	disabled := NewService(config.Config{}, &reindexRepo{}, nil, infraembedding.New(security.OutboundPolicy{}), nil)
+	disabled := newTestService(config.Config{}, &reindexRepo{}, nil, infraembedding.New(security.OutboundPolicy{}), nil)
 	if _, err := disabled.PlanFiles(context.Background(), 7, []string{"file_1"}); !errors.Is(err, ErrEmbeddingServiceNotConfigured) {
 		t.Fatalf("configuration error = %v, want ErrEmbeddingServiceNotConfigured", err)
 	}
 }
 
 func TestPlanFilesRejectsMoreThanBatchLimit(t *testing.T) {
-	service := NewService(config.Config{}, &reindexRepo{}, nil, nil, nil)
+	service := newTestService(config.Config{}, &reindexRepo{}, nil, nil, nil)
 	fileIDs := make([]string, MaxTargetedFiles+1)
 	for i := range fileIDs {
 		fileIDs[i] = fmt.Sprintf("file_%d", i)
@@ -357,7 +371,7 @@ func TestReindexStaleFilesSkipsUnsupportedCandidates(t *testing.T) {
 			},
 		},
 	}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		EmbeddingEnabled: true,
 		RAGModel:         "text-embedding-test",
 		EmbeddingHost:    "http://127.0.0.1:8081",
@@ -386,7 +400,7 @@ func TestReindexStaleFilesAdvancesCursorForUnsupportedCandidates(t *testing.T) {
 		})
 	}
 	repo := &reindexRepo{vectorAvailable: true, files: files}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		EmbeddingEnabled: true,
 		RAGModel:         "text-embedding-test",
 		EmbeddingHost:    "http://127.0.0.1:8081",
@@ -421,7 +435,7 @@ func TestReindexStaleFilesDeduplicatesRunningBatch(t *testing.T) {
 		backgroundStarted: make(chan struct{}),
 		releaseBackground: make(chan struct{}),
 	}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		EmbeddingEnabled:          true,
 		RAGModel:                  "text-embedding-test",
 		EmbeddingHost:             "http://127.0.0.1:8081",
@@ -460,7 +474,7 @@ func TestReindexStaleFilesDeduplicatesRunningBatch(t *testing.T) {
 
 func TestProcessFileDoesNotRequireRAGEnabled(t *testing.T) {
 	repo := &reindexRepo{vectorAvailable: true}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:       false,
 		EmbeddingEnabled: true,
 		RAGModel:         "text-embedding-test",
@@ -484,7 +498,7 @@ func TestProcessFileDoesNotRequireRAGEnabled(t *testing.T) {
 
 func TestProcessFileIncludesOCRImages(t *testing.T) {
 	repo := &reindexRepo{vectorAvailable: true}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:             true,
 		EmbeddingEnabled:       true,
 		RAGModel:               "text-embedding-test",
@@ -510,7 +524,7 @@ func TestProcessFileIncludesOCRImages(t *testing.T) {
 
 func TestProcessFileSkipsVideos(t *testing.T) {
 	repo := &reindexRepo{vectorAvailable: true}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGEnabled:       true,
 		EmbeddingEnabled: true,
 		RAGModel:         "text-embedding-test",
@@ -571,7 +585,7 @@ func TestConfiguredModelSignaturePreservesLegacyCompatibility(t *testing.T) {
 
 func TestReconcileIndexUsesConfiguredVectorSpaceSignature(t *testing.T) {
 	repo := &reindexRepo{}
-	service := NewService(config.Config{
+	service := newTestService(config.Config{
 		RAGModel:                  "embedding-model",
 		EmbeddingOutputDimensions: 4096,
 		EmbeddingModelSignature:   "current-vector-space",

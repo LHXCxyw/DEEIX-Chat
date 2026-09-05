@@ -348,6 +348,8 @@ export function SettingsSubscription() {
     [billingOverview?.subscriptionEntitlements],
   );
   const paymentDisabled = paymentProviders.length === 0;
+  // 配置未加载时先不渲染充值入口,避免"置灰→消失"的闪现;确认无渠道后保持隐藏。
+  const topUpVisible = billingConfig !== null && paymentProviders.length > 0;
   const currentPlan = React.useMemo(() => {
     if (billingOverview?.plan) return billingOverview.plan;
     return billingPlans.find((plan) => viewer?.subscriptionPlanID === plan.id || viewer?.subscriptionTier === plan.code) ?? null;
@@ -420,6 +422,7 @@ export function SettingsSubscription() {
         redemptionLoading={redemptionLoading}
         topUpLoading={topUpLoading}
         paymentDisabled={paymentDisabled}
+        topUpVisible={topUpVisible}
         billingPlans={billingPlans}
         billingOverview={billingOverview}
         currentPlan={currentPlan}
@@ -460,6 +463,7 @@ export function SettingsSubscription() {
       <section className="space-y-6 px-0.5 md:space-y-7 xl:space-y-8 xl:px-1">
         <Separator />
         <SubscriptionActivityHeatmap accessToken={accessToken} />
+        <Separator />
         <SubscriptionTrend
           dailyUsage={dailyUsage}
           monthlyUsage={monthlyUsage}

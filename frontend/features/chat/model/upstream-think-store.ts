@@ -1,9 +1,8 @@
 "use client";
 
 import * as React from "react";
-
-import type { ChatMessageProcessTrace, ChatTraceBlock } from "@/features/chat/types/messages";
 import { toPendingProcessTrace } from "@/features/chat/model/message-submit";
+import type { ChatMessageProcessTrace, ChatTraceBlock } from "@/features/chat/types/messages";
 import type { StreamMessageEvent } from "@/shared/api/conversation.types";
 
 type UpstreamThinkDeltaEvent = Extract<StreamMessageEvent, { type: "upstream_think_delta" }>;

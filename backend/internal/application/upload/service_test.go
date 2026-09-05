@@ -3,6 +3,7 @@ package upload
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	appstorage "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/objectstorage"
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
@@ -17,11 +19,18 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
+func TestOpenObjectStoreRequiresProvider(t *testing.T) {
+	service := NewServiceWithRuntime(config.NewRuntime(config.Config{}), nil, nil, Hooks{}, ErrorSet{}, "")
+	if _, err := service.openObjectStore(t.Context()); !errors.Is(err, appstorage.ErrProviderNotConfigured) {
+		t.Fatalf("openObjectStore() error = %v, want ErrProviderNotConfigured", err)
+	}
+}
+
 func TestPrepareTemporaryFileUsesUploadPolicyWithoutPersistence(t *testing.T) {
-	service := NewService(config.Config{
+	service := NewServiceWithRuntime(config.NewRuntime(config.Config{
 		MaxUploadFileBytes:   1024,
 		FileAllowedMIMETypes: "text/plain",
-	}, nil, nil, Hooks{}, ErrorSet{}, "")
+	}), nil, nil, Hooks{}, ErrorSet{}, "")
 	prepared, err := service.PrepareTemporaryFile(t.Context(), TemporaryFileInput{
 		FileName:     "notes.txt",
 		MimeType:     "text/plain",
@@ -623,7 +632,7 @@ func newUploadTestRepo() *uploadTestRepo {
 	}
 }
 
-func (r *uploadTestRepo) ListFileObjectsByUserWithFilter(context.Context, uint, int, int, string, string, string) ([]domainconversation.FileObject, int64, error) {
+func (r *uploadTestRepo) ListFileObjectsByUserWithFilter(context.Context, repository.ListFileObjectsInput) ([]domainconversation.FileObject, int64, error) {
 	return nil, 0, nil
 }
 
@@ -645,7 +654,7 @@ func (r *uploadTestRepo) RenameFileObjectByID(context.Context, uint, string, str
 	return nil, nil
 }
 
-func (r *uploadTestRepo) UpdateFileObjectRagOptOut(context.Context, uint, string, bool) (*domainconversation.FileObject, error) {
+func (r *uploadTestRepo) UpdateFileObjectRAGOptOut(context.Context, uint, string, bool) (*domainconversation.FileObject, error) {
 	return nil, nil
 }
 

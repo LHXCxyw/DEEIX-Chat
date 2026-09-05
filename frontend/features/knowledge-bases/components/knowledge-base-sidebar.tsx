@@ -7,7 +7,6 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,11 +14,12 @@ import {
   DropdownMenuItemIcon,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Spinner } from "@/components/ui/spinner";
 import { KnowledgeBaseSidebarHeader } from "@/features/knowledge-bases/components/knowledge-base-sidebar-header";
 import type {
-  KnowledgeBaseMode,
   KnowledgeBaseMobileView,
+  KnowledgeBaseMode,
   KnowledgeBaseSortKey,
 } from "@/features/knowledge-bases/types/knowledge-bases";
 import { cn } from "@/lib/utils";
@@ -103,7 +103,7 @@ export function KnowledgeBaseSidebar({
       )}
     >
       <div className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col px-3 md:px-2",
+        "relative flex min-h-0 min-w-0 flex-1 flex-col px-3 md:px-2",
         collapsed && "md:px-0",
       )}>
         <KnowledgeBaseSidebarHeader
@@ -163,7 +163,7 @@ export function KnowledgeBaseSidebar({
           </div>
         ) : !collapsed ? (
           <CenteredEmptyState
-            className="min-w-0 flex-1"
+            className="pointer-events-none absolute inset-0 min-w-0"
             title={query.trim() ? t("searchEmpty") : t("empty")}
             description={query.trim() ? t("searchEmptyDescription") : t("emptyDescription")}
           />

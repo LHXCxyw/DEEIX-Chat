@@ -4,7 +4,6 @@ import { Image, ImagePlus, ImageUp, Search, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   InputGroup,
@@ -31,8 +31,8 @@ import {
 } from "@/features/admin/api";
 import type { AdminLLMModelIconAssetListItem } from "@/features/admin/api/llm.types";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { ApiError } from "@/shared/api/http-client";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { ModelIcon } from "@/shared/components/model-icon";
 import { resolveModelIconURL } from "@/shared/lib/model-identity";
 

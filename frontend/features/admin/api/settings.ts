@@ -1,5 +1,3 @@
-import { authedRequest, authedFetch } from "@/shared/api/authed-client";
-import { pathParam } from "@/shared/api/http-client";
 import type {
   AdminDoclingRuntimeView,
   AdminEmbeddingRuntimeView,
@@ -8,6 +6,8 @@ import type {
   AdminTesseractRuntimeView,
   AdminTikaRuntimeView,
 } from "@/features/admin/api/admin.types";
+import { authedFetch, authedRequest } from "@/shared/api/authed-client";
+import { pathParam } from "@/shared/api/http-client";
 import type { PatchSettingsRequest, SettingItem, SettingsGrouped } from "@/shared/api/settings.types";
 
 export async function listAdminSettings(accessToken: string): Promise<SettingsGrouped> {

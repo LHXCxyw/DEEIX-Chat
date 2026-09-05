@@ -1,8 +1,6 @@
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import {
   listAdminLLMModels,
   setAdminLLMModelProtocols,
@@ -10,32 +8,33 @@ import {
   updateAdminLLMModel,
 } from "@/features/admin/api";
 import type {
-  AdminLLMAdapter,
   AdminBatchDeleteData,
+  AdminLLMAdapter,
   AdminLLMModelAccessScope,
   AdminLLMModelDTO,
   AdminLLMModelUpstreamSourceDTO,
   AdminLLMStatus,
 } from "@/features/admin/api/llm.types";
 import {
-  PAGE_SIZE_DEFAULT,
-  displayToKindsJson,
-  type ModelSortValue,
-} from "@/features/admin/types/llm";
-import {
   isValidModelContextWindow,
   modelContextWindowOverride,
   modelMaxOutputTokensOverride,
   setModelContextWindowInCapabilities,
 } from "@/features/admin/model/model-context-window";
+import {
+  displayToKindsJson,
+  type ModelSortValue,
+  PAGE_SIZE_DEFAULT,
+} from "@/features/admin/types/llm";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { resolveKindsDisplayForProtocols } from "@/features/admin/utils/llm-display";
 import {
   applySourceAvailabilityDelta,
   isAdminLLMSourceAvailable,
 } from "@/features/admin/utils/llm-source-availability";
-import { patchByID, removeByID, removeManyByID, replaceByID } from "@/shared/lib/optimistic-list";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { runSettledBulkItems } from "@/shared/lib/bulk-action";
+import { patchByID, removeByID, removeManyByID, replaceByID } from "@/shared/lib/optimistic-list";
 
 type UseAdminModelsState = {
   items: AdminLLMModelDTO[];
@@ -73,6 +72,7 @@ type UseAdminModelsState = {
   setBatchContextWindow: (value: string) => void;
   batchStatus: AdminLLMStatus | "";
   setBatchStatus: (value: AdminLLMStatus | "") => void;
+  pendingModelIDs: ReadonlySet<number>;
   editTarget: AdminLLMModelDTO | null;
   setEditTarget: (target: AdminLLMModelDTO | null) => void;
   deleteTarget: AdminLLMModelDTO | null;
@@ -124,9 +124,33 @@ export function useAdminModels(): UseAdminModelsState {
   const [batchDisplayGroupID, setBatchDisplayGroupID] = React.useState("");
   const [batchContextWindow, setBatchContextWindow] = React.useState("");
   const [batchStatus, setBatchStatus] = React.useState<AdminLLMStatus | "">("");
+  const [pendingModelIDs, setPendingModelIDs] = React.useState<Set<number>>(new Set());
   const [, startTableTransition] = React.useTransition();
   const requestSeqRef = React.useRef(0);
   const pageSizeRef = React.useRef(PAGE_SIZE_DEFAULT);
+  const pendingModelIDsRef = React.useRef(new Set<number>());
+
+  const beginModelUpdate = React.useCallback((modelID: number): boolean => {
+    if (pendingModelIDsRef.current.has(modelID)) {
+      return false;
+    }
+    pendingModelIDsRef.current.add(modelID);
+    setPendingModelIDs(new Set(pendingModelIDsRef.current));
+    setSelectedModelIDs((current) => {
+      if (!current.has(modelID)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(modelID);
+      return next;
+    });
+    return true;
+  }, []);
+
+  const finishModelUpdate = React.useCallback((modelID: number) => {
+    pendingModelIDsRef.current.delete(modelID);
+    setPendingModelIDs(new Set(pendingModelIDsRef.current));
+  }, []);
 
   React.useEffect(() => {
     pageSizeRef.current = pageSize;
@@ -140,6 +164,9 @@ export function useAdminModels(): UseAdminModelsState {
       try {
         const token = await resolveAccessToken();
         if (!token) {
+          if (requestSeq !== requestSeqRef.current) {
+            return;
+          }
           toast.error(t("sessionExpired"), { description: t("signInAgain") });
           return;
         }
@@ -165,6 +192,9 @@ export function useAdminModels(): UseAdminModelsState {
           setSelectedModelIDs(new Set());
         });
       } catch (error) {
+        if (requestSeq !== requestSeqRef.current) {
+          return;
+        }
         toast.error(t("modelsLoadFailed"), { description: resolveAdminErrorMessage(error) });
       } finally {
         if (requestSeq === requestSeqRef.current) {
@@ -203,19 +233,20 @@ export function useAdminModels(): UseAdminModelsState {
 
   const handleToggleStatus = React.useCallback(
     async (item: AdminLLMModelDTO, nextStatus: AdminLLMStatus) => {
-      const token = await resolveAccessToken();
-      if (!token) {
-        toast.error(t("sessionExpired"), { description: t("signInAgain") });
-        return;
-      }
+      if (!beginModelUpdate(item.id)) return;
       const previousItem = items.find((model) => model.id === item.id) ?? item;
-      setItems((current) =>
-        patchByID(current, item.id, (model) => model.id, {
-          status: nextStatus,
-          ...(nextStatus === "inactive" ? { activeSourceCount: 0 } : {}),
-        }),
-      );
       try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error(t("sessionExpired"), { description: t("signInAgain") });
+          return;
+        }
+        setItems((current) =>
+          patchByID(current, item.id, (model) => model.id, {
+            status: nextStatus,
+            ...(nextStatus === "inactive" ? { activeSourceCount: 0 } : {}),
+          }),
+        );
         const data = await updateAdminLLMModel(token, item.id, { status: nextStatus });
         const leavesCurrentStatusFilter = statusFilter !== "" && statusFilter !== nextStatus;
         if (leavesCurrentStatusFilter) {
@@ -227,38 +258,43 @@ export function useAdminModels(): UseAdminModelsState {
         toast.success(nextStatus === "active" ? t("modelEnabled") : t("modelDisabled"));
         if (statusFilter || sortValue === "updated_desc") {
           const nextPage = leavesCurrentStatusFilter && items.length === 1 && page > 1 ? page - 1 : page;
-          void loadModels(nextPage, pageSize);
+          await loadModels(nextPage, pageSize);
         }
       } catch (error) {
         setItems((current) => replaceByID(current, item.id, (model) => model.id, previousItem));
         toast.error(t("modelStatusUpdateFailed"), { description: resolveAdminErrorMessage(error) });
+      } finally {
+        finishModelUpdate(item.id);
       }
     },
-    [items, loadModels, page, pageSize, sortValue, statusFilter, t],
+    [beginModelUpdate, finishModelUpdate, items, loadModels, page, pageSize, sortValue, statusFilter, t],
   );
 
   const handleToggleAccessScope = React.useCallback(
     async (item: AdminLLMModelDTO, nextScope: AdminLLMModelAccessScope) => {
-      const token = await resolveAccessToken();
-      if (!token) {
-        toast.error(t("sessionExpired"), { description: t("signInAgain") });
-        return;
-      }
+      if (!beginModelUpdate(item.id)) return;
       const previousItem = items.find((model) => model.id === item.id) ?? item;
-      setItems((current) => patchByID(current, item.id, (model) => model.id, { accessScope: nextScope }));
       try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error(t("sessionExpired"), { description: t("signInAgain") });
+          return;
+        }
+        setItems((current) => patchByID(current, item.id, (model) => model.id, { accessScope: nextScope }));
         const data = await updateAdminLLMModel(token, item.id, { accessScope: nextScope });
         setItems((current) => replaceByID(current, item.id, (model) => model.id, data.model));
         toast.success(nextScope === "public" ? t("modelScopePublic") : t("modelScopeInternal"));
         if (sortValue === "updated_desc") {
-          void loadModels(page, pageSize);
+          await loadModels(page, pageSize);
         }
       } catch (error) {
         setItems((current) => replaceByID(current, item.id, (model) => model.id, previousItem));
         toast.error(t("modelScopeUpdateFailed"), { description: resolveAdminErrorMessage(error) });
+      } finally {
+        finishModelUpdate(item.id);
       }
     },
-    [items, loadModels, page, pageSize, sortValue, t],
+    [beginModelUpdate, finishModelUpdate, items, loadModels, page, pageSize, sortValue, t],
   );
 
   const handleSourceAvailabilityChange = React.useCallback((modelID: number, previousAvailable: boolean, nextAvailable: boolean) => {
@@ -641,6 +677,7 @@ export function useAdminModels(): UseAdminModelsState {
     setBatchContextWindow,
     batchStatus,
     setBatchStatus,
+    pendingModelIDs,
     editTarget,
     setEditTarget,
     deleteTarget,

@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { OptionSelect } from "@/shared/components/model-select";
 import { resolveTimeZoneOptions } from "@/shared/lib/time-zone";

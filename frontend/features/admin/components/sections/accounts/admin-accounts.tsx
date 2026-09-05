@@ -1,7 +1,7 @@
 "use client";
 
-import { AccountsUsers } from "./accounts-users";
 import { useAdminAccounts } from "@/features/admin/hooks/use-admin-accounts";
+import { AccountsUsers } from "./accounts-users";
 
 export function AdminAccountsPage() {
   const accounts = useAdminAccounts();

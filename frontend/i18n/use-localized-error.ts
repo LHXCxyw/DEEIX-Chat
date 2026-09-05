@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { resolveLocalizedErrorMessage, toErrorMessagePath } from "@/i18n/resolve-error-message";
 import { ApiError } from "@/shared/api/http-client";

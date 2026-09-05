@@ -1,16 +1,15 @@
 "use client";
 
-import * as React from "react";
-import Link from "next/link";
-import { Archive, Loader2Icon, PencilLine, Trash, type LucideIcon } from "lucide-react";
+import { Archive, Loader2Icon, type LucideIcon, PencilLine, Trash } from "lucide-react";
 import { motion } from "motion/react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Ellipsis } from "@/components/animate-ui/icons/ellipsis";
 import { Sparkles } from "@/components/animate-ui/icons/sparkles";
 import { AnimatedText } from "@/components/ui/animated-text";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,13 +18,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SIDEBAR_TRANSFER_TRANSITION } from "@/features/layouts/model/sidebar-motion";
+import { Spinner } from "@/components/ui/spinner";
+import { ConversationLabelsMenuItem } from "@/entities/conversation";
 import { useConversationRunning } from "@/features/chat";
+import { SIDEBAR_TRANSFER_TRANSITION } from "@/features/layouts/model/sidebar-motion";
+import { cn } from "@/lib/utils";
 import { ConversationProjectSubmenu } from "@/shared/components/conversation-project-submenu";
 import { ConversationShareExportSubmenu } from "@/shared/components/conversation-share-export-menu";
-import { ConversationLabelsMenuItem } from "@/entities/conversation";
 import { parseConversationLabelsJSON } from "@/shared/lib/conversation-labels";
-import { cn } from "@/lib/utils";
 
 type SidebarConversationViewModel = {
   publicID: string;
@@ -192,7 +192,7 @@ export function SidebarConversationItem({
         "group relative flex h-8 items-center rounded-md text-sm transition-colors",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-within:bg-sidebar-accent focus-within:text-sidebar-accent-foreground",
         rowClassName,
       )}
       data-animated-text-scroll-trigger
@@ -201,7 +201,7 @@ export function SidebarConversationItem({
         href={item.url}
         prefetch={false}
         className={cn(
-          "flex h-full min-w-0 flex-1 items-center pl-2",
+          "flex h-full min-w-0 flex-1 items-center pl-2 outline-none focus-visible:ring-0",
           running || isMenuOpen
             ? "pr-9"
             : "pr-2 group-hover/conversation-row:pr-9",

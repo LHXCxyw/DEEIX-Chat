@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { SpinnerLabel } from "@/components/ui/spinner";
+
 type ChatScreenshotSelectionBarProps = {
   selectedCount: number;
   totalCount: number;

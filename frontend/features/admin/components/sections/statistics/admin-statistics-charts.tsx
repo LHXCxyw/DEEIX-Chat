@@ -1,16 +1,16 @@
 "use client";
 
-import * as React from "react";
 import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 
 import {
+  type ChartConfig,
   ChartContainer,
   ChartInteractiveLegend,
+  type ChartInteractiveLegendItem,
   ChartTooltip,
   createStackedBarTopRoundedShape,
-  type ChartConfig,
-  type ChartInteractiveLegendItem,
 } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import type {
@@ -21,8 +21,8 @@ import type {
   AdminUsageStatisticsUserRankDTO,
 } from "@/features/admin/api";
 import {
-  formatBillingDisplayAmountFromUSD,
   type BillingDisplayOptions,
+  formatBillingDisplayAmountFromUSD,
 } from "@/shared/lib/billing-display";
 
 const STACK_COLORS = [

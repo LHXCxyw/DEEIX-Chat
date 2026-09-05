@@ -1,22 +1,25 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
+import { Button } from "@/components/ui/button";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   buildChildrenIndex,
   buildVisibleMessages,
+  type ChatAreaMessage,
   ChatMessageBot,
   ChatMessageUser,
   mapServerMessage,
   reconcileBranchSelections,
   toBranchKey,
-  type ChatAreaMessage,
 } from "@/features/chat";
-import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import { useAppLocale } from "@/i18n/app-i18n-provider";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cloneSharedConversation, getSharedConversation } from "@/shared/api/conversation";
 import type {
   MessageDTO,
@@ -24,17 +27,13 @@ import type {
   PublicSharedMessageDTO,
 } from "@/shared/api/conversation.types";
 import { fetchSharedFileContent } from "@/shared/api/file";
-import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { AppLogo, DeeixLogo } from "@/shared/components/app-logo";
-import { useBranding } from "@/shared/config/branding-provider";
-import { CustomBrandAttribution } from "@/shared/components/powered-by-deeix";
 import { useOptionalAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { useAppLocale } from "@/i18n/app-i18n-provider";
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { AppLogo, DeeixLogo } from "@/shared/components/app-logo";
+import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import { CustomBrandAttribution } from "@/shared/components/powered-by-deeix";
+import { useBranding } from "@/shared/config/branding-provider";
 
 function formatSharedAt(value: string, locale: string): string {
   const date = new Date(value);

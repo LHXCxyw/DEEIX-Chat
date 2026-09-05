@@ -1,9 +1,9 @@
 "use client";
 
-import * as React from "react";
 import { Plus, Sparkles, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,18 +26,18 @@ import { SpinnerLabel } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import type { PermissionGroup } from "@/features/admin/api/permission-groups";
 import {
   DIALOG_LAYOUT_TRANSITION,
   normalizePricingMode,
+  type PlanFormState,
+  type PricingFormState,
+  type PricingMode,
   parseIntValue,
   parsePrice,
   stringifyTieredPricing,
-  type PlanFormState,
-  type PricingMode,
-  type PricingFormState,
   type TieredPricingTierForm,
 } from "@/features/admin/model/billing-settings";
-import type { PermissionGroup } from "@/features/admin/api/permission-groups";
 
 type PricingJSONValue = Record<string, unknown>;
 
@@ -202,10 +202,6 @@ export function PlanBillingDialog({
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">{t("plans.periodCredit")}</p>
                     <Input value={planForm.periodCredit} type="number" min="0" step="0.01" onChange={(event) => setPlanForm({ ...planForm, periodCredit: event.target.value })} />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">{t("plans.discount")}</p>
-                    <Input value={planForm.discountPercent} type="number" min="0" max="100" step="1" onChange={(event) => setPlanForm({ ...planForm, discountPercent: event.target.value })} />
                   </div>
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">{t("plans.description")}</p>

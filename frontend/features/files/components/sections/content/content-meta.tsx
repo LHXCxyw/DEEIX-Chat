@@ -1,8 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-
-import { formatBytes, formatDateTime } from "@/shared/lib/file-display";
+import { Button } from "@/components/ui/button";
 import {
   Drawer,
   DrawerContent,
@@ -11,10 +10,10 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
-import { Button } from "@/components/ui/button";
-import { resolveEmbedStatusLabel, resolveExtractStatusLabel, resolveFileProcessingBadge } from "@/shared/lib/file-processing";
-import type { FileObjectDTO } from "@/shared/api/file.types";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
+import type { FileObjectDTO } from "@/shared/api/file.types";
+import { formatBytes, formatDateTime } from "@/shared/lib/file-display";
+import { resolveEmbedStatusLabel, resolveExtractStatusLabel, resolveFileProcessingBadge } from "@/shared/lib/file-processing";
 
 type ContentMetaProps = {
   file: FileObjectDTO;

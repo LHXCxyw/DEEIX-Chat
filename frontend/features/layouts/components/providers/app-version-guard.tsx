@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { getAppVersion, resolveAppBuildID } from "@/shared/api/app-version";

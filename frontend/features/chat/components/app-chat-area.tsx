@@ -168,6 +168,7 @@ export function AppChatArea() {
   const upsertConversation = useSidebarConversationField("upsertConversation");
   const {
     cancelResumedGeneration,
+    conversationPublicID: messageDataConversationID,
     loading,
     loadingOlder,
     errorMsg,
@@ -177,7 +178,6 @@ export function AppChatArea() {
     reload,
     replaceMessage,
     resumingActivityLabel,
-    resumingConversationID,
     resumingRunID,
   } = useChatData(conversationID, {
     activeGenerationRunsRef,
@@ -312,7 +312,6 @@ export function AppChatArea() {
     appendAttachmentsForKey,
   } = useChatComposerState(conversationID, {
     preserveDrafts: preserveConversationDrafts,
-    resetToken: newConversationRevision,
     storageScope: user?.publicID ?? "",
     transient: temporaryMode,
   });
@@ -519,15 +518,6 @@ export function AppChatArea() {
     resumingActivityLabel,
     resumingRunID,
   });
-  React.useEffect(() => {
-    const normalizedConversationID = resumingConversationID.trim();
-    const normalizedRunID = resumingRunID.trim();
-    if (!normalizedConversationID || !normalizedRunID) {
-      return;
-    }
-    registerConversationRun(normalizedRunID, normalizedConversationID);
-    return () => detachConversationRun(normalizedRunID);
-  }, [detachConversationRun, registerConversationRun, resumingConversationID, resumingRunID]);
   const generating = sending;
   const uploadDropDisabled = loading || uploading;
   const onStopActiveMessage = React.useCallback(() => {
@@ -952,9 +942,13 @@ export function AppChatArea() {
 
   const composerSending = temporaryMode ? temporaryRuntime.sending : generating;
   const composerConversationMode = temporaryMode ? temporaryRuntime.messages.length > 0 : isConversationMode;
+  const composerLoading =
+    !temporaryMode &&
+    Boolean(conversationID) &&
+    (loading || messageDataConversationID !== conversationID);
   const chatInputProps = {
     draft,
-    loading: temporaryMode ? false : loading,
+    loading: composerLoading,
     sending: composerSending,
     uploading: temporaryMode ? false : uploading,
     isConversationMode: composerConversationMode,
@@ -990,6 +984,7 @@ export function AppChatArea() {
           value: conversationID ? currentConversation?.systemPrompt ?? "" : pendingSystemPrompt,
           onSave: conversationID ? onSetSystemPrompt : setPendingSystemPrompt,
         },
+    autoFocusKey: conversationID ?? `${conversationKey}:${newConversationRevision}`,
     onDraftChange: setDraft,
     onModelChange: setSelectedPlatformModelName,
     onModelCatalogRefresh: refreshModelCatalogForComposer,
@@ -1084,36 +1079,32 @@ export function AppChatArea() {
         >
           <PanelRightOpen className="size-4" />
         </Button>
-      ) : null
-      }
+      ) : null}
       {/* 项目对话不显示临时对话控件：避免与右侧 IDE 按钮区域重叠，且项目会话不适用临时模式 */}
-      {
-        !conversationID && !workspaceProjectID ? (
-          <TemporaryChatModeControl
-            active={temporaryMode}
-            requiresExitConfirmation={temporaryRuntime.sending || temporaryRuntime.messages.length > 0}
-          />
-        ) : null
-      }
-      {
-        shouldUseCenteredComposer ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <ChatEmptyState
-              greetingTitle={activeRouteProject?.name || greetingTitle}
-              badgeLabel={activeRouteProject ? t("projectMode") : undefined}
-              badgeTooltip={activeRouteProject ? t("projectModeTooltip") : undefined}
-              titleAdornment={temporaryMode ? (
-                <Glasses
-                  aria-hidden
-                  className="size-5 shrink-0 text-muted-foreground md:size-[22px]"
-                  strokeWidth={1.6}
-                />
-              ) : null}
-              contentWidthClassName={chatContentWidthClassName}
-            >
-              <ChatInput {...chatInputProps} />
-            </ChatEmptyState>
-          </div>
+      {!conversationID && !workspaceProjectID ? (
+        <TemporaryChatModeControl
+          active={temporaryMode}
+          requiresExitConfirmation={temporaryRuntime.sending || temporaryRuntime.messages.length > 0}
+        />
+      ) : null}
+      {shouldUseCenteredComposer ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ChatEmptyState
+            greetingTitle={activeRouteProject?.name || greetingTitle}
+            badgeLabel={activeRouteProject ? t("projectMode") : undefined}
+            badgeTooltip={activeRouteProject ? t("projectModeTooltip") : undefined}
+            titleAdornment={temporaryMode ? (
+              <Glasses
+                aria-hidden
+                className="size-5 shrink-0 text-muted-foreground md:size-[22px]"
+                strokeWidth={1.6}
+              />
+            ) : null}
+            contentWidthClassName={chatContentWidthClassName}
+          >
+            <ChatInput {...chatInputProps} />
+          </ChatEmptyState>
+        </div>
         ) : (
           <div
             ref={workspaceRef}

@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
-import { activeElasticDecorationForElement, arrangeCanvasElements, canvasElementIDsCarriedByDecoration, canvasElementIDsCarriedByFrame, canvasElementIDsInRegion, elasticCanvasBounds, frameFitBounds, frameUnionBounds, isCanvasElementCenterInside, isCanvasElementInside, nextCanvasVersion, refitFrameDecorations, selectedNodeIDsForFilter, shouldDetachElasticBoundary, stableFrameIDForElement, trappedFocusIndex, viewportForCanvasKey } from "./canvas-interactions.ts";
 import { canConnectGraphNodes, createUserPromptTemplate, gatherGraphGenerateInputs, graphEdgeMidpoint, graphEdgePath, graphNodePorts, graphPortCanvasPosition, isGraphPortCompatibleTarget, isPromptGraphNode, loadPromptTemplates, promptNodeTruncated } from "./canvas-graph.ts";
 import { editorSizeOptions } from "./canvas-image-options.ts";
+import { activeElasticDecorationForElement, arrangeCanvasElements, canvasElementIDsCarriedByDecoration, canvasElementIDsCarriedByFrame, canvasElementIDsInRegion, elasticCanvasBounds, frameFitBounds, frameUnionBounds, isCanvasElementCenterInside, isCanvasElementInside, nextCanvasVersion, refitFrameDecorations, selectedNodeIDsForFilter, shouldDetachElasticBoundary, stableFrameIDForElement, trappedFocusIndex, viewportForCanvasKey } from "./canvas-interactions.ts";
 import { clampViewportScale, legacyNodeToGraphNodes, parseCanvasState, restoreEdges, restoreGraphNodes, stringifyCanvasState, toPersistedEdges, toPersistedGraphNodes, toPersistedNodes, zoomViewportAt } from "./canvas-persist.ts";
-import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, PROMPT_MAX_LENGTH, type GraphEdge, type GraphNode } from "./canvas-types.ts";
+import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, type GraphEdge, type GraphNode, PROMPT_MAX_LENGTH } from "./canvas-types.ts";
 
 test("将 v2 旧画布状态迁移为 v4 图节点 schema", () => {
   const restored = parseCanvasState(JSON.stringify({

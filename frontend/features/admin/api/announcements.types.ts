@@ -4,8 +4,8 @@ import type {
   CreateAnnouncementRequest,
   PatchAnnouncementRequestDoc,
 } from "@deeix/api-contract";
-import type { PagePayload } from "@/shared/api/common.types";
 import type { AnnouncementDTO } from "@/shared/api/announcements.types";
+import type { PagePayload } from "@/shared/api/common.types";
 
 export type AdminAnnouncementDTO = AnnouncementDTO;
 

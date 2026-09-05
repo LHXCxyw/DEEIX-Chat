@@ -22,48 +22,19 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogHeightTransition,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner, SpinnerLabel } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-import { DeleteFilesOption } from "@/shared/components/delete-files-option";
-import type { KnowledgeBaseDTO, KnowledgeBaseFileDTO } from "@/shared/api/knowledge-bases.types";
 import type { KnowledgeBaseDraft } from "@/features/knowledge-bases/types/knowledge-bases";
+import { cn } from "@/lib/utils";
+import type { KnowledgeBaseDTO, KnowledgeBaseFileDTO } from "@/shared/api/knowledge-bases.types";
+import { DeleteFilesOption } from "@/shared/components/delete-files-option";
 import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import { formatBytes, resolveFileIcon } from "@/shared/lib/file-display";
 import { resolveFileRetrievalBadge } from "@/shared/lib/file-processing";
-
-export function DialogHeightTransition({ children }: { children: React.ReactNode }) {
-  const contentRef = React.useRef<HTMLDivElement>(null);
-  const [height, setHeight] = React.useState<number | null>(null);
-
-  const measure = React.useCallback(() => {
-    const nextHeight = contentRef.current?.offsetHeight;
-    if (!nextHeight) return;
-    setHeight((current) => current === nextHeight ? current : nextHeight);
-  }, []);
-
-  React.useLayoutEffect(() => {
-    measure();
-    if (typeof ResizeObserver === "undefined" || !contentRef.current) return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(contentRef.current);
-    return () => observer.disconnect();
-  }, [measure]);
-
-  return (
-    <div
-      className="relative min-h-0 overflow-hidden transition-[height] duration-200 ease-out motion-reduce:transition-none"
-      style={height === null ? undefined : { height }}
-    >
-      <div ref={contentRef} className="flex max-h-[min(82vh,560px)] min-h-0 flex-col overflow-hidden">
-        {children}
-      </div>
-    </div>
-  );
-}
 
 export function KnowledgeBaseEditorDialog({
   draft,
@@ -323,7 +294,7 @@ export function AddKnowledgeBaseFilesDialog({
                   })}
                 </div>
               ) : (
-                <div className="flex min-h-40 items-center justify-center text-xs text-muted-foreground">
+                <div className="flex min-h-40 items-center justify-center px-3 py-6 text-center text-xs text-muted-foreground">
                   {t(platformFiles ? "noAvailablePlatformFiles" : "noAvailableFiles")}
                 </div>
               )}

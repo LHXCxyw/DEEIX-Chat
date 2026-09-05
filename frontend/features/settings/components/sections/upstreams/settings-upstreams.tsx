@@ -1,18 +1,8 @@
 "use client";
 
+import { Bot, Pencil, PlugZap, Plus, Route, Save, Server, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
-import { Bot, Plus, Trash2, Server, Route, Pencil, PlugZap, Save } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
-import { SpinnerLabel } from "@/components/ui/spinner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,13 +13,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -38,19 +23,33 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { getUserSettings, patchUserSettings } from "@/shared/api/user-settings";
-import { COMPATIBLE_PRESETS } from "@/shared/lib/llm-presets";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-  listUserUpstreams,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SpinnerLabel } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { getUserSettings, patchUserSettings } from "@/shared/api/user-settings";
+import {
   createUserUpstream,
-  updateUserUpstream,
   deleteUserUpstream,
-  testUserUpstream,
   listUserModels,
-  type UserUpstreamDTO,
+  listUserUpstreams,
+  testUserUpstream,
   type UserModelDTO,
+  type UserUpstreamDTO,
+  updateUserUpstream,
 } from "@/shared/api/user-upstream";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { COMPATIBLE_PRESETS } from "@/shared/lib/llm-presets";
 import { UserModelsDialog } from "./user-models-dialog";
 
 type UpstreamForm = {

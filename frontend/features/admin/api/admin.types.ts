@@ -2,10 +2,10 @@ import type {
   AdminUserResponse,
   AuditLogResponse,
   AuthEventResponse,
+  ImportOpenWebUIUsersRequest as ContractImportOpenWebUIUsersRequest,
   ConversationEventResponse,
   CreateUserRequest,
   DeleteUserResponse,
-  ImportOpenWebUIUsersRequest as ContractImportOpenWebUIUsersRequest,
   ImportOpenWebUIUsersResponse,
   PatchUserRequest,
   PaymentOrderResponse,
@@ -15,8 +15,8 @@ import type {
   RevokeUserSessionsResponse,
   SystemEventResponse,
   UpdateUserStatusRequest,
-  UserDataResponse,
   UsageLogResponse,
+  UserDataResponse,
 } from "@deeix/api-contract";
 import type { PagePayload } from "@/shared/api/common.types";
 

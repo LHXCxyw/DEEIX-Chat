@@ -1,12 +1,12 @@
 import type {
   PatchSkillRequest as ContractPatchSkillRequest,
+  WriteSkillRequest as ContractWriteSkillRequest,
   SkillDataResponse,
   SkillDeleteDataResponse,
   SkillPageResponseDoc,
   SkillResponse,
-  SkillSummaryResponse,
   SkillSummaryPageResponseDoc,
-  WriteSkillRequest as ContractWriteSkillRequest,
+  SkillSummaryResponse,
 } from "@deeix/api-contract";
 
 export type SkillScope = "builtin" | "user";

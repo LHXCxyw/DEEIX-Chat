@@ -10,7 +10,7 @@ import (
 func TestParseFileEmbeddingMessagePreservesMetadata(t *testing.T) {
 	message, err := parseFileProcessingMessage(redis.XMessage{
 		ID: "1-0",
-		Values: map[string]interface{}{
+		Values: map[string]any{
 			"user_id":             "7",
 			"file_id":             "file_1",
 			"retry":               "1",

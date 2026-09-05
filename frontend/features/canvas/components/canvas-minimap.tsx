@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import { AlertTriangle, Map as MapIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import type { CanvasDecoration, CanvasViewport, GraphNode } from "@/features/canvas/model/canvas-types";
 import { graphNodeSize } from "@/features/canvas/model/canvas-types";

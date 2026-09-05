@@ -1080,6 +1080,10 @@ definitions:
         items:
           $ref: '#/definitions/SubscriptionEntitlementResponse'
         type: array
+      totalSpentNanousd:
+        type: integer
+      totalSpentUSD:
+        type: number
     required:
     - account
     - mode
@@ -1093,6 +1097,8 @@ definitions:
     - periodUsedUSD
     - plan
     - subscriptionEntitlements
+    - totalSpentNanousd
+    - totalSpentUSD
     type: object
   BillingOverviewResponseDoc:
     properties:
@@ -1117,8 +1123,6 @@ definitions:
         type: string
       description:
         type: string
-      discountPercent:
-        type: integer
       featureJSON:
         type: string
       id:
@@ -1144,7 +1148,6 @@ definitions:
     required:
     - code
     - description
-    - discountPercent
     - featureJSON
     - id
     - isActive
@@ -2021,6 +2024,10 @@ definitions:
         x-omitempty: false
       errorJSON:
         type: string
+      errorOmitted:
+        type: boolean
+      errorSizeBytes:
+        type: integer
       eventID:
         type: string
       eventScope:
@@ -2031,12 +2038,20 @@ definitions:
         type: integer
       inputJSON:
         type: string
+      inputOmitted:
+        type: boolean
+      inputSizeBytes:
+        type: integer
       latencyMS:
         type: integer
       messageID:
         type: integer
       outputJSON:
         type: string
+      outputOmitted:
+        type: boolean
+      outputSizeBytes:
+        type: integer
       parentEventID:
         type: string
       payloadJSON:
@@ -2093,14 +2108,20 @@ definitions:
     - createdAt
     - endedAt
     - errorJSON
+    - errorOmitted
+    - errorSizeBytes
     - eventID
     - eventScope
     - eventType
     - id
     - inputJSON
+    - inputOmitted
+    - inputSizeBytes
     - latencyMS
     - messageID
     - outputJSON
+    - outputOmitted
+    - outputSizeBytes
     - parentEventID
     - payloadJSON
     - payloadOmitted
@@ -2518,6 +2539,50 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/ConversationShareResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  ConversationToolCallDetailResponse:
+    properties:
+      errorJSON:
+        type: string
+      errorOmitted:
+        type: boolean
+      errorSizeBytes:
+        type: integer
+      outputJSON:
+        type: string
+      outputOmitted:
+        type: boolean
+      outputSizeBytes:
+        type: integer
+      runID:
+        type: string
+      status:
+        type: string
+      toolCallID:
+        type: string
+      toolName:
+        type: string
+    required:
+    - errorJSON
+    - errorOmitted
+    - errorSizeBytes
+    - outputJSON
+    - outputOmitted
+    - outputSizeBytes
+    - runID
+    - status
+    - toolCallID
+    - toolName
+    type: object
+  ConversationToolCallDetailResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/ConversationToolCallDetailResponse'
       errorMsg:
         type: string
     required:
@@ -4281,7 +4346,7 @@ definitions:
         maxLength: 128
         type: string
       options:
-        additionalProperties: true
+        additionalProperties: {}
         type: object
       parentMessagePublicID:
         maxLength: 32
@@ -7179,7 +7244,7 @@ definitions:
         - user
         type: string
       options:
-        additionalProperties: true
+        additionalProperties: {}
         type: object
       parentMessagePublicID:
         maxLength: 32
@@ -7921,7 +7986,7 @@ definitions:
         maxLength: 128
         type: string
       options:
-        additionalProperties: true
+        additionalProperties: {}
         type: object
       selectedToolIDs:
         items:
@@ -8058,10 +8123,6 @@ definitions:
       description:
         maxLength: 255
         type: string
-      discountPercent:
-        maximum: 100
-        minimum: 0
-        type: integer
       name:
         maxLength: 64
         minLength: 1
@@ -8076,7 +8137,6 @@ definitions:
     - amountUSD
     - billingInterval
     - description
-    - discountPercent
     - name
     - periodCreditUSD
     type: object
@@ -9995,7 +10055,7 @@ info:
   contact: {}
   description: DEEIX Chat 后端 API 文档
   title: DEEIX Chat API
-  version: "0.4.0"
+  version: "0.4.1"
 paths:
   /admin/announcements:
     get:
@@ -16341,7 +16401,7 @@ paths:
         in: query
         name: after
         type: integer
-      - description: 是否返回可替换当前正文的权威文本快照
+      - description: 是否返回正文与当前思考轮次的权威内容快照
         in: query
         name: snapshot
         type: boolean
@@ -16359,6 +16419,46 @@ paths:
       security:
       - BearerAuth: []
       summary: 恢复流式生成订阅
+      tags:
+      - chat
+  /conversation-runs/{run_id}/tool-calls/{tool_call_id}:
+    get:
+      consumes:
+      - application/json
+      description: 查询当前用户指定会话运行内的持久化工具调用结果；超限字段仅返回原始大小与省略标记
+      parameters:
+      - description: 运行 ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      - description: 工具调用 ID
+        in: path
+        name: tool_call_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationToolCallDetailResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询工具调用结果详情
       tags:
       - chat
   /conversation-runs/statuses:
@@ -18776,6 +18876,20 @@ paths:
       security:
       - BearerAuth: []
       summary: 查询聊天上下文策略
+      tags:
+      - settings
+  /settings/feature-policy:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 查询用户侧功能开关策略
       tags:
       - settings
   /settings/login-page:

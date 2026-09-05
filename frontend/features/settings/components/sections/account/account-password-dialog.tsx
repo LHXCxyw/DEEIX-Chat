@@ -1,14 +1,14 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import type { SecurityVerificationMethod } from "@/shared/api/auth.types";
-import { PASSWORD_MIN_LENGTH, isPasswordPolicyValid } from "@/shared/auth/account-policy";
+import { isPasswordPolicyValid, PASSWORD_MIN_LENGTH } from "@/shared/auth/account-policy";
 import { SecurityVerificationDialog } from "./account-verification-dialog";
 
 export function ChangePasswordDialog({

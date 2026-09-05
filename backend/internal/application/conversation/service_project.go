@@ -63,22 +63,30 @@ type ConversationProjectPatchInput struct {
 	Status                  *string
 }
 
+type conversationProjectDefaultsValidationInput struct {
+	UserID           uint
+	DefaultModel     string
+	MCPDefaultMode   string
+	MCPToolIDs       []uint
+	SkillIDs         []uint
+	KnowledgeBaseIDs []string
+	Current          *model.ConversationProject
+}
+
 // CreateConversationProject 创建当前用户的会话项目分组。
 func (s *Service) CreateConversationProject(ctx context.Context, userID uint, input ConversationProjectInput) (*model.ConversationProject, error) {
 	normalized, err := normalizeConversationProjectInput(input)
 	if err != nil {
 		return nil, err
 	}
-	if err = s.validateConversationProjectDefaults(
-		ctx,
-		userID,
-		normalized.DefaultModel,
-		normalized.MCPDefaultMode,
-		normalized.DefaultMCPToolIDs,
-		normalized.DefaultSkillIDs,
-		normalized.DefaultKnowledgeBaseIDs,
-		nil,
-	); err != nil {
+	if err = s.validateConversationProjectDefaults(ctx, conversationProjectDefaultsValidationInput{
+		UserID:           userID,
+		DefaultModel:     normalized.DefaultModel,
+		MCPDefaultMode:   normalized.MCPDefaultMode,
+		MCPToolIDs:       normalized.DefaultMCPToolIDs,
+		SkillIDs:         normalized.DefaultSkillIDs,
+		KnowledgeBaseIDs: normalized.DefaultKnowledgeBaseIDs,
+	}); err != nil {
 		return nil, err
 	}
 	item := &model.ConversationProject{
@@ -496,7 +504,15 @@ func (s *Service) UpdateConversationProject(
 		if mode == model.ConversationProjectMCPDefaultModeInherit {
 			mcpToolIDs = []uint{}
 		}
-		if err = s.validateConversationProjectDefaults(ctx, userID, defaultModel, mode, mcpToolIDs, skillIDs, knowledgeBaseIDs, current); err != nil {
+		if err = s.validateConversationProjectDefaults(ctx, conversationProjectDefaultsValidationInput{
+			UserID:           userID,
+			DefaultModel:     defaultModel,
+			MCPDefaultMode:   mode,
+			MCPToolIDs:       mcpToolIDs,
+			SkillIDs:         skillIDs,
+			KnowledgeBaseIDs: knowledgeBaseIDs,
+			Current:          current,
+		}); err != nil {
 			return nil, err
 		}
 		patch.MCPDefaultMode = &mode
@@ -526,8 +542,10 @@ func (s *Service) DeleteConversationProject(
 		ctx,
 		userID,
 		strings.TrimSpace(publicID),
-		deleteConversations,
-		deleteConversations && options.DeleteFiles,
+		repository.DeleteConversationProjectOptions{
+			DeleteConversations: deleteConversations,
+			DeleteFiles:         deleteConversations && options.DeleteFiles,
+		},
 	)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -738,23 +756,14 @@ func normalizeConversationProjectPatch(input ConversationProjectPatchInput) (mod
 }
 
 // validateConversationProjectDefaults 校验项目默认能力的数量和新增关联的可用性。
-func (s *Service) validateConversationProjectDefaults(
-	ctx context.Context,
-	userID uint,
-	defaultModel string,
-	mcpDefaultMode string,
-	mcpToolIDs []uint,
-	skillIDs []uint,
-	knowledgeBaseIDs []string,
-	current *model.ConversationProject,
-) error {
-	if normalizeConversationProjectMCPDefaultMode(mcpDefaultMode) == "" {
+func (s *Service) validateConversationProjectDefaults(ctx context.Context, input conversationProjectDefaultsValidationInput) error {
+	if normalizeConversationProjectMCPDefaultMode(input.MCPDefaultMode) == "" {
 		return ErrInvalidConversationProject
 	}
-	normalizedDefaultModel := strings.TrimSpace(defaultModel)
-	defaultModelChanged := current == nil || normalizedDefaultModel != strings.TrimSpace(current.DefaultModel)
+	normalizedDefaultModel := strings.TrimSpace(input.DefaultModel)
+	defaultModelChanged := input.Current == nil || normalizedDefaultModel != strings.TrimSpace(input.Current.DefaultModel)
 	if defaultModelChanged && normalizedDefaultModel != "" {
-		available, err := s.isAvailableConversationProjectDefaultModel(ctx, userID, normalizedDefaultModel)
+		available, err := s.isAvailableConversationProjectDefaultModel(ctx, input.UserID, normalizedDefaultModel)
 		if err != nil {
 			return err
 		}
@@ -762,31 +771,31 @@ func (s *Service) validateConversationProjectDefaults(
 			return ErrInvalidConversationProject
 		}
 	}
-	mcpSelectionChanged := current == nil ||
-		mcpDefaultMode != current.MCPDefaultMode ||
-		!slices.Equal(mcpToolIDs, current.DefaultMCPToolIDs)
-	skillSelectionChanged := current == nil || !slices.Equal(skillIDs, current.DefaultSkillIDs)
-	knowledgeBaseSelectionChanged := current == nil || !slices.Equal(knowledgeBaseIDs, current.DefaultKnowledgeBaseIDs)
-	if (mcpSelectionChanged && len(mcpToolIDs) > s.resolveMaxSelectedToolsPerMessage()) ||
-		(skillSelectionChanged && len(skillIDs) > s.resolveMaxSelectedSkillsPerMessage()) {
+	mcpSelectionChanged := input.Current == nil ||
+		input.MCPDefaultMode != input.Current.MCPDefaultMode ||
+		!slices.Equal(input.MCPToolIDs, input.Current.DefaultMCPToolIDs)
+	skillSelectionChanged := input.Current == nil || !slices.Equal(input.SkillIDs, input.Current.DefaultSkillIDs)
+	knowledgeBaseSelectionChanged := input.Current == nil || !slices.Equal(input.KnowledgeBaseIDs, input.Current.DefaultKnowledgeBaseIDs)
+	if (mcpSelectionChanged && len(input.MCPToolIDs) > s.resolveMaxSelectedToolsPerMessage()) ||
+		(skillSelectionChanged && len(input.SkillIDs) > s.resolveMaxSelectedSkillsPerMessage()) {
 		return ErrInvalidConversationProject
 	}
-	mcpToolIDsToValidate := mcpToolIDs
-	skillIDsToValidate := skillIDs
-	knowledgeBaseIDsToValidate := knowledgeBaseIDs
-	if current != nil {
-		mcpToolIDsToValidate = newProjectDefaultIDs(mcpToolIDs, current.DefaultMCPToolIDs)
-		skillIDsToValidate = newProjectDefaultIDs(skillIDs, current.DefaultSkillIDs)
-		knowledgeBaseIDsToValidate = newProjectDefaultPublicIDs(knowledgeBaseIDs, current.DefaultKnowledgeBaseIDs)
+	mcpToolIDsToValidate := input.MCPToolIDs
+	skillIDsToValidate := input.SkillIDs
+	knowledgeBaseIDsToValidate := input.KnowledgeBaseIDs
+	if input.Current != nil {
+		mcpToolIDsToValidate = newProjectDefaultIDs(input.MCPToolIDs, input.Current.DefaultMCPToolIDs)
+		skillIDsToValidate = newProjectDefaultIDs(input.SkillIDs, input.Current.DefaultSkillIDs)
+		knowledgeBaseIDsToValidate = newProjectDefaultPublicIDs(input.KnowledgeBaseIDs, input.Current.DefaultKnowledgeBaseIDs)
 	}
 	var selectedToolsByID map[uint]domainmcp.Tool
-	if mcpDefaultMode == model.ConversationProjectMCPDefaultModeCustom &&
-		len(mcpToolIDs) > 0 &&
+	if input.MCPDefaultMode == model.ConversationProjectMCPDefaultModeCustom &&
+		len(input.MCPToolIDs) > 0 &&
 		(mcpSelectionChanged || len(mcpToolIDsToValidate) > 0) {
 		if s.mcpRepo == nil {
 			return ErrInvalidConversationProject
 		}
-		tools, err := s.mcpRepo.ListToolsByIDs(ctx, mcpToolIDs)
+		tools, err := s.mcpRepo.ListToolsByIDs(ctx, input.MCPToolIDs)
 		if err != nil {
 			return err
 		}
@@ -802,7 +811,7 @@ func (s *Service) validateConversationProjectDefaults(
 			return ErrInvalidConversationProject
 		}
 	}
-	if mcpDefaultMode == model.ConversationProjectMCPDefaultModeCustom && len(mcpToolIDsToValidate) > 0 {
+	if input.MCPDefaultMode == model.ConversationProjectMCPDefaultModeCustom && len(mcpToolIDsToValidate) > 0 {
 		for _, toolID := range mcpToolIDsToValidate {
 			if _, ok := selectedToolsByID[toolID]; !ok {
 				return ErrInvalidConversationProject
@@ -832,7 +841,7 @@ func (s *Service) validateConversationProjectDefaults(
 		if s.skillResolver == nil {
 			return ErrInvalidConversationProject
 		}
-		_, total, err := s.skillResolver.ListVisible(ctx, userID, appskill.ListInput{
+		_, total, err := s.skillResolver.ListVisible(ctx, input.UserID, appskill.ListInput{
 			IDs:      skillIDsToValidate,
 			Page:     1,
 			PageSize: 1,
@@ -844,14 +853,17 @@ func (s *Service) validateConversationProjectDefaults(
 			return ErrInvalidConversationProject
 		}
 	}
-	if knowledgeBaseSelectionChanged && len(knowledgeBaseIDs) > 8 {
+	if knowledgeBaseSelectionChanged && len(input.KnowledgeBaseIDs) > 0 && !s.cfg.Snapshot().KnowledgeBaseEnabled {
+		return ErrInvalidConversationProject
+	}
+	if knowledgeBaseSelectionChanged && len(input.KnowledgeBaseIDs) > 8 {
 		return ErrInvalidConversationProject
 	}
 	if len(knowledgeBaseIDsToValidate) > 0 {
 		if s.knowledgeBaseResolver == nil {
 			return ErrInvalidConversationProject
 		}
-		bases, _, err := s.knowledgeBaseResolver.ResolveFiles(ctx, userID, knowledgeBaseIDsToValidate)
+		bases, _, err := s.knowledgeBaseResolver.ResolveFiles(ctx, input.UserID, knowledgeBaseIDsToValidate)
 		if err != nil {
 			if errors.Is(err, domainknowledgebase.ErrReferenceUnavailable) {
 				return ErrInvalidConversationProject

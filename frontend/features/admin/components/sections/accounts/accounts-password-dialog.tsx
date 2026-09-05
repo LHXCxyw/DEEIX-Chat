@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { SpinnerLabel } from "@/components/ui/spinner";
-import { PASSWORD_MIN_LENGTH, isPasswordPolicyValid } from "@/shared/auth/account-policy";
+import { isPasswordPolicyValid, PASSWORD_MIN_LENGTH } from "@/shared/auth/account-policy";
 
 export function AccountPasswordResetDialog({
   open,

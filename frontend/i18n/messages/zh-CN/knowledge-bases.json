@@ -2,6 +2,13 @@
   "title": "知识库",
   "adminTitle": "内置知识库",
   "adminDefaultDescription": "面向所有用户提供的内置知识内容",
+  "featureToggle": {
+    "label": "启用知识库",
+    "description": "关闭后将隐藏用户侧的知识库入口并拒绝相关请求，重新开启后配置与数据保持不变。",
+    "enabledToast": "已开启知识库功能",
+    "disabledToast": "已关闭知识库功能，用户侧入口将隐藏",
+    "saveFailed": "知识库开关保存失败"
+  },
   "create": "新建",
   "localFiles": "本地资料",
   "localFilesTitle": "本地资料",

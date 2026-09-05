@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Plus, ScrollText, Search, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import {
   AlertDialog,
@@ -16,12 +16,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +24,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -181,12 +181,10 @@ export function SkillsPromptPage() {
   const stableViewTarget = useDialogSnapshot(viewTarget);
 
   const emptyState = (
-    <div className="flex h-full min-h-0 w-full items-center justify-center">
-      <CenteredEmptyState
-        title={items.length === 0 ? t("empty") : t("noResults")}
-        description={items.length === 0 ? t("emptyDescription") : t("noResultsDescription")}
-      />
-    </div>
+    <CenteredEmptyState
+      title={items.length === 0 ? t("empty") : t("noResults")}
+      description={items.length === 0 ? t("emptyDescription") : t("noResultsDescription")}
+    />
   );
   const listContent = (
     <div className="h-full min-h-0 w-full flex-1 overflow-y-auto pr-2" data-sidebar-scroll-root="true">

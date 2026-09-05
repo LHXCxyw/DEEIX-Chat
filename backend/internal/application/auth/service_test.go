@@ -16,6 +16,14 @@ type validateAccessSessionRepo struct {
 	touchInputs []repository.UpdateSessionActivityInput
 }
 
+func TestCleanupDeletedAccountFilesWithoutProviderKeepsFailuresSilent(t *testing.T) {
+	paths := []string{"avatars/one.png", "uploads/two.txt"}
+	failed := (&Service{}).cleanupDeletedAccountFiles(t.Context(), paths)
+	if len(failed) != len(paths) || failed[0] != paths[0] || failed[1] != paths[1] {
+		t.Fatalf("cleanup failures = %#v, want %#v", failed, paths)
+	}
+}
+
 func (r *validateAccessSessionRepo) GetSessionByUserAndSessionID(_ context.Context, userID uint, sessionID string) (*domainuser.Session, error) {
 	if r.session == nil || r.session.UserID != userID || r.session.SessionID != sessionID {
 		return nil, repository.ErrNotFound

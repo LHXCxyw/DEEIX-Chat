@@ -1,5 +1,5 @@
-import type { ChatAreaMessage, ChatMessageProcessTrace, MessageAttachment } from "@/features/chat/types/messages";
 import type { PendingAttachment } from "@/features/chat/types/chat-runtime";
+import type { ChatAreaMessage, ChatMessageProcessTrace, MessageAttachment } from "@/features/chat/types/messages";
 import type {
   MessageProcessTraceDTO,
   TraceBlockDTO,

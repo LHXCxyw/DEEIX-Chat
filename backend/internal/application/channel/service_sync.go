@@ -14,6 +14,7 @@ import (
 	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/apperr"
 	"go.uber.org/zap"
 )
 
@@ -439,7 +440,7 @@ func (s *Service) ImportUpstreamModels(ctx context.Context, upstreamID uint, inp
 				UpstreamModelName: strings.TrimSpace(item.UpstreamModelName),
 				PlatformModelName: strings.TrimSpace(item.PlatformModelName),
 				Status:            ImportUpstreamModelStatusFailed,
-				Error:             importErr.Error(),
+				Error:             apperr.MessageOr(importErr, "upstream model import failed"),
 			})
 			continue
 		}
@@ -570,7 +571,7 @@ func (s *Service) fetchRemoteModels(ctx context.Context, up *domainchannel.Upstr
 			zap.String("base_url", up.BaseURL),
 			zap.Error(err),
 		)
-		return nil, fmt.Errorf("%w: %v", ErrRemoteModelsUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrRemoteModelsUnavailable, err)
 	}
 	return items, nil
 }
@@ -588,7 +589,7 @@ func syncedUpstreamModel(
 		"id":       name,
 		"owned_by": strings.TrimSpace(item.OwnedBy),
 	})
-	vendor := normalizeUpstreamModelVendor(item.OwnedBy, name, upstream.Name, upstream.BaseURL)
+	vendor := normalizeModelVendor(item.OwnedBy, name, upstream.Name, upstream.BaseURL)
 	return &domainchannel.UpstreamModel{
 		UpstreamID:        upstream.ID,
 		BindingCode:       bindingCode,

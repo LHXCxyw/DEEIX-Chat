@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { LoaderCircle, ShieldCheck, UsersRound } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -18,11 +18,12 @@ import {
 } from "@/components/ui/combobox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listAdminUsers, type PermissionGroup } from "@/features/admin/api";
+import type { AdminUserDTO } from "@/features/admin/api/admin.types";
 import type { AdminStatisticsSubject } from "@/features/admin/hooks/use-admin-statistics";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { cn } from "@/lib/utils";
-import type { AdminUserDTO } from "@/features/admin/api/admin.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useDebouncedValue } from "@/shared/hooks/use-debounced-value";
 import { resolveAvatarImageSrc } from "@/shared/lib/avatar";
 
 type SubjectMode = "user" | "permission-group";
@@ -68,15 +69,10 @@ export function AdminStatisticsSubjectFilter({
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<SubjectMode>("user");
   const [query, setQuery] = React.useState("");
-  const [debouncedQuery, setDebouncedQuery] = React.useState("");
+  const debouncedQuery = useDebouncedValue(query.trim());
   const [users, setUsers] = React.useState<AdminUserDTO[]>([]);
   const [loading, setLoading] = React.useState(false);
   const requestSequenceRef = React.useRef(0);
-
-  React.useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 250);
-    return () => window.clearTimeout(timer);
-  }, [query]);
 
   React.useEffect(() => {
     if (!open || mode !== "user") return;

@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { listVisibleKnowledgeBases } from "@/shared/api/knowledge-bases";
 import type { KnowledgeBaseDTO } from "@/shared/api/knowledge-bases.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useFeaturePolicy } from "@/shared/hooks/use-feature-policy";
 
 const MAX_SELECTED_KNOWLEDGE_BASES = 8;
 
@@ -33,6 +34,7 @@ export function ChatKnowledgeBases({
   onChange: (ids: string[]) => void;
 }) {
   const t = useTranslations("chat.composer");
+  const { knowledgeBaseEnabled } = useFeaturePolicy();
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -158,6 +160,8 @@ export function ChatKnowledgeBases({
       unavailableDescription = t("knowledgeBaseUnavailableVectorStore");
       break;
   }
+
+  if (!knowledgeBaseEnabled) return null;
 
   return (
     <Popover open={open} onOpenChange={(nextOpen) => {

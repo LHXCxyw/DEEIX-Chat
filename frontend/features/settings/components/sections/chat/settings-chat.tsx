@@ -1,20 +1,10 @@
 "use client";
 
-import * as React from "react";
+
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { Pencil, Trash2, Plus } from "lucide-react";
-
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,10 +15,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import type { ChatContentWidth } from "@/shared/model/chat-content-width";
 import { useSettingsAppearancePersistence } from "@/features/settings/hooks/use-settings-appearance-persistence";
 import { useSettingsChat } from "@/features/settings/hooks/use-settings-chat";
+import type { SendShortcut } from "@/features/settings/types/settings";
 import {
   type ChatFontOption,
   type ChatFontWeightOption,
@@ -38,10 +37,9 @@ import {
   writeChatFontWeightPreference,
 } from "@/features/settings/utils/chat-font";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { listUserMemories, upsertUserMemory, deleteUserMemory } from "@/shared/api/memory";
+import { deleteUserMemory, listUserMemories, upsertUserMemory } from "@/shared/api/memory";
 import type { UserMemoryDTO } from "@/shared/api/memory.types";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { ModelSelect, type ModelSelectOption } from "@/shared/components/model-select";
 import {
   SettingsFieldList,
@@ -50,10 +48,11 @@ import {
   SettingsSection,
   SettingsSectionSeparator,
 } from "@/shared/components/settings-layout";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import { resolveModelOptionIconUrl, resolveModelOptionLabel } from "@/shared/lib/model-option-display";
-import { parseKindsJSON } from "@/shared/model/llm-schema";
 import { platformModifierLabel, platformSendShortcut } from "@/shared/lib/platform-shortcuts";
-import type { SendShortcut } from "@/features/settings/types/settings";
+import type { ChatContentWidth } from "@/shared/model/chat-content-width";
+import { parseKindsJSON } from "@/shared/model/llm-schema";
 import { ChatDisplayAppearance } from "./chat-display-appearance";
 
 type ModelOption = ModelSelectOption;

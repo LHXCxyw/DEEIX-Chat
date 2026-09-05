@@ -52,6 +52,7 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.GET("/conversation-runs/stream", m.Handler.StreamActiveMessageGenerations)
 	authRequired.POST("/conversation-runs/statuses", m.Handler.GetConversationRunStatuses)
 	authRequired.GET("/conversation-runs/:run_id/stream", m.Handler.ResumeMessageGenerationStream)
+	authRequired.GET("/conversation-runs/:run_id/tool-calls/:tool_call_id", m.Handler.GetConversationToolCallDetail)
 	authRequired.POST("/conversation-runs/:run_id/cancel", m.Handler.CancelMessageGeneration)
 	authRequired.PATCH("/messages/:id", m.Handler.UpdateMessage)
 	authRequired.DELETE("/messages/:id", m.Handler.DeleteMessage)

@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {

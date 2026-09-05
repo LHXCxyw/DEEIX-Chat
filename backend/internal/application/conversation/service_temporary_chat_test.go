@@ -22,6 +22,8 @@ import (
 type temporaryLLMGatewayStub struct {
 	inputs           []llm.GenerateInput
 	onGenerateStream func(llm.GenerateInput)
+	// output 非空时作为上游返回，用于构造带 usage 的响应。
+	output *llm.GenerateOutput
 }
 
 type temporaryBuiltinParserStub struct{}
@@ -62,6 +64,9 @@ func (s *temporaryLLMGatewayStub) GenerateStream(
 		s.onGenerateStream(input)
 	}
 	s.inputs = append(s.inputs, input)
+	if s.output != nil {
+		return s.output, nil
+	}
 	return &llm.GenerateOutput{Text: "ok"}, nil
 }
 
@@ -174,7 +179,7 @@ func TestStreamTemporaryChatSendsRequestScopedImageWithoutPersistence(t *testing
 		}},
 		llmClient:  gateway,
 		uploadSvc:  appupload.NewServiceWithRuntime(runtimeCfg, nil, nil, appupload.Hooks{}, appupload.ErrorSet{}, ""),
-		extractSvc: extraction.NewServiceWithRuntime(runtimeCfg),
+		extractSvc: extraction.NewServiceWithRuntime(runtimeCfg, extraction.EngineFactories{}),
 	}
 	var imageData bytes.Buffer
 	sourceImage := image.NewNRGBA(image.Rect(0, 0, 1, 1))
@@ -209,8 +214,6 @@ func TestStreamTemporaryChatSendsRequestScopedImageWithoutPersistence(t *testing
 }
 
 func TestStreamTemporaryChatExtractsDocumentAndReleasesUploadSourceBeforeGeneration(t *testing.T) {
-	extraction.RegisterEngineFactories(extraction.EngineFactories{Builtin: temporaryBuiltinParserStub{}})
-	t.Cleanup(func() { extraction.RegisterEngineFactories(extraction.EngineFactories{}) })
 	released := false
 	gateway := &temporaryLLMGatewayStub{
 		onGenerateStream: func(input llm.GenerateInput) {
@@ -240,7 +243,7 @@ func TestStreamTemporaryChatExtractsDocumentAndReleasesUploadSourceBeforeGenerat
 		}},
 		llmClient:  gateway,
 		uploadSvc:  appupload.NewServiceWithRuntime(runtimeCfg, nil, nil, appupload.Hooks{}, appupload.ErrorSet{}, ""),
-		extractSvc: extraction.NewServiceWithRuntime(runtimeCfg),
+		extractSvc: extraction.NewServiceWithRuntime(runtimeCfg, extraction.EngineFactories{Builtin: temporaryBuiltinParserStub{}}),
 	}
 
 	if _, err := service.StreamTemporaryChat(t.Context(), TemporaryChatInput{
@@ -279,12 +282,12 @@ func TestStreamTemporaryChatExtractsDocumentAndReleasesUploadSourceBeforeGenerat
 }
 
 func TestStripTemporaryChatProviderStateOptions(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"temperature":          0.5,
 		"store":                true,
-		"cache_control":        map[string]interface{}{"type": "ephemeral"},
+		"cache_control":        map[string]any{"type": "ephemeral"},
 		"cachedContent":        "cachedContents/example",
-		"prompt_cache_options": map[string]interface{}{"mode": "explicit"},
+		"prompt_cache_options": map[string]any{"mode": "explicit"},
 	}
 	result := stripTemporaryChatProviderStateOptions(input)
 	if result["temperature"] != 0.5 {
@@ -320,7 +323,7 @@ func TestStreamTemporaryChatPreservesProviderNativeToolsWithoutMCPTools(t *testi
 	tests := []struct {
 		name             string
 		capabilitiesJSON string
-		options          map[string]interface{}
+		options          map[string]any
 		expectedType     string
 	}{
 		{
@@ -335,12 +338,12 @@ func TestStreamTemporaryChatPreservesProviderNativeToolsWithoutMCPTools(t *testi
 		{
 			name:             "user option",
 			capabilitiesJSON: `{"nativeToolKeys":["xai.x_search"]}`,
-			options: map[string]interface{}{
-				"tools": []interface{}{
-					map[string]interface{}{
+			options: map[string]any{
+				"tools": []any{
+					map[string]any{
 						"type":                       "x_search",
 						"enable_image_understanding": true,
-						"allowed_domains":            []interface{}{"x.com"},
+						"allowed_domains":            []any{"x.com"},
 					},
 				},
 			},
@@ -391,7 +394,7 @@ func TestStreamTemporaryChatPreservesProviderNativeToolsWithoutMCPTools(t *testi
 			if len(generateInput.Tools) != 0 {
 				t.Fatalf("expected no MCP tool declarations, got %#v", generateInput.Tools)
 			}
-			tools, ok := generateInput.Options["tools"].([]map[string]interface{})
+			tools, ok := generateInput.Options["tools"].([]map[string]any)
 			if !ok || len(tools) != 1 || tools[0]["type"] != test.expectedType {
 				t.Fatalf("expected %s provider-native tool, got %#v", test.expectedType, generateInput.Options["tools"])
 			}
@@ -399,6 +402,52 @@ func TestStreamTemporaryChatPreservesProviderNativeToolsWithoutMCPTools(t *testi
 				t.Fatalf("expected provider-native tool parameters to remain, got %#v", tools[0])
 			}
 		})
+	}
+}
+
+func TestStreamTemporaryChatKeepsFullyCachedInputTokensObserved(t *testing.T) {
+	gateway := &temporaryLLMGatewayStub{output: &llm.GenerateOutput{
+		Text:  "ok",
+		Usage: llm.Usage{CacheReadTokens: 3355, OutputTokens: 23, ReasoningTokens: 49},
+	}}
+	service := &Service{
+		cfg: config.NewRuntime(config.Config{
+			ModelOptionPolicyMode:   modelOptionPolicyAllowlist,
+			ModelOptionAllowedPaths: config.DefaultModelOptionAllowedPathsJSON(),
+			ModelOptionDeniedPaths:  config.DefaultModelOptionDeniedPathsJSON(),
+		}),
+		routeResolver: &textTaskRouteResolverStub{routes: map[string]*channel.ResolvedRoute{
+			"chat": {
+				PlatformModelName: "chat",
+				UpstreamModel:     "chat",
+				Protocol:          llm.AdapterOpenAIChatCompletions,
+			},
+		}},
+		llmClient: gateway,
+	}
+
+	result, err := service.StreamTemporaryChat(t.Context(), TemporaryChatInput{
+		UserID:      1,
+		SessionID:   "temporary-session",
+		ClientRunID: "temporary-run",
+		Model:       "chat",
+		Messages:    []TemporaryChatMessage{{Role: "user", Content: strings.Repeat("cached prompt ", 200)}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("stream temporary chat: %v", err)
+	}
+
+	if result.UserMessage.InputTokens != 0 || result.UserMessage.TokenUsage != 0 {
+		t.Fatalf("expected fully cached prompt to keep zero non-cached input, got input=%d usage=%d", result.UserMessage.InputTokens, result.UserMessage.TokenUsage)
+	}
+	if result.UserMessage.CacheReadTokens != 3355 {
+		t.Fatalf("expected cache read tokens to be preserved, got %d", result.UserMessage.CacheReadTokens)
+	}
+	if result.AssistantMessage.OutputTokens != 23 || result.AssistantMessage.ReasoningTokens != 49 {
+		t.Fatalf("unexpected output usage: %#v", result.AssistantMessage)
+	}
+	if result.UsageSource != "observed" {
+		t.Fatalf("expected fully cached usage to be observed, got %q", result.UsageSource)
 	}
 }
 
@@ -439,7 +488,7 @@ func TestEphemeralTraceEmitsWithoutPersistence(t *testing.T) {
 		PublicID: "temporary-message",
 		UserID:   1,
 		RunID:    "temporary-run",
-	}, func(eventType string, payload map[string]interface{}) error {
+	}, func(eventType string, payload map[string]any) error {
 		eventCount++
 		if eventType == "process_update" {
 			if trace, ok := payload["trace"].(*model.MessageProcessTrace); ok && trace.PromptTrace != nil {

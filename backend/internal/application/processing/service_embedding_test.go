@@ -130,14 +130,19 @@ func TestSubmitFileEmbeddingsKeepsPerFileFailuresIsolated(t *testing.T) {
 		Cache:         memorycache.New(),
 		enqueueErrors: map[string]error{"queue_failed": errors.New("queue unavailable")},
 	}
-	embeddingSvc := appembedding.NewService(
-		cfg,
+	embeddingSvc := appembedding.NewServiceWithRuntime(
+		config.NewRuntime(cfg),
 		repo,
 		nil,
 		infraembedding.New(security.OutboundPolicy{}),
 		nil,
 	)
-	service := NewService(cfg, nil, queue, nil, embeddingSvc, nil, DefaultExtractorVersion)
+	service := NewServiceWithRuntime(Dependencies{
+		Config:           config.NewRuntime(cfg),
+		Cache:            queue,
+		EmbeddingService: embeddingSvc,
+		ExtractorVersion: DefaultExtractorVersion,
+	})
 
 	result, err := service.SubmitFileEmbeddings(
 		context.Background(),
@@ -175,14 +180,19 @@ func TestEmbeddingDeadLetterFinalizesFileStatus(t *testing.T) {
 	cfg := targetedEmbeddingTestConfig()
 	repo := &targetedEmbeddingRepositoryStub{vectorError: errors.New("vector store unavailable")}
 	queue := memorycache.New()
-	embeddingSvc := appembedding.NewService(
-		cfg,
+	embeddingSvc := appembedding.NewServiceWithRuntime(
+		config.NewRuntime(cfg),
 		repo,
 		nil,
 		infraembedding.New(security.OutboundPolicy{}),
 		nil,
 	)
-	service := NewService(cfg, nil, queue, nil, embeddingSvc, nil, DefaultExtractorVersion)
+	service := NewServiceWithRuntime(Dependencies{
+		Config:           config.NewRuntime(cfg),
+		Cache:            queue,
+		EmbeddingService: embeddingSvc,
+		ExtractorVersion: DefaultExtractorVersion,
+	})
 	signature := appembedding.ComputeModelSignature(cfg.RAGModel, cfg.EmbeddingOutputDimensions)
 	if err := queue.EnqueueFileEmbedding(context.Background(), 7, "file_1", signature, cfg.EmbeddingHost); err != nil {
 		t.Fatalf("enqueue embedding: %v", err)

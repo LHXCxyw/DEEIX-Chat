@@ -1,9 +1,9 @@
-import * as React from "react";
 import { Check, ChevronDownIcon } from "lucide-react";
+import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import { MODEL_KIND_OPTIONS } from "@/features/admin/types/llm";
+import { cn } from "@/lib/utils";
 import { PROTOCOL_PRESETS } from "@/shared/lib/llm-presets";
 
 const TRIGGER_CLASSNAME =

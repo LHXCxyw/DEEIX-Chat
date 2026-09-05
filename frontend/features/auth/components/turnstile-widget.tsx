@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import Script from "next/script";
+import * as React from "react";
 
 type TurnstileAPI = {
   render: (

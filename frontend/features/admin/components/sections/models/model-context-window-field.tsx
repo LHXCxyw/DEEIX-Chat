@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDownIcon, CircleHelp } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -19,11 +19,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import {
   isValidModelContextWindow,
   MODEL_CONTEXT_WINDOW_PRESETS,
 } from "@/features/admin/model/model-context-window";
+import { cn } from "@/lib/utils";
 
 type ModelContextWindowFieldProps = {
   value: number | null;

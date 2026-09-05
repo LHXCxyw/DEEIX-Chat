@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { fetchFileExtract } from "@/shared/api/file";

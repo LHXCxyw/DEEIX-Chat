@@ -1,9 +1,8 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-
-import { formatBytes } from "@/shared/lib/file-display";
 import type { UserStorageQuotaDTO } from "@/shared/api/file.types";
+import { formatBytes } from "@/shared/lib/file-display";
 
 type StorageQuotaPanelProps = {
   quota: UserStorageQuotaDTO | null;

@@ -24,6 +24,7 @@ import type {
   UserStorageQuotaDTO,
 } from "@/shared/api/file.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useDebouncedValue } from "@/shared/hooks/use-debounced-value";
 import {
   type FileStatusPollingResult,
   useFileProcessingStatusPolling,
@@ -34,6 +35,7 @@ import { canManuallyVectorizeFile, isFileProcessing } from "@/shared/lib/file-pr
 import { patchByID, replaceByID, upsertByID } from "@/shared/lib/optimistic-list";
 
 const FILES_PAGE_SIZE = 100;
+const FILE_SEARCH_DEBOUNCE_MS = 250;
 
 type FilesMobileView = "list" | "detail";
 type FileContentTab = "preview" | "extract";
@@ -144,7 +146,7 @@ export function useFilesPage(): UseFilesPageResult {
   const [nextPage, setNextPage] = React.useState(2);
   const [hasMore, setHasMore] = React.useState(false);
   const [query, setQuery] = React.useState("");
-  const [debouncedQuery, setDebouncedQuery] = React.useState("");
+  const debouncedQuery = useDebouncedValue(query.trim(), FILE_SEARCH_DEBOUNCE_MS);
   const [sortKey, setSortKey] = React.useState<FileSortKey>("created");
   const [filterKeys, setFilterKeys] = React.useState<FileFilterValue[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
@@ -181,13 +183,6 @@ export function useFilesPage(): UseFilesPageResult {
   React.useEffect(() => {
     totalRef.current = total;
   }, [total]);
-
-  React.useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebouncedQuery(query.trim());
-    }, 220);
-    return () => window.clearTimeout(timer);
-  }, [query]);
 
   React.useEffect(() => {
     setContentTab(requestedContentTab);

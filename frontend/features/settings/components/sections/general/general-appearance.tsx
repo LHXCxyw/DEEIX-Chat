@@ -1,20 +1,20 @@
 "use client";
 
-import * as React from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import type { FontSizeOption } from "@/features/settings/utils/font-size";
 import type {
   FontSizePreview,
   ThemeMode,
   ThemePresetPreview,
   ThemePreviewPalette,
 } from "@/features/settings/types/settings";
+import type { FontSizeOption } from "@/features/settings/utils/font-size";
 import { cn } from "@/lib/utils";
-import type { ThemePreset } from "@/shared/components/theme-provider";
 import { SettingsSection } from "@/shared/components/settings-layout";
+import type { ThemePreset } from "@/shared/components/theme-provider";
 
 const THEME_PREVIEW_PALETTES: Record<"light" | "dark", ThemePreviewPalette> = {
   light: {
@@ -255,7 +255,7 @@ function ThemePresetPreviewCard({
     <button
       type="button"
       onClick={() => onSelect(item.value)}
-      className="group min-w-0 text-left"
+      className="group min-w-0 rounded-xl text-left"
       aria-pressed={active}
     >
       <div
@@ -333,7 +333,7 @@ function ThemePreviewCard({
     <button
       type="button"
       onClick={() => onSelect(mode)}
-      className="group text-left"
+      className="group rounded-xl text-left"
       aria-pressed={active}
     >
       <div
@@ -399,7 +399,7 @@ function FontSizePreviewCard({
     <button
       type="button"
       onClick={() => onSelect(item.value)}
-      className="group text-left"
+      className="group rounded-xl text-left"
       aria-pressed={active}
     >
       <div

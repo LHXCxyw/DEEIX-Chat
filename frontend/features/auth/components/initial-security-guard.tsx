@@ -1,9 +1,9 @@
 "use client";
 
-import * as React from "react";
 import { MapPinned, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
 import { motion } from "motion/react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,10 @@ import {
   readLocalAppearancePreferences,
   serializeAppearancePreferences,
 } from "@/features/settings/utils/appearance-preferences";
+import { useAppLocale } from "@/i18n/app-i18n-provider";
+import { APP_LOCALE_LABELS, APP_LOCALES, type AppLocale } from "@/i18n/config";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { cn } from "@/lib/utils";
 import {
   cancelCurrentTwoFactorSetup,
   completeOnboarding,
@@ -29,24 +33,20 @@ import {
 import type { TwoFactorSetupStartData, UserDTO } from "@/shared/api/auth.types";
 import {
   DISPLAY_NAME_MAX_LENGTH,
-  PASSWORD_MIN_LENGTH,
-  USERNAME_MAX_LENGTH,
   isDisplayNameLengthValid,
   isPasswordPolicyValid,
   isUsernamePolicyValid,
+  PASSWORD_MIN_LENGTH,
+  USERNAME_MAX_LENGTH,
 } from "@/shared/auth/account-policy";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { clearSessionAndRedirectToLogin } from "@/shared/auth/session";
-import { useAppLocale } from "@/i18n/app-i18n-provider";
-import { APP_LOCALE_LABELS, APP_LOCALES, type AppLocale } from "@/i18n/config";
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { AppLogo } from "@/shared/components/app-logo";
 import { CopyActionButton } from "@/shared/components/copy-action";
+import { type ThemePreset, useTheme } from "@/shared/components/theme-provider";
 import { TimeZoneSelect } from "@/shared/components/time-zone-select";
-import { useTheme, type ThemePreset } from "@/shared/components/theme-provider";
 import { createQRCodeDataURL } from "@/shared/lib/qr-code";
 import { detectCurrentTimeZone } from "@/shared/lib/time-zone";
-import { cn } from "@/lib/utils";
 
 const ADMIN_ONBOARDING_TIPS = [
   "adminTips.upstreams",

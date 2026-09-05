@@ -1,10 +1,10 @@
 import type {
   PatchPromptPresetRequest as ContractPatchPromptPresetRequest,
+  WritePromptPresetRequest as ContractWritePromptPresetRequest,
   PromptPresetDataResponse,
   PromptPresetDeleteDataResponse,
   PromptPresetPageResponseDoc,
   PromptPresetResponse,
-  WritePromptPresetRequest as ContractWritePromptPresetRequest,
 } from "@deeix/api-contract";
 
 export type PromptPresetScope = "builtin" | "user";

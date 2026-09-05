@@ -365,8 +365,8 @@
     "moderationBlockedDescription": "This response was withdrawn after a safety check.",
     "moderationEventId": "Event ID: {id}",
     "moderationCategories": "Categories: {categories}",
-    "deleteMessageFailed": "Failed to delete message"
-  },
+"deleteMessageFailed": "Failed to delete message",
+"moderationBlockedBilled": "Upstream usage incurred before the block is billed as usual."  },
   "data": {
     "signInRequired": "Sign in before loading conversation messages.",
     "loadFailed": "Failed to load conversation messages"
@@ -551,6 +551,28 @@
         "model": "Models",
         "skill": "Skills",
         "prompt": "Prompts"
+      },
+      "tabs": {
+        "all": "All",
+        "file": "Files",
+        "tool": "MCP",
+        "model": "Models",
+        "skill": "Skills",
+        "prompt": "Prompts"
+      },
+      "recent": "Recent",
+      "groups": {
+        "builtin": "Built-in",
+        "mine": "Mine"
+      },
+      "viewAll": "View all {count}",
+      "empty": {
+        "all": "No matching results",
+        "file": "No matching files",
+        "tool": "No matching tools",
+        "model": "No matching models",
+        "skill": "No matching skills",
+        "prompt": "No matching prompts"
       }
     },
     "mediaMode": {
@@ -687,7 +709,14 @@
         "generatedImageAlt": "Generated image {index}",
         "sourceCount": "{count} sources",
         "groundingSupportCount": "{count} grounding supports",
-        "exitCode": "Exit code {code}"
+        "exitCode": "Exit code {code}",
+        "viewFullResult": "View full result",
+        "fullResultTitle": "Full tool result",
+        "loadingFullResult": "Loading full result",
+        "fullResultLoadFailed": "Could not load the full result. Try again later.",
+        "fullResultOmitted": "This result is {size}, above the safe viewing limit, so it was not loaded.",
+        "fullResultEmpty": "This tool call returned no content.",
+        "close": "Close"
       }
     },
     "think": {

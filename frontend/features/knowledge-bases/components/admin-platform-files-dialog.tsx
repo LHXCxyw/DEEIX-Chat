@@ -1,7 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { Search, Trash2, Upload } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
@@ -24,11 +24,11 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogHeightTransition,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { DialogHeightTransition } from "@/features/knowledge-bases/components/knowledge-base-dialogs";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import {
   deleteAdminKnowledgeBaseFile,
@@ -40,9 +40,9 @@ import type { KnowledgeBaseFileDTO } from "@/shared/api/knowledge-bases.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import type { PreviewDialogFile } from "@/shared/components/file-preview/preview-dialog";
 import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { runSettledBulkItems, runSettledItemsWithConcurrency } from "@/shared/lib/bulk-action";
 import { formatBytes, resolveFileIcon } from "@/shared/lib/file-display";
 import { resolveFileRetrievalBadge } from "@/shared/lib/file-processing";
-import { runSettledBulkItems, runSettledItemsWithConcurrency } from "@/shared/lib/bulk-action";
 
 const PAGE_SIZE = 50;
 const UPLOAD_LIMIT = 100;
@@ -475,7 +475,7 @@ export function AdminPlatformFilesDialog({
                     </div>
                   </>
                 ) : (
-                  <div className="flex min-h-36 items-center justify-center text-xs text-muted-foreground">
+                  <div className="flex min-h-36 items-center justify-center px-3 py-6 text-center text-xs text-muted-foreground">
                     {t("localFilesEmpty")}
                   </div>
                 )}

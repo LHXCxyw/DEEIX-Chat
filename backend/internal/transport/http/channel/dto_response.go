@@ -289,20 +289,6 @@ type UpstreamHealthResponse struct {
 	LastSuccessAt string `json:"lastSuccessAt"`
 }
 
-func toUpstreamHealthResponse(v appchannel.UpstreamHealthView) UpstreamHealthResponse {
-	return UpstreamHealthResponse{
-		UpstreamID:    v.UpstreamID,
-		UpstreamName:  v.UpstreamName,
-		Status:        v.Status,
-		FailureCount:  v.FailureCount,
-		CircuitOpen:   v.CircuitOpen,
-		CircuitUntil:  v.CircuitUntil,
-		LastError:     v.LastError,
-		LastFailureAt: v.LastFailureAt,
-		LastSuccessAt: v.LastSuccessAt,
-	}
-}
-
 // ModelProbeResponse 模型连通性测试响应 DTO。
 type ModelProbeResponse struct {
 	Success            bool                     `json:"success"`
@@ -900,9 +886,9 @@ func toPublicModelPricingResponse(v *appbilling.PublicModelPricing) *PublicModel
 
 // ErrorDoc 错误响应文档。
 type ErrorDoc struct {
-	ErrorMsg  string      `json:"errorMsg"`
-	ErrorCode string      `json:"errorCode,omitempty"`
-	Details   interface{} `json:"details,omitempty"`
-	RequestID string      `json:"requestId,omitempty"`
-	Data      interface{} `json:"data"`
+	ErrorMsg  string `json:"errorMsg"`
+	ErrorCode string `json:"errorCode,omitempty"`
+	Details   any    `json:"details,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
+	Data      any    `json:"data"`
 }

@@ -121,6 +121,7 @@ export function SidebarHeader({
       {searchOpen ? (
         <div className="px-1 pt-2">
           <Input
+            autoFocus
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder={t("searchPlaceholder")}

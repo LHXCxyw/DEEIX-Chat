@@ -1,18 +1,18 @@
 "use client";
 
-import * as React from "react";
 import { Activity, AlertTriangle, CheckCircle2, RefreshCw, ShieldAlert, Timer } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 import { Area, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
+  type ChartConfig,
   ChartContainer,
   ChartInteractiveLegend,
-  ChartTooltip,
-  type ChartConfig,
   type ChartInteractiveLegendItem,
+  ChartTooltip,
 } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";

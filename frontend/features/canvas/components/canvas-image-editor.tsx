@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import { Brush, Crop, Eraser, Expand, X } from "lucide-react";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Input } from "@/components/ui/input";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";

@@ -1,10 +1,10 @@
+import { zoomViewportAt } from "./canvas-persist.ts";
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
   type CanvasDecoration,
   type CanvasViewport,
 } from "./canvas-types.ts";
-import { zoomViewportAt } from "./canvas-persist.ts";
 
 export function viewportForCanvasKey(
   key: string,

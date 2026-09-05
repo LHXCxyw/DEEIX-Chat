@@ -40,7 +40,7 @@ RUN node ../scripts/sync-version.mjs frontend \
     && pnpm build
 
 
-FROM golang:1.26.5-bookworm AS backend-builder
+FROM golang:1.26.8-bookworm AS backend-builder
 
 WORKDIR /src/backend
 

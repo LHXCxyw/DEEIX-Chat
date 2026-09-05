@@ -1,18 +1,18 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
-import { updateAdminBillingPlan, invalidateAdminReferenceDataCache } from "@/features/admin/api";
+import { invalidateAdminReferenceDataCache, updateAdminBillingPlan } from "@/features/admin/api";
 import type { AdminBillingPlanDTO } from "@/features/admin/api/billing.types";
 import type { PermissionGroup } from "@/features/admin/api/permission-groups";
-import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
-import { createPlanFormState, parseIntValue, parsePrice, type PlanFormState } from "@/features/admin/model/billing-settings";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import { PlanBillingDialog } from "@/features/admin/components/sections/billing/billing-dialogs";
 import { PeriodBillingTable } from "@/features/admin/components/sections/billing/billing-tables";
+import { createPlanFormState, type PlanFormState, parsePrice } from "@/features/admin/model/billing-settings";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 
 type BillingPlanSectionProps = {
   plans: AdminBillingPlanDTO[];
@@ -50,7 +50,6 @@ export function BillingPlanSection({ plans, setPlans, permissionGroups, loading 
         currency: "USD",
         billingInterval: planForm.billingInterval,
         periodCreditUSD: parsePrice(planForm.periodCredit),
-        discountPercent: Math.min(100, parseIntValue(planForm.discountPercent)),
         permissionGroupID: Number(planForm.permissionGroupID) || undefined,
       });
       setPlans((current) => current.map((plan) => plan.id === data.plan.id ? data.plan : plan));

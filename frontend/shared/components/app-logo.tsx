@@ -1,9 +1,8 @@
 "use client";
 
 import Image from "next/image";
-
-import { useBranding } from "@/shared/config/branding-provider";
 import { useTheme } from "@/shared/components/theme-provider";
+import { useBranding } from "@/shared/config/branding-provider";
 
 type AppLogoProps = {
   alt?: string;

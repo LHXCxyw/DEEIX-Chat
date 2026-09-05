@@ -1,17 +1,15 @@
 "use client";
 
-import * as React from "react";
-import dynamic from "next/dynamic";
 import { Archive, ArrowDown, ArrowUp, Folder, Maximize2, Minimize2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 
 import { ArrowRight } from "@/components/animate-ui/icons/arrow-right";
 import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more";
 import { Search } from "@/components/animate-ui/icons/search";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DialogCollapsible } from "@/components/ui/dialog";
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import {
   CommandDialog,
   CommandEmpty,
@@ -19,6 +17,8 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { DialogCollapsible } from "@/components/ui/dialog";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -26,13 +26,13 @@ import {
   groupConversationSearchResultsByDate,
 } from "@/features/layouts/model/navigation-search";
 import type { ConversationSearchResult } from "@/features/layouts/types/navigation";
+import { cn } from "@/lib/utils";
 import type { ConversationPreviewMessageDTO } from "@/shared/api/conversation.types";
 import { useLoadMoreSentinel } from "@/shared/hooks/use-load-more-sentinel";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { usePointerInteraction } from "@/shared/hooks/use-pointer-interaction";
 import { useScrollFadeFallbackRef } from "@/shared/hooks/use-scroll-fade-fallback-ref";
 import { useStoredBoolean } from "@/shared/hooks/use-stored-boolean";
-import { cn } from "@/lib/utils";
 
 const SEARCH_PREVIEW_PANE_STORAGE_KEY = "deeix.navigation-search.preview.open";
 const StreamdownRender = dynamic(
@@ -337,12 +337,8 @@ export function NavigationSearch({
         onValueChange: setPreviewPublicID,
       }}
       className={cn(
-        "h-auto w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-border/60 bg-background p-0 transition-[max-width] duration-200 ease-out sm:w-full",
-        previewPaneEnabled
-          ? "md:max-w-5xl"
-          : previewPaneAvailable
-            ? "sm:max-w-xl lg:max-w-2xl"
-            : "sm:max-w-xl lg:max-w-2xl",
+        "h-auto w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border/60 bg-background p-0 transition-[max-width] duration-200 ease-out sm:w-[calc(100vw-2rem)]",
+        previewPaneEnabled ? "md:max-w-5xl" : "sm:max-w-xl lg:max-w-2xl",
       )}
     >
       <CommandInput

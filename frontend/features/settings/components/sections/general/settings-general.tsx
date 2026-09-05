@@ -1,22 +1,36 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { dispatchUserProfileUpdated } from "@/features/settings/events/user-profile-events";
 import { useSettingsAppearancePersistence } from "@/features/settings/hooks/use-settings-appearance-persistence";
+import type { ProfileDraft, ThemeMode } from "@/features/settings/types/settings";
 import {
   type FontSizeOption,
   useFontSizePreference,
   writeFontSizePreference,
 } from "@/features/settings/utils/font-size";
-import type { ProfileDraft, ThemeMode } from "@/features/settings/types/settings";
 import {
   createDraftFromUser,
   isProfileDraftEqual,
 } from "@/features/settings/utils/profile-settings";
 import { resolveLocalizedErrorMessage } from "@/i18n/resolve-error-message";
+import { patchMe, patchUsername } from "@/shared/api/auth";
+import type { UserDTO } from "@/shared/api/auth.types";
+import { uploadFile } from "@/shared/api/file";
+import { ApiError } from "@/shared/api/http-client";
+import {
+  isDisplayNameLengthValid,
+  isUsernamePolicyValid,
+} from "@/shared/auth/account-policy";
+import { useAuthSession } from "@/shared/auth/auth-session-context";
+import {
+  SettingsPage,
+  SettingsSectionSeparator,
+} from "@/shared/components/settings-layout";
+import { useTheme } from "@/shared/components/theme-provider";
 import {
   createFileAvatarRef,
   createGeneratedGithubAvatarRef,
@@ -24,7 +38,6 @@ import {
   parseFileAvatarID,
   resolveAvatarImageSrc,
 } from "@/shared/lib/avatar";
-import { useAuthSession } from "@/shared/auth/auth-session-context";
 import {
   disableResponseCompletionNotifications,
   enableResponseCompletionNotifications,
@@ -32,19 +45,6 @@ import {
   isBrowserNotificationSupported,
   readResponseCompletionNotificationsEnabled,
 } from "@/shared/lib/browser-notifications";
-import { patchMe, patchUsername } from "@/shared/api/auth";
-import { uploadFile } from "@/shared/api/file";
-import { ApiError } from "@/shared/api/http-client";
-import {
-  isDisplayNameLengthValid,
-  isUsernamePolicyValid,
-} from "@/shared/auth/account-policy";
-import type { UserDTO } from "@/shared/api/auth.types";
-import {
-  SettingsPage,
-  SettingsSectionSeparator,
-} from "@/shared/components/settings-layout";
-import { useTheme } from "@/shared/components/theme-provider";
 import { GeneralAppearanceSection } from "./general-appearance";
 import { GeneralNotificationsSection } from "./general-notifications";
 import { GeneralProfileSection } from "./general-profile";

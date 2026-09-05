@@ -1,5 +1,6 @@
 import type {
   CreatePermissionGroupRequest as ContractCreatePermissionGroupRequest,
+  UpdatePermissionGroupRequest as ContractUpdatePermissionGroupRequest,
   DeletePermissionGroupResponse,
   GroupModelsResponse,
   GroupUsersResponse,
@@ -9,7 +10,6 @@ import type {
   PermissionGroupListResponse,
   PermissionGroupModelRuleResponse,
   PermissionGroupResponse,
-  UpdatePermissionGroupRequest as ContractUpdatePermissionGroupRequest,
 } from "@deeix/api-contract";
 import { authedRequest } from "@/shared/api/authed-client";
 import { pathParam } from "@/shared/api/http-client";

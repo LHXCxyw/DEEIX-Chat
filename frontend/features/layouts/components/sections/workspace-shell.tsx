@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import dynamic from "next/dynamic";
+import * as React from "react";
 
 import { AuthGuard } from "@/shared/auth/auth-guard";
 import { AuthSessionProvider } from "@/shared/auth/auth-session-context";

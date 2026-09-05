@@ -1,10 +1,8 @@
 "use client";
 
-import * as React from "react";
 
 import { Sparkles } from "lucide-react";
-
-import { AgentTraceStep } from "@/features/chat/components/message/message-agent-trace-step";
+import * as React from "react";
 import { ChevronDown } from "@/components/animate-ui/icons/chevron-down";
 import {
   Accordion,
@@ -13,28 +11,29 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Marker, MarkerContent } from "@/components/ui/marker";
-import type { ChatTraceBlock, ChatTraceEvent } from "@/features/chat/types/messages";
-import {
-  useChatTraceLabels,
-  type ProcessTraceLabels,
-} from "@/features/chat/hooks/use-chat-trace-labels";
 import {
   AgentToolStepRow,
   buildToolGroupSteps,
   isToolChainStepActive,
   type ToolChainStep,
 } from "@/features/chat/components/message/message-agent-tool-step";
-import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
-import { useAutoExpandDisclosure } from "@/shared/hooks/use-auto-expand-disclosure";
-import { cn } from "@/lib/utils";
+import { AgentTraceStep } from "@/features/chat/components/message/message-agent-trace-step";
 import { TRACE_ROOT_CLASS } from "@/features/chat/components/shared/message-process-trace-shared";
 import { useChatElapsedDurationMS } from "@/features/chat/hooks/use-chat-elapsed-duration";
+import {
+  type ProcessTraceLabels,
+  useChatTraceLabels,
+} from "@/features/chat/hooks/use-chat-trace-labels";
 import {
   durationBetweenMS,
   formatDurationMS,
   sumDurationsMS,
 } from "@/features/chat/model/duration";
 import type { TraceDisplayEvent } from "@/features/chat/model/message-process-trace";
+import type { ChatTraceBlock, ChatTraceEvent } from "@/features/chat/types/messages";
+import { cn } from "@/lib/utils";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import { useAutoExpandDisclosure } from "@/shared/hooks/use-auto-expand-disclosure";
 
 function traceEventToBlock(event: ChatTraceEvent): ChatTraceBlock {
   return {
@@ -314,11 +313,15 @@ function AgentTraceTimeline({
   labels,
   autoExpandThinking,
   autoExpandToolCalls,
+  runID,
+  allowFullToolResults,
 }: {
   items: TraceTimelineItem[];
   labels: ProcessTraceLabels;
   autoExpandThinking: boolean;
   autoExpandToolCalls: boolean;
+  runID?: string;
+  allowFullToolResults: boolean;
 }) {
   return (
     <div className="relative">
@@ -340,6 +343,8 @@ function AgentTraceTimeline({
               step={item.step}
               labels={labels}
               autoExpand={autoExpandToolCalls}
+              runID={runID}
+              allowFullResult={allowFullToolResults}
             />
           ),
         )}
@@ -356,6 +361,8 @@ export function MessageAgentTrace({
   autoCollapseReady,
   autoExpandThinking = true,
   autoExpandToolCalls = true,
+  runID,
+  allowFullToolResults = false,
 }: {
   events: ChatTraceEvent[];
   activeToolBlock?: ChatTraceBlock;
@@ -364,6 +371,8 @@ export function MessageAgentTrace({
   autoCollapseReady: boolean;
   autoExpandThinking?: boolean;
   autoExpandToolCalls?: boolean;
+  runID?: string;
+  allowFullToolResults?: boolean;
 }) {
   const labels = useChatTraceLabels();
   const displayEvents = React.useMemo(() => buildTraceDisplayEvents(traceEvents), [traceEvents]);
@@ -480,6 +489,8 @@ export function MessageAgentTrace({
               labels={labels}
               autoExpandThinking={autoExpandThinking}
               autoExpandToolCalls={autoExpandToolCalls}
+              runID={runID}
+              allowFullToolResults={allowFullToolResults}
             />
           </AccordionContent>
         </AccordionItem>

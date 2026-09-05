@@ -114,6 +114,7 @@ type Service struct {
 	subGroupResolver    subscriptionGroupResolver
 	logger              *zap.Logger
 	objectStoreProvider appstorage.Provider
+	localAPIKeyCounters sync.Map
 
 	modelCatalogMu         sync.RWMutex
 	modelCatalog           []ModelView
@@ -172,7 +173,7 @@ type ResolvedRoute struct {
 	ModelSystemPrompt               string
 	UpstreamModel                   string
 	ReasoningContentPassback        bool
-	ReasoningPassbackRequestOptions map[string]interface{}
+	ReasoningPassbackRequestOptions map[string]any
 	UpstreamCbFailureThreshold      int
 	UpstreamCbModelThreshold        int
 	UpstreamCbThresholdLogic        string
@@ -226,14 +227,6 @@ const (
 	RouteScopeUser     = "user"
 	RouteScopeInternal = "internal"
 )
-
-// localAPIKeyCounters 存储各上游的本地 round-robin 计数器（Redis 不可用时的降级实现）。
-var localAPIKeyCounters sync.Map
-
-// NewService 创建服务。
-func NewService(cfg config.Config, repo repository.ChannelRepository, presentationRepo repository.ModelPresentationRepository, cache repository.ChannelCacheRepository, llmClient llmGateway) *Service {
-	return NewServiceWithRuntime(config.NewRuntime(cfg), repo, presentationRepo, cache, llmClient)
-}
 
 // NewServiceWithRuntime 创建使用运行时配置容器的服务。
 func NewServiceWithRuntime(cfg *config.Runtime, repo repository.ChannelRepository, presentationRepo repository.ModelPresentationRepository, cache repository.ChannelCacheRepository, llmClient llmGateway) *Service {

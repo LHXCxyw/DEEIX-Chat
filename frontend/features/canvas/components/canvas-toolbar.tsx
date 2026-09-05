@@ -1,7 +1,5 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import {
   AlignHorizontalDistributeCenter,
   Bookmark,
@@ -13,7 +11,7 @@ import {
   GalleryVerticalEnd,
   Group,
   Hand,
-  History,
+  History,ImageIcon, 
   Images,
   Layers,
   Lock,
@@ -30,9 +28,10 @@ import {
   Trash2,
   Undo2,
   Ungroup,
-  X,
+  X
 } from "lucide-react";
-import { ImageIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";

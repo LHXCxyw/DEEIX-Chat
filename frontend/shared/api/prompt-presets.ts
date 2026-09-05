@@ -1,11 +1,11 @@
 import { authedRequest } from "@/shared/api/authed-client";
-import { pathParam } from "@/shared/api/http-client";
 import type { PagePayload } from "@/shared/api/common.types";
+import { pathParam } from "@/shared/api/http-client";
 import type {
   PatchPromptPresetRequest,
-  PromptPresetDTO,
   PromptPresetData,
   PromptPresetDeleteData,
+  PromptPresetDTO,
   PromptPresetPage,
   WritePromptPresetRequest,
 } from "@/shared/api/prompt-presets.types";

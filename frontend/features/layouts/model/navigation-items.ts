@@ -1,10 +1,10 @@
-import { Layers } from "@/components/animate-ui/icons/layers";
-import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more";
-import { PlusIcon } from "@/components/ui/plus";
-import { Search } from "@/components/animate-ui/icons/search";
 import { Blend } from "@/components/animate-ui/icons/blend";
 import { BookOpen } from "@/components/animate-ui/icons/book-open";
+import { Layers } from "@/components/animate-ui/icons/layers";
+import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more";
+import { Search } from "@/components/animate-ui/icons/search";
 import { Sparkles } from "@/components/animate-ui/icons/sparkles";
+import { PlusIcon } from "@/components/ui/plus";
 import type { NavigationItem } from "@/features/layouts/types/navigation";
 
 export const NAVIGATION_ITEMS = [

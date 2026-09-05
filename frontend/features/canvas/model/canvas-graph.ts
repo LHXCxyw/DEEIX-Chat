@@ -1,10 +1,10 @@
 import {
-  PROMPT_MAX_LENGTH,
-  PROMPT_TEMPLATES_STORAGE_KEY,
   type GraphEdge,
   type GraphInputPort,
   type GraphNode,
   type GraphNodeKind,
+  PROMPT_MAX_LENGTH,
+  PROMPT_TEMPLATES_STORAGE_KEY,
   type PromptGraphNode,
 } from "./canvas-types.ts";
 

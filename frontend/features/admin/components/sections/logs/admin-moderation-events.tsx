@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -19,15 +19,15 @@ import {
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
 import {
   type ContentModerationEventDetail,
-  type ModerationEvent,
   fetchContentModerationEventImage,
   getContentModerationEvent,
   listContentModerationEvents,
+  type ModerationEvent,
 } from "@/features/admin/api/content-moderation";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { cn } from "@/lib/utils";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 
 function formatDateTime(value: string | null | undefined, locale: string): string {
   if (!value) return "-";
@@ -164,6 +164,12 @@ function ModerationEventDetailSheet({
       requestRef.current += 1;
     };
   }, [eventID, onClose, open, replaceImages, revokeImages, t]);
+
+  React.useEffect(() => {
+    if (open) return;
+    revokeImages(imagesRef.current);
+    imagesRef.current = [];
+  }, [open, revokeImages]);
 
   React.useEffect(() => {
     return () => {

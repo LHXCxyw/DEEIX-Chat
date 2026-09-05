@@ -39,7 +39,7 @@ type KnowledgeBaseFileResponse struct {
 	EmbedStatus         string    `json:"embedStatus"`
 	EmbedError          string    `json:"embedError"`
 	ChunkCount          int       `json:"chunkCount"`
-	RagOptOut           bool      `json:"ragOptOut"`
+	RAGOptOut           bool      `json:"ragOptOut"`
 	CanVectorize        bool      `json:"canVectorize"`
 	VectorizationReason string    `json:"vectorizationReason"`
 	CreatedAt           time.Time `json:"createdAt"`
@@ -118,7 +118,7 @@ type KnowledgeBaseFileProcessingStatusResponse struct {
 	EmbedStatus         string    `json:"embedStatus"`
 	EmbedError          string    `json:"embedError"`
 	ChunkCount          int       `json:"chunkCount"`
-	RagOptOut           bool      `json:"ragOptOut"`
+	RAGOptOut           bool      `json:"ragOptOut"`
 	CanVectorize        bool      `json:"canVectorize"`
 	VectorizationReason string    `json:"vectorizationReason"`
 	UpdatedAt           time.Time `json:"updatedAt"`
@@ -264,7 +264,7 @@ func toKnowledgeBaseFileProcessingStatusResponses(
 			FileID: item.FileID, DetectedMIME: item.DetectedMIME, FileCategory: item.FileCategory,
 			ProcessingStatus: item.ProcessingStatus, Processing: domainconversation.IsFileProcessing(item), ProcessingReady: item.ProcessingReady,
 			ExtractStatus: item.ExtractStatus, EmbedStatus: item.EmbedStatus, EmbedError: item.EmbedError,
-			ChunkCount: item.ChunkCount, RagOptOut: item.RagOptOut,
+			ChunkCount: item.ChunkCount, RAGOptOut: item.RAGOptOut,
 			CanVectorize:        capabilities[item.FileID].CanVectorize,
 			VectorizationReason: capabilities[item.FileID].Reason,
 			UpdatedAt:           item.UpdatedAt,
@@ -282,7 +282,7 @@ func toKnowledgeBaseFileResponse(
 		FileCategory: item.FileCategory, SizeBytes: item.SizeBytes, ProcessingStatus: item.ProcessingStatus,
 		Processing: domainconversation.IsFileProcessing(item), ProcessingReady: item.ProcessingReady,
 		ExtractStatus: item.ExtractStatus, EmbedStatus: item.EmbedStatus, EmbedError: item.EmbedError,
-		ChunkCount: item.ChunkCount, RagOptOut: item.RagOptOut,
+		ChunkCount: item.ChunkCount, RAGOptOut: item.RAGOptOut,
 		CanVectorize: capability.CanVectorize, VectorizationReason: capability.Reason,
 		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 	}

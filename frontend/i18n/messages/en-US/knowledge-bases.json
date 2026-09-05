@@ -2,6 +2,13 @@
   "title": "Knowledge bases",
   "adminTitle": "Built-in knowledge bases",
   "adminDefaultDescription": "Built-in knowledge available to every user",
+  "featureToggle": {
+    "label": "Enable knowledge bases",
+    "description": "When disabled, user-facing knowledge base entries are hidden and requests are rejected. Existing data and bindings are preserved.",
+    "enabledToast": "Knowledge bases enabled",
+    "disabledToast": "Knowledge bases disabled; user-facing entries are now hidden",
+    "saveFailed": "Failed to save knowledge base toggle"
+  },
   "create": "New",
   "localFiles": "Local sources",
   "localFilesTitle": "Local sources",

@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-
+import { canvasStore } from "@/features/canvas/model/canvas-store";
 import { useChatModelOptions } from "@/features/chat/hooks/use-chat-model-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
-import { canvasStore } from "@/features/canvas/model/canvas-store";
 
 const CANVAS_MODEL_STORAGE_KEY = "deeix_canvas_selected_model_v1";
 

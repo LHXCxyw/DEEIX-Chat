@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
+import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

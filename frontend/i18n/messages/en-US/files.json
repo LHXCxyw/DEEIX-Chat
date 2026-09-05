@@ -4,6 +4,8 @@
   "searchPlaceholder": "Search files",
   "empty": "No files yet",
   "emptyDescription": "Upload your first file from the top right",
+  "searchEmpty": "No matching files",
+  "searchEmptyDescription": "Try another search or adjust your filters.",
   "upload": "Upload",
   "delete": "Delete file",
   "rename": "Rename file",

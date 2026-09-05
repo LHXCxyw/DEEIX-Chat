@@ -24,6 +24,7 @@ import { canManuallyVectorizeFile, isVectorIndexOutdated } from "@/shared/lib/fi
 
 type SidebarListProps = {
   items: FileObjectDTO[];
+  emptyState: "all" | "filtered";
   selectedFileID: string | null;
   selectedFileIDs: string[];
   loading: boolean;
@@ -240,6 +241,7 @@ function SidebarListItem({
 
 export function SidebarList({
   items,
+  emptyState,
   selectedFileID,
   selectedFileIDs,
   loading,
@@ -283,8 +285,8 @@ export function SidebarList({
     return (
       <CenteredEmptyState
         className="min-w-0 flex-1"
-        title={t("empty")}
-        description={t("emptyDescription")}
+        title={t(emptyState === "filtered" ? "searchEmpty" : "empty")}
+        description={t(emptyState === "filtered" ? "searchEmptyDescription" : "emptyDescription")}
       />
     );
   }

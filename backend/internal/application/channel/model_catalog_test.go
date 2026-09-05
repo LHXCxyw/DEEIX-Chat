@@ -374,9 +374,6 @@ func TestNormalizeModelVendorFallsBackToUnknownForUnsupportedVendor(t *testing.T
 	if got := normalizeModelVendor("unsupported-vendor", "unsupported-model"); got != "unknown" {
 		t.Fatalf("expected unsupported platform vendor to become unknown, got %q", got)
 	}
-	if got := normalizeUpstreamModelVendor("unsupported-vendor", "unsupported-model"); got != "unknown" {
-		t.Fatalf("expected unsupported upstream vendor to become unknown, got %q", got)
-	}
 }
 
 func TestNormalizeProtocolDefaultsJSONDropsUnknownKinds(t *testing.T) {

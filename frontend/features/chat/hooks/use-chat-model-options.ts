@@ -14,14 +14,14 @@ import { listConversationRuns } from "@/shared/api/conversation";
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 import { listPublicModels } from "@/shared/api/model";
 import type { PublicModelDTO } from "@/shared/api/model.types";
-import { resolveModelIdentity } from "@/shared/lib/model-identity";
-import { listUserModels, type UserModelDTO } from "@/shared/api/user-upstream";
 import { getMCPPolicy, getModelOptionPolicy } from "@/shared/api/settings";
+import { listUserModels, type UserModelDTO } from "@/shared/api/user-upstream";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import {
   type BillingDisplayCurrency,
   normalizeBillingDisplayCurrency,
 } from "@/shared/lib/billing-display";
+import { resolveModelIdentity } from "@/shared/lib/model-identity";
 import type { ModelNativeToolConfig, ModelOptionPolicy } from "@/shared/lib/model-option-policy";
 import { parseProtocolsJSON } from "@/shared/lib/model-protocols";
 import { nativeToolDefinitionVariantsFromConfig, nativeToolPayloadSignature } from "@/shared/lib/native-tool-payload";

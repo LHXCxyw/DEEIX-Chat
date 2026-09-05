@@ -5,13 +5,13 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SpinnerLabel } from "@/components/ui/spinner";
-import { PASSWORD_MIN_LENGTH } from "@/shared/auth/account-policy";
+import { TurnstileWidget } from "@/features/auth/components/turnstile-widget";
 import { useLoginPage } from "@/features/auth/hooks/use-auth-login-page";
+import { cn } from "@/lib/utils";
+import { PASSWORD_MIN_LENGTH } from "@/shared/auth/account-policy";
 import { AppLogo } from "@/shared/components/app-logo";
 import { IdentityProviderIcon } from "@/shared/components/identity-provider-icon";
 import { CustomBrandAttribution } from "@/shared/components/powered-by-deeix";
-import { TurnstileWidget } from "@/features/auth/components/turnstile-widget";
-import { cn } from "@/lib/utils";
 
 type LoginPageProps = {
   nextPath: string;

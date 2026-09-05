@@ -1,11 +1,11 @@
 import { authedRequest } from "@/shared/api/authed-client";
-import { pathParam } from "@/shared/api/http-client";
 import type { PagePayload } from "@/shared/api/common.types";
+import { pathParam } from "@/shared/api/http-client";
 import type {
   PatchSkillRequest,
-  SkillDTO,
   SkillData,
   SkillDeleteData,
+  SkillDTO,
   SkillPage,
   SkillSummaryDTO,
   SkillSummaryPage,

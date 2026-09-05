@@ -14,8 +14,8 @@ import {
   ComboboxTrigger,
 } from "@/components/ui/combobox";
 import { cn } from "@/lib/utils";
-import type { ModelSelectOption } from "@/shared/components/model-select";
 import { ModelOptionIcon } from "@/shared/components/model-option-icon";
+import type { ModelSelectOption } from "@/shared/components/model-select";
 
 export function AdminStatisticsModelFilter({
   value,

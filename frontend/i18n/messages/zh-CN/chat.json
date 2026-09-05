@@ -365,8 +365,8 @@
     "moderationBlockedDescription": "安全检查后已撤回本轮回答。",
     "moderationEventId": "事件编号：{id}",
     "moderationCategories": "命中分类：{categories}",
-    "deleteMessageFailed": "删除消息失败"
-  },
+"deleteMessageFailed": "删除消息失败",
+"moderationBlockedBilled": "拦截前上游已产生的用量照常计费。"  },
   "data": {
     "signInRequired": "未登录，无法加载会话消息",
     "loadFailed": "加载会话消息失败"
@@ -551,6 +551,28 @@
         "model": "模型",
         "skill": "Skills",
         "prompt": "Prompts"
+      },
+      "tabs": {
+        "all": "全部",
+        "file": "文件",
+        "tool": "MCP",
+        "model": "模型",
+        "skill": "Skills",
+        "prompt": "Prompts"
+      },
+      "recent": "最近使用",
+      "groups": {
+        "builtin": "内置",
+        "mine": "我的"
+      },
+      "viewAll": "查看全部 {count} 项",
+      "empty": {
+        "all": "没有匹配的内容",
+        "file": "没有匹配的文件",
+        "tool": "没有匹配的工具",
+        "model": "没有匹配的模型",
+        "skill": "没有匹配的技能",
+        "prompt": "没有匹配的提示词"
       }
     },
     "mediaMode": {
@@ -687,7 +709,14 @@
         "generatedImageAlt": "生成图片 {index}",
         "sourceCount": "{count} 个来源",
         "groundingSupportCount": "{count} 条引用依据",
-        "exitCode": "退出码 {code}"
+        "exitCode": "退出码 {code}",
+        "viewFullResult": "查看完整结果",
+        "fullResultTitle": "工具调用完整结果",
+        "loadingFullResult": "正在加载完整结果",
+        "fullResultLoadFailed": "无法加载完整结果，请稍后重试。",
+        "fullResultOmitted": "该结果大小为 {size}，超过安全查看上限，未加载到页面。",
+        "fullResultEmpty": "该工具调用没有返回内容。",
+        "close": "关闭"
       }
     },
     "think": {

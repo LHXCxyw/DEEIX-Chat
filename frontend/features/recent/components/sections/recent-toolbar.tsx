@@ -1,31 +1,30 @@
 "use client";
 
-import * as React from "react";
 import { Archive, Download, FolderInput, Link2Off, LoaderCircle, SquareMousePointer, Trash, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-
-import { RecentFilterGroup } from "@/features/recent/components/sections/recent-filter-group";
-import {
-  RECENT_SHARE_FILTER_OPTIONS,
-  RECENT_STARRED_FILTER_OPTIONS,
-  RECENT_STATUS_FILTER_OPTIONS,
-} from "@/features/recent/utils/recent-display";
-import { Checkbox } from "@/components/ui/checkbox";
+import * as React from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ConversationProjectMenuItems } from "@/shared/components/conversation-project-submenu";
+import { RecentFilterGroup } from "@/features/recent/components/sections/recent-filter-group";
+import {
+  RECENT_SHARE_FILTER_OPTIONS,
+  RECENT_STARRED_FILTER_OPTIONS,
+  RECENT_STATUS_FILTER_OPTIONS,
+} from "@/features/recent/utils/recent-display";
 import { cn } from "@/lib/utils";
 import type {
-  ConversationShareFilter,
   ConversationProjectDTO,
+  ConversationShareFilter,
   ConversationStarredFilter,
   ConversationStatusFilter,
 } from "@/shared/api/conversation.types";
+import { ConversationProjectMenuItems } from "@/shared/components/conversation-project-submenu";
 
 type RecentToolbarProps = {
   isSelectionMode: boolean;

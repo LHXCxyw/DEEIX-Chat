@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { useAuthSession } from "@/shared/auth/auth-session-context";

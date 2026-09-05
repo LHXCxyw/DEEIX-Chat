@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { Check, ChevronDownIcon } from "lucide-react";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -9,8 +9,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import type { PermissionGroup } from "@/features/admin/api/permission-groups";
+import { cn } from "@/lib/utils";
 
 type PermissionGroupSelectorProps = {
   groups: PermissionGroup[];

@@ -1,12 +1,11 @@
 "use client";
 
-import * as React from "react";
 import {
   closestCenter,
   DndContext,
+  type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
-  type DragEndEvent,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -18,6 +17,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Slot } from "radix-ui";
+import * as React from "react";
 
 import { GripVerticalIcon, type GripVerticalIconHandle } from "@/components/ui/grip-vertical";
 import { cn } from "@/lib/utils";

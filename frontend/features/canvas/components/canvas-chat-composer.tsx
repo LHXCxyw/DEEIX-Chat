@@ -1,11 +1,10 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import { ArrowUp, ImagePlus, Loader2, X } from "lucide-react";
-
-import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
 
 // 移动端对话输入条：叠加在无限画布底部（lg 以下显示）。

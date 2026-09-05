@@ -1,24 +1,9 @@
 "use client";
 
-import * as React from "react";
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { SpinnerLabel } from "@/components/ui/spinner";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +14,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
@@ -37,6 +34,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { SpinnerLabel } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -48,36 +46,37 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination, TableToolbar, type TableToolbarFilter } from "@/components/ui/table-tools";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
-import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
-import { invalidateAdminReferenceDataCache } from "@/features/admin/api/reference-data";
-import { listAllAdminPages } from "@/features/admin/api/shared";
+import { Textarea } from "@/components/ui/textarea";
+import { listAdminUsers } from "@/features/admin/api/accounts";
+import type { AdminUserDTO } from "@/features/admin/api/admin.types";
 import { listAdminIdentityProviders } from "@/features/admin/api/auth";
 import { listAdminLLMModels, listAdminLLMUpstreams } from "@/features/admin/api/llm";
-import { listAdminUsers } from "@/features/admin/api/accounts";
-import { resolveProtocolLabel, sortProtocolsForDisplay } from "@/features/admin/utils/llm-display";
-import { ADAPTER_LABELS } from "@/features/admin/types/llm";
 import type { AdminLLMModelDTO, AdminLLMUpstreamView } from "@/features/admin/api/llm.types";
-import type { AdminUserDTO } from "@/features/admin/api/admin.types";
-import type { IdentityProviderDTO } from "@/shared/api/auth.types";
-import { cn } from "@/lib/utils";
-import { parseProtocolsJSON } from "@/shared/lib/model-protocols";
-import { GroupAccessPickerDialog } from "@/features/admin/components/sections/groups/group-access-picker-dialog";
-import { ModelAccessRulesPanel } from "@/features/admin/components/sections/groups/model-access-rules-panel";
-import { useAdminModelPresentation } from "@/features/admin/hooks/use-admin-model-presentation";
 import {
   createPermissionGroup,
   deletePermissionGroup,
   listGroupModels,
   listGroupUsers,
   listPermissionGroups,
+  type PermissionGroup,
+  type PermissionGroupModelRule,
   setGroupModels,
   setGroupUsers,
   updatePermissionGroup,
-  type PermissionGroup,
-  type PermissionGroupModelRule,
 } from "@/features/admin/api/permission-groups";
+import { invalidateAdminReferenceDataCache } from "@/features/admin/api/reference-data";
+import { listAllAdminPages } from "@/features/admin/api/shared";
+import { GroupAccessPickerDialog } from "@/features/admin/components/sections/groups/group-access-picker-dialog";
+import { ModelAccessRulesPanel } from "@/features/admin/components/sections/groups/model-access-rules-panel";
+import { useAdminModelPresentation } from "@/features/admin/hooks/use-admin-model-presentation";
+import { ADAPTER_LABELS } from "@/features/admin/types/llm";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { resolveProtocolLabel, sortProtocolsForDisplay } from "@/features/admin/utils/llm-display";
+import { cn } from "@/lib/utils";
+import type { IdentityProviderDTO } from "@/shared/api/auth.types";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { parseProtocolsJSON } from "@/shared/lib/model-protocols";
 
 const GROUP_PICKER_PAGE_SIZE_DEFAULT = 25;
 const GROUPS_PAGE_SIZE_DEFAULT = 25;

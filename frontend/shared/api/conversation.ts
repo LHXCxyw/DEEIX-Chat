@@ -25,6 +25,7 @@ import type {
   ConversationShareFilter,
   ConversationStarredFilter,
   ConversationStatusFilter,
+  ConversationToolCallDetailDTO,
   CreateConversationProjectRequest,
   CreateConversationRequest,
   CreateConversationShareRequest,
@@ -1023,6 +1024,22 @@ export async function getContextArtifact(
     `/api/v1/context-artifacts/${pathParam(artifactID)}`,
     {
       accessToken,
+    },
+    true,
+  );
+}
+
+export async function getConversationToolCallDetail(
+  accessToken: string,
+  runID: string,
+  toolCallID: string,
+  signal?: AbortSignal,
+): Promise<ConversationToolCallDetailDTO> {
+  return authedRequest<ConversationToolCallDetailDTO>(
+    `/api/v1/conversation-runs/${pathParam(runID)}/tool-calls/${pathParam(toolCallID)}`,
+    {
+      accessToken,
+      signal,
     },
     true,
   );

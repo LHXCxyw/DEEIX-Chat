@@ -17,15 +17,15 @@ import {
   resolveErrorMessage,
   resolveErrorSummary,
 } from "@/features/chat/utils/chat-runtime";
+import type { TemporaryChatRequestAttachment } from "@/shared/api/conversation";
 import {
   streamTemporaryChatMessage,
   TEMPORARY_CHAT_MAX_ATTACHMENTS,
   TEMPORARY_CHAT_MAX_IMAGE_ATTACHMENTS,
 } from "@/shared/api/conversation";
-import type { TemporaryChatRequestAttachment } from "@/shared/api/conversation";
 import type { ConversationOptions, TemporaryChatHistoryMessage } from "@/shared/api/conversation.types";
-import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
 import { createSecureUUID } from "@/shared/lib/secure-id";
 
 type TemporaryMessage = TemporaryChatHistoryMessage & {
@@ -441,11 +441,14 @@ export function useChatTemporaryRuntime({
               outputTokens: event.output_tokens > 0 ? event.output_tokens : message.outputTokens,
             }));
           },
-          onModerationBlocked: () => {
+          onModerationBlocked: (event) => {
             moderationBlocked = true;
+            // 临时对话没有可回看的账单，拦截后仍计费的说明只能随实时事件一并展示。
             updateMessage(assistantID, (message) => ({
               ...message,
-              content: t("blocked"),
+              content: [t("blocked"), event.billedReason ? tSubmit("moderationBlockedBilled") : ""]
+                .filter(Boolean)
+                .join("\n"),
               streaming: false,
               failed: true,
             }));

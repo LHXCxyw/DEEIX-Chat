@@ -1,13 +1,6 @@
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import {
-  createGeneratedGithubAvatarRef,
-  generateAvatarVariant,
-  resolveAvatarImageSrc,
-} from "@/shared/lib/avatar";
 import {
   createAdminUser,
   deleteAdminUser,
@@ -22,32 +15,38 @@ import {
 import type { AdminUserDTO, AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
 import type { AdminBillingMode, AdminBillingPlanDTO } from "@/features/admin/api/billing.types";
 import {
-  isDisplayNameLengthValid,
-  isPasswordPolicyValid,
-  isUsernamePolicyValid,
-} from "@/shared/auth/account-policy";
-import {
-  DEFAULT_CREATE_USER_PAYLOAD,
   type AvatarDialogState,
   type CreateUserPayload,
+  DEFAULT_CREATE_USER_PAYLOAD,
   type EditUserPayload,
   type InlineEditableField,
   type PendingAction,
   type UserSortValue,
 } from "@/features/admin/types/accounts";
 import {
-  resolveSubscriptionExpiryInputValue,
   resolveSubscriptionExpiryDate,
+  resolveSubscriptionExpiryInputValue,
   resolveSubscriptionExpiryISO,
 } from "@/features/admin/utils/account-display";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
-import { patchByID, removeByID, removeManyByID, replaceByID, restoreAt, restoreManyAt } from "@/shared/lib/optimistic-list";
-import { runBulkActionInChunks, runSettledBulkItems } from "@/shared/lib/bulk-action";
-import { resolveTimeZoneOptions } from "@/shared/lib/time-zone";
 import {
-  normalizeBillingDisplayCurrency,
+  isDisplayNameLengthValid,
+  isPasswordPolicyValid,
+  isUsernamePolicyValid,
+} from "@/shared/auth/account-policy";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import {
+  createGeneratedGithubAvatarRef,
+  generateAvatarVariant,
+  resolveAvatarImageSrc,
+} from "@/shared/lib/avatar";
+import {
   type BillingDisplayOptions,
+  normalizeBillingDisplayCurrency,
 } from "@/shared/lib/billing-display";
+import { runBulkActionInChunks, runSettledBulkItems } from "@/shared/lib/bulk-action";
+import { patchByID, removeByID, removeManyByID, replaceByID, restoreAt, restoreManyAt } from "@/shared/lib/optimistic-list";
+import { resolveTimeZoneOptions } from "@/shared/lib/time-zone";
 import { useAdminUserFilters } from "./use-admin-user-filters";
 import { useAdminUserSelection } from "./use-admin-user-selection";
 

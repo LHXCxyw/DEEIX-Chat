@@ -6,12 +6,14 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	appaudit "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/audit"
 	appembedding "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/embedding"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainknowledgebase "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/knowledgebase"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/conv"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/pagination"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -35,11 +37,11 @@ type Service struct {
 }
 
 type auditWriter interface {
-	Write(ctx context.Context, requestID string, actorUserID uint, action string, resource string, resourceID string, ip string, userAgent string, detail interface{})
+	Write(ctx context.Context, input appaudit.WriteInput)
 }
 
 type fileCleaner interface {
-	DeleteFileIfUnreferenced(ctx context.Context, userID uint, fileID string) (bool, error)
+	DeleteFileIfUnreferenced(ctx context.Context, userID uint, fileID string) (*appupload.DeleteFileResult, bool, error)
 }
 
 type fileContentOpener interface {
@@ -126,7 +128,7 @@ type AuditInput struct {
 	ResourceID string
 	ClientIP   string
 	UserAgent  string
-	Detail     interface{}
+	Detail     any
 }
 
 // RecordAudit 记录知识库审计日志。
@@ -134,8 +136,16 @@ func (s *Service) RecordAudit(ctx context.Context, input AuditInput) {
 	if s.auditWriter == nil {
 		return
 	}
-	s.auditWriter.Write(ctx, strings.TrimSpace(input.RequestID), input.UserID, strings.TrimSpace(input.Action),
-		"knowledge_bases", strings.TrimSpace(input.ResourceID), strings.TrimSpace(input.ClientIP), strings.TrimSpace(input.UserAgent), input.Detail)
+	s.auditWriter.Write(ctx, appaudit.WriteInput{
+		RequestID:   input.RequestID,
+		ActorUserID: input.UserID,
+		Action:      input.Action,
+		Resource:    "knowledge_bases",
+		ResourceID:  input.ResourceID,
+		IP:          input.ClientIP,
+		UserAgent:   input.UserAgent,
+		Detail:      input.Detail,
+	})
 }
 
 // ListInput 定义知识库列表入参。
@@ -169,7 +179,7 @@ func (s *Service) ListVisible(ctx context.Context, userID uint, input ListInput)
 	if userID == 0 {
 		return nil, 0, ErrInvalidKnowledgeBase
 	}
-	offset, limit := normalizePage(input.Page, input.PageSize)
+	offset, limit := pagination.Offset(input.Page, input.PageSize)
 	publicIDs := normalizePublicIDs(input.IDs, maxKnowledgeBasesPerRequest)
 	if len(input.IDs) > 0 && len(publicIDs) == 0 {
 		return []domainknowledgebase.KnowledgeBase{}, 0, nil
@@ -184,7 +194,7 @@ func (s *Service) ListMine(ctx context.Context, userID uint, input ListInput) ([
 	if userID == 0 {
 		return nil, 0, ErrInvalidKnowledgeBase
 	}
-	offset, limit := normalizePage(input.Page, input.PageSize)
+	offset, limit := pagination.Offset(input.Page, input.PageSize)
 	publicIDs := normalizePublicIDs(input.IDs, maxKnowledgeBasesPerRequest)
 	if len(input.IDs) > 0 && len(publicIDs) == 0 {
 		return []domainknowledgebase.KnowledgeBase{}, 0, nil
@@ -196,7 +206,7 @@ func (s *Service) ListMine(ctx context.Context, userID uint, input ListInput) ([
 
 // ListAdminBuiltin 查询管理员内置知识库。
 func (s *Service) ListAdminBuiltin(ctx context.Context, input ListInput) ([]domainknowledgebase.KnowledgeBase, int64, error) {
-	offset, limit := normalizePage(input.Page, input.PageSize)
+	offset, limit := pagination.Offset(input.Page, input.PageSize)
 	publicIDs := normalizePublicIDs(input.IDs, maxKnowledgeBasesPerRequest)
 	if len(input.IDs) > 0 && len(publicIDs) == 0 {
 		return []domainknowledgebase.KnowledgeBase{}, 0, nil
@@ -330,7 +340,7 @@ func (s *Service) delete(ctx context.Context, knowledgeBaseID uint, deleteFiles 
 		return result, nil
 	}
 	for _, candidate := range candidates {
-		deleted, cleanupErr := s.fileCleaner.DeleteFileIfUnreferenced(ctx, candidate.UserID, candidate.FileID)
+		_, deleted, cleanupErr := s.fileCleaner.DeleteFileIfUnreferenced(ctx, candidate.UserID, candidate.FileID)
 		if cleanupErr != nil {
 			if s.logger != nil {
 				s.logger.Warn("delete_knowledge_base_file_failed",
@@ -354,7 +364,7 @@ func (s *Service) ListVisibleFiles(ctx context.Context, userID uint, publicID st
 	if err != nil {
 		return nil, 0, err
 	}
-	offset, limit := normalizePage(page, pageSize)
+	offset, limit := pagination.Offset(page, pageSize)
 	return s.repo.ListKnowledgeBaseFiles(ctx, item.ID, offset, limit)
 }
 
@@ -367,7 +377,7 @@ func (s *Service) ListAdminFiles(ctx context.Context, publicID string, page int,
 	if item.Scope != domainknowledgebase.ScopeBuiltin {
 		return nil, 0, ErrKnowledgeBaseNotFound
 	}
-	offset, limit := normalizePage(page, pageSize)
+	offset, limit := pagination.Offset(page, pageSize)
 	return s.repo.ListKnowledgeBaseFiles(ctx, item.ID, offset, limit)
 }
 
@@ -457,7 +467,7 @@ func (s *Service) ListPlatformFiles(ctx context.Context, actorUserID uint, input
 	if actorUserID == 0 {
 		return nil, 0, ErrInvalidKnowledgeBase
 	}
-	offset, limit := normalizePage(input.Page, input.PageSize)
+	offset, limit := pagination.Offset(input.Page, input.PageSize)
 	return s.repo.ListKnowledgeBaseSourceFiles(ctx, 0, strings.TrimSpace(input.Query), offset, limit)
 }
 
@@ -473,7 +483,7 @@ func (s *Service) ListAvailableUserFiles(ctx context.Context, userID uint, publi
 	if item.Scope != domainknowledgebase.ScopeUser || item.OwnerUserID != userID {
 		return nil, 0, ErrKnowledgeBaseNotFound
 	}
-	offset, limit := normalizePage(input.Page, input.PageSize)
+	offset, limit := pagination.Offset(input.Page, input.PageSize)
 	return s.repo.ListAvailableKnowledgeBaseFiles(ctx, item.ID, userID, strings.TrimSpace(input.Query), offset, limit)
 }
 
@@ -489,7 +499,7 @@ func (s *Service) ListAvailableAdminFiles(ctx context.Context, actorUserID uint,
 	if item.Scope != domainknowledgebase.ScopeBuiltin {
 		return nil, 0, ErrKnowledgeBaseNotFound
 	}
-	offset, limit := normalizePage(input.Page, input.PageSize)
+	offset, limit := pagination.Offset(input.Page, input.PageSize)
 	return s.repo.ListAvailableKnowledgeBaseFiles(ctx, item.ID, 0, strings.TrimSpace(input.Query), offset, limit)
 }
 
@@ -515,7 +525,7 @@ func (s *Service) DeletePlatformFile(ctx context.Context, actorUserID uint, file
 	if s.fileCleaner == nil {
 		return ErrKnowledgeBaseFileCleanupUnavailable
 	}
-	deleted, err := s.fileCleaner.DeleteFileIfUnreferenced(ctx, 0, fileID)
+	_, deleted, err := s.fileCleaner.DeleteFileIfUnreferenced(ctx, 0, fileID)
 	if err != nil {
 		return err
 	}
@@ -746,19 +756,6 @@ func normalizePatchInput(input PatchInput, actorUserID uint) (repository.Knowled
 		return repository.KnowledgeBasePatch{}, ErrInvalidKnowledgeBase
 	}
 	return patch, nil
-}
-
-func normalizePage(page int, pageSize int) (int, int) {
-	if page <= 0 {
-		page = 1
-	}
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-	if pageSize > 1000 {
-		pageSize = 1000
-	}
-	return (page - 1) * pageSize, pageSize
 }
 
 func normalizePublicIDs(values []string, limit int) []string {

@@ -1,18 +1,17 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { canvasStore, type CanvasStoreLabels } from "@/features/canvas/model/canvas-store";
 import { parseCanvasState } from "@/features/canvas/model/canvas-persist";
+import { type CanvasStoreLabels, canvasStore } from "@/features/canvas/model/canvas-store";
 import {
   CANVAS_CLOUD_SETTING_KEY,
   type CanvasNodeReference,
 } from "@/features/canvas/model/canvas-types";
 import { uploadFile } from "@/shared/api/file";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import {
   loadUserSettingsSnapshot,
   updateUserSettings,

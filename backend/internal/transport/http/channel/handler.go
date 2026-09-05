@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	appchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/pagination"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
@@ -37,34 +38,6 @@ func NewHandler(service *appchannel.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func upstreamConfigErrorMessage(err error) string {
-	switch {
-	case errors.Is(err, appchannel.ErrInvalidHeadersConfig):
-		return "invalid headers json config"
-	case errors.Is(err, appchannel.ErrInvalidAPIKeysConfig):
-		return "invalid api keys config"
-	case errors.Is(err, appchannel.ErrInvalidProtocolDefaultsConfig):
-		return "invalid protocol defaults config"
-	case errors.Is(err, appchannel.ErrInvalidJSONConfig):
-		return "invalid json config"
-	case errors.Is(err, appchannel.ErrInvalidUpstreamBaseURL):
-		return "invalid upstream base url"
-	default:
-		return ""
-	}
-}
-
-func modelIconErrorMessage(err error) string {
-	switch {
-	case errors.Is(err, appchannel.ErrInvalidModelIconReference):
-		return "invalid model icon"
-	case errors.Is(err, appchannel.ErrModelIconAssetNotFound):
-		return "model icon asset not found"
-	default:
-		return ""
-	}
-}
-
 // ---------------------------------------------------------------------------
 // 用户侧模型目录
 // ---------------------------------------------------------------------------
@@ -82,7 +55,7 @@ func modelIconErrorMessage(err error) string {
 func (h *Handler) ListPublicModels(c *gin.Context) {
 	items, err := h.service.ListActiveModels(c.Request.Context(), middleware.MustUserID(c))
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "list models failed")
+		response.InternalError(c)
 		return
 	}
 
@@ -114,7 +87,7 @@ func (h *Handler) ListPublicModels(c *gin.Context) {
 // @Failure 500 {object} ErrorDoc
 // @Router /admin/llm/upstreams [get]
 func (h *Handler) ListUpstreams(c *gin.Context) {
-	page, pageSize := pageParams(c)
+	page, pageSize := pagination.Parse(c.Query("page"), c.Query("page_size"))
 	items, total, err := h.service.ListUpstreams(c.Request.Context(), page, pageSize, appchannel.ListUpstreamsInput{
 		Query:      c.Query("q"),
 		Status:     c.Query("status"),
@@ -122,7 +95,7 @@ func (h *Handler) ListUpstreams(c *gin.Context) {
 		Sort:       c.Query("sort"),
 	})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "list upstreams failed")
+		response.InternalError(c)
 		return
 	}
 	results := make([]UpstreamResponse, 0, len(items))
@@ -171,16 +144,18 @@ func (h *Handler) CreateUpstream(c *gin.Context) {
 	})
 	if err != nil {
 		switch {
-		case upstreamConfigErrorMessage(err) != "":
-			response.Error(c, http.StatusBadRequest, upstreamConfigErrorMessage(err))
-		case errors.Is(err, appchannel.ErrInvalidJSONConfig):
-			response.Error(c, http.StatusBadRequest, "invalid json config")
+		case errors.Is(err, appchannel.ErrInvalidHeadersConfig),
+			errors.Is(err, appchannel.ErrInvalidAPIKeysConfig),
+			errors.Is(err, appchannel.ErrInvalidProtocolDefaultsConfig),
+			errors.Is(err, appchannel.ErrInvalidUpstreamBaseURL),
+			errors.Is(err, appchannel.ErrInvalidJSONConfig):
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidAdapter):
-			response.Error(c, http.StatusBadRequest, "invalid adapter")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidCompatible):
-			response.Error(c, http.StatusBadRequest, "invalid compatible")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		default:
-			response.Error(c, http.StatusInternalServerError, "create upstream failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -204,7 +179,7 @@ func (h *Handler) CreateUpstream(c *gin.Context) {
 func (h *Handler) UpdateUpstream(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
@@ -236,17 +211,19 @@ func (h *Handler) UpdateUpstream(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUpstreamNotFound):
-			response.Error(c, http.StatusNotFound, "upstream not found")
-		case upstreamConfigErrorMessage(err) != "":
-			response.Error(c, http.StatusBadRequest, upstreamConfigErrorMessage(err))
-		case errors.Is(err, appchannel.ErrInvalidJSONConfig):
-			response.Error(c, http.StatusBadRequest, "invalid json config")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
+		case errors.Is(err, appchannel.ErrInvalidHeadersConfig),
+			errors.Is(err, appchannel.ErrInvalidAPIKeysConfig),
+			errors.Is(err, appchannel.ErrInvalidProtocolDefaultsConfig),
+			errors.Is(err, appchannel.ErrInvalidUpstreamBaseURL),
+			errors.Is(err, appchannel.ErrInvalidJSONConfig):
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidAdapter):
-			response.Error(c, http.StatusBadRequest, "invalid adapter")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidCompatible):
-			response.Error(c, http.StatusBadRequest, "invalid compatible")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		default:
-			response.Error(c, http.StatusInternalServerError, "update upstream failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -269,16 +246,16 @@ func (h *Handler) UpdateUpstream(c *gin.Context) {
 func (h *Handler) DeleteUpstream(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
 	if err = h.service.DeleteUpstream(c.Request.Context(), upstreamID); err != nil {
 		if errors.Is(err, appchannel.ErrUpstreamNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "delete upstream failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, nil)
@@ -322,20 +299,20 @@ func (h *Handler) BatchDeleteUpstreams(c *gin.Context) {
 func (h *Handler) OpenUpstreamCircuit(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
 	if err = h.service.OpenUpstreamCircuit(c.Request.Context(), upstreamID); err != nil {
 		if errors.Is(err, appchannel.ErrCircuitBreakerDisabled) {
-			response.Error(c, http.StatusConflict, "circuit breaker is disabled")
+			response.ErrorFrom(c, http.StatusConflict, err)
 			return
 		}
 		if errors.Is(err, appchannel.ErrUpstreamNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "open upstream circuit failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, nil)
@@ -357,16 +334,16 @@ func (h *Handler) OpenUpstreamCircuit(c *gin.Context) {
 func (h *Handler) ResetUpstreamCircuit(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
 	if err = h.service.ResetUpstreamCircuit(c.Request.Context(), upstreamID); err != nil {
 		if errors.Is(err, appchannel.ErrUpstreamNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "reset upstream circuit failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, CircuitResetResponse{Reset: true})
@@ -399,11 +376,11 @@ func (h *Handler) ResetUpstreamCircuit(c *gin.Context) {
 func (h *Handler) ListUpstreamModels(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
-	page, pageSize := pageParams(c)
+	page, pageSize := pagination.Parse(c.Query("page"), c.Query("page_size"))
 	items, total, err := h.service.ListUpstreamModels(c.Request.Context(), upstreamID, page, pageSize, appchannel.ListUpstreamModelsInput{
 		Query:          c.Query("q"),
 		RouteStatus:    c.Query("route_status"),
@@ -413,10 +390,10 @@ func (h *Handler) ListUpstreamModels(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, appchannel.ErrUpstreamNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "list upstream models failed")
+		response.InternalError(c)
 		return
 	}
 	results := make([]UpstreamModelResponse, 0, len(items))
@@ -444,7 +421,7 @@ func (h *Handler) ListUpstreamModels(c *gin.Context) {
 func (h *Handler) UpsertUpstreamModel(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
@@ -472,27 +449,27 @@ func (h *Handler) UpsertUpstreamModel(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUpstreamNotFound):
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 		case errors.Is(err, appchannel.ErrModelNotFound):
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 		case errors.Is(err, appchannel.ErrUpstreamModelConflict):
-			response.Error(c, http.StatusConflict, "target model already bound on this upstream")
+			response.ErrorFrom(c, http.StatusConflict, errTargetModelAlreadyBoundOnThisUpstream)
 		case errors.Is(err, appchannel.ErrUpstreamModelBindingChanged):
-			response.ErrorWithCode(c, http.StatusConflict, "llm.upstream_model_binding_changed", "upstream model binding changed; reload and retry")
+			response.ErrorWithCode(c, http.StatusConflict, "llm.upstream_model_binding_changed")
 		case errors.Is(err, appchannel.ErrInvalidJSONConfig):
-			response.Error(c, http.StatusBadRequest, "invalid json config")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidAdapter):
-			response.Error(c, http.StatusBadRequest, "invalid adapter")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidRouteProtocolCombination):
-			response.Error(c, http.StatusBadRequest, "invalid route protocol combination")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidKinds):
-			response.Error(c, http.StatusBadRequest, "invalid kinds")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidPlatformModelName):
-			response.Error(c, http.StatusBadRequest, "invalid platform model name")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrProtocolRequired):
-			response.Error(c, http.StatusBadRequest, "protocol required")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		default:
-			response.Error(c, http.StatusInternalServerError, "upsert upstream model failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -516,21 +493,21 @@ func (h *Handler) UpsertUpstreamModel(c *gin.Context) {
 func (h *Handler) DeleteUpstreamModel(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 	routeID, err := uintParam(c, "route_id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid route id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRouteID)
 		return
 	}
 
 	if err = h.service.DeleteUpstreamModel(c.Request.Context(), upstreamID, routeID); err != nil {
 		if errors.Is(err, appchannel.ErrUpstreamModelNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "delete upstream model failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, nil)
@@ -552,21 +529,21 @@ func (h *Handler) DeleteUpstreamModel(c *gin.Context) {
 func (h *Handler) DisableUpstreamModel(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 	routeID, err := uintParam(c, "route_id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid route id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRouteID)
 		return
 	}
 
 	if err = h.service.DisableUpstreamModel(c.Request.Context(), upstreamID, routeID); err != nil {
 		if errors.Is(err, appchannel.ErrUpstreamModelNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "disable route binding failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, nil)
@@ -588,21 +565,21 @@ func (h *Handler) DisableUpstreamModel(c *gin.Context) {
 func (h *Handler) EnableUpstreamModel(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 	routeID, err := uintParam(c, "route_id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid route id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRouteID)
 		return
 	}
 
 	if err = h.service.EnableUpstreamModel(c.Request.Context(), upstreamID, routeID); err != nil {
 		if errors.Is(err, appchannel.ErrUpstreamModelNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "enable route binding failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, nil)
@@ -623,7 +600,7 @@ func (h *Handler) EnableUpstreamModel(c *gin.Context) {
 func (h *Handler) BatchDeleteUpstreamModels(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
@@ -654,25 +631,25 @@ func (h *Handler) BatchDeleteUpstreamModels(c *gin.Context) {
 func (h *Handler) OpenUpstreamModelCircuit(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 	routeID, err := uintParam(c, "route_id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid route id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRouteID)
 		return
 	}
 
 	if err = h.service.OpenUpstreamModelCircuit(c.Request.Context(), upstreamID, routeID); err != nil {
 		if errors.Is(err, appchannel.ErrCircuitBreakerDisabled) {
-			response.Error(c, http.StatusConflict, "circuit breaker is disabled")
+			response.ErrorFrom(c, http.StatusConflict, err)
 			return
 		}
 		if errors.Is(err, appchannel.ErrUpstreamModelNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "open upstream model circuit failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, nil)
@@ -695,21 +672,21 @@ func (h *Handler) OpenUpstreamModelCircuit(c *gin.Context) {
 func (h *Handler) ResetUpstreamModelCircuit(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 	routeID, err := uintParam(c, "route_id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid route id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRouteID)
 		return
 	}
 
 	if err = h.service.ResetUpstreamModelCircuit(c.Request.Context(), upstreamID, routeID); err != nil {
 		if errors.Is(err, appchannel.ErrUpstreamModelNotFound) {
-			response.Error(c, http.StatusNotFound, "upstream model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "reset upstream model circuit failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, CircuitResetResponse{Reset: true})
@@ -733,12 +710,12 @@ func (h *Handler) ResetUpstreamModelCircuit(c *gin.Context) {
 func (h *Handler) TestUpstreamModelRoute(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 	routeID, err := uintParam(c, "route_id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid route id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRouteID)
 		return
 	}
 	req, ok := bindModelProbeRequest(c)
@@ -752,13 +729,13 @@ func (h *Handler) TestUpstreamModelRoute(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUpstreamModelNotFound):
-			response.Error(c, http.StatusNotFound, "upstream model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamModelNotFound)
 		case errors.Is(err, appchannel.ErrUpstreamNotFound):
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 		case errors.Is(err, appchannel.ErrModelNotFound):
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 		default:
-			response.Error(c, http.StatusInternalServerError, "test upstream model route failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -786,7 +763,7 @@ func (h *Handler) TestUpstreamModelRoute(c *gin.Context) {
 func (h *Handler) ListRemoteModels(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
@@ -794,13 +771,13 @@ func (h *Handler) ListRemoteModels(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUpstreamNotFound):
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 		case errors.Is(err, appchannel.ErrNoActiveKey):
-			response.Error(c, http.StatusBadRequest, "no active api key")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrRemoteModelsUnavailable):
-			response.Error(c, http.StatusBadGateway, "remote models unavailable")
+			response.ErrorFrom(c, http.StatusBadGateway, err)
 		default:
-			response.Error(c, http.StatusInternalServerError, "list remote models failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -827,7 +804,7 @@ func (h *Handler) ListRemoteModels(c *gin.Context) {
 func (h *Handler) SyncUpstreamModels(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
@@ -854,17 +831,17 @@ func (h *Handler) SyncUpstreamModels(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUpstreamNotFound):
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 		case errors.Is(err, appchannel.ErrNoActiveKey):
-			response.Error(c, http.StatusBadRequest, "no active api key")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrRemoteModelsUnavailable):
-			response.Error(c, http.StatusBadGateway, "remote models unavailable")
+			response.ErrorFrom(c, http.StatusBadGateway, err)
 		case errors.Is(err, appchannel.ErrEmptyRemoteModels):
-			response.ErrorWithCode(c, http.StatusConflict, "llm.remote_models_empty_confirmation_required", "remote models snapshot is empty")
+			response.ErrorWithCode(c, http.StatusConflict, "llm.remote_models_empty_confirmation_required")
 		case errors.Is(err, appchannel.ErrRemoteModelsSnapshotChanged):
-			response.ErrorWithCode(c, http.StatusConflict, "llm.remote_models_snapshot_changed", "remote models snapshot changed")
+			response.ErrorWithCode(c, http.StatusConflict, "llm.remote_models_snapshot_changed")
 		default:
-			response.Error(c, http.StatusInternalServerError, "sync upstream models failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -889,7 +866,7 @@ func (h *Handler) SyncUpstreamModels(c *gin.Context) {
 func (h *Handler) ImportUpstreamModels(c *gin.Context) {
 	upstreamID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid upstream id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUpstreamID)
 		return
 	}
 
@@ -919,7 +896,7 @@ func (h *Handler) ImportUpstreamModels(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUpstreamNotFound):
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 		case errors.Is(err, appchannel.ErrInvalidPermissionGroupModels):
 			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidAdapter):
@@ -933,7 +910,7 @@ func (h *Handler) ImportUpstreamModels(c *gin.Context) {
 		case errors.Is(err, appchannel.ErrRemoteModelsUnavailable):
 			response.ErrorFrom(c, http.StatusBadGateway, err)
 		default:
-			response.ErrorFrom(c, http.StatusInternalServerError, err)
+			response.InternalError(c)
 		}
 		return
 	}
@@ -965,7 +942,7 @@ func (h *Handler) ImportUpstreamModels(c *gin.Context) {
 // @Failure 500 {object} ErrorDoc
 // @Router /admin/llm/models [get]
 func (h *Handler) ListModels(c *gin.Context) {
-	page, pageSize := pageParams(c)
+	page, pageSize := pagination.Parse(c.Query("page"), c.Query("page_size"))
 	onlyActive := c.Query("only_active") == "true"
 	onlyAvailable := c.Query("only_available") == "true"
 	var upstreamID uint
@@ -985,7 +962,7 @@ func (h *Handler) ListModels(c *gin.Context) {
 		Sort:          c.Query("sort"),
 	})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "list models failed")
+		response.InternalError(c)
 		return
 	}
 	results := make([]ModelResponse, 0, len(items))
@@ -1034,29 +1011,30 @@ func (h *Handler) CreateModel(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrDuplicatePlatformModelName):
-			response.Error(c, http.StatusConflict, "platform model name already exists")
+			response.ErrorFrom(c, http.StatusConflict, errPlatformModelNameAlreadyExists)
 		case errors.Is(err, appchannel.ErrInvalidJSONConfig):
-			response.Error(c, http.StatusBadRequest, "invalid json config")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidModelCapsConfig):
-			response.Error(c, http.StatusBadRequest, "invalid model capability limits")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidKinds):
-			response.Error(c, http.StatusBadRequest, "invalid kinds")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidModelAccessScope):
-			response.Error(c, http.StatusBadRequest, "invalid model access scope")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrSystemPromptTooLong):
-			response.Error(c, http.StatusBadRequest, "system prompt too long")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidPlatformModelName):
-			response.Error(c, http.StatusBadRequest, "invalid platform model name")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidModelVendor):
-			response.Error(c, http.StatusBadRequest, "invalid model vendor")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrModelVendorNotFound):
-			response.Error(c, http.StatusBadRequest, "model vendor not found")
+			response.ErrorFrom(c, http.StatusBadRequest, errModelVendorNotFound)
 		case errors.Is(err, appchannel.ErrModelDisplayGroupNotFound):
-			response.Error(c, http.StatusBadRequest, "model display group not found")
-		case modelIconErrorMessage(err) != "":
-			response.Error(c, http.StatusBadRequest, modelIconErrorMessage(err))
+			response.ErrorFrom(c, http.StatusBadRequest, errModelDisplayGroupNotFound)
+		case errors.Is(err, appchannel.ErrInvalidModelIconReference),
+			errors.Is(err, appchannel.ErrModelIconAssetNotFound):
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		default:
-			response.Error(c, http.StatusInternalServerError, "create model failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -1080,7 +1058,7 @@ func (h *Handler) CreateModel(c *gin.Context) {
 func (h *Handler) UpdateModel(c *gin.Context) {
 	modelID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid model id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidModelID)
 		return
 	}
 
@@ -1109,29 +1087,30 @@ func (h *Handler) UpdateModel(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrModelNotFound):
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 		case errors.Is(err, appchannel.ErrInvalidJSONConfig):
-			response.Error(c, http.StatusBadRequest, "invalid json config")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidModelCapsConfig):
-			response.Error(c, http.StatusBadRequest, "invalid model capability limits")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidKinds):
-			response.Error(c, http.StatusBadRequest, "invalid kinds")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidModelAccessScope):
-			response.Error(c, http.StatusBadRequest, "invalid model access scope")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrSystemPromptTooLong):
-			response.Error(c, http.StatusBadRequest, "system prompt too long")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidPlatformModelName):
-			response.Error(c, http.StatusBadRequest, "invalid platform model name")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidModelVendor):
-			response.Error(c, http.StatusBadRequest, "invalid model vendor")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrModelVendorNotFound):
-			response.Error(c, http.StatusBadRequest, "model vendor not found")
+			response.ErrorFrom(c, http.StatusBadRequest, errModelVendorNotFound)
 		case errors.Is(err, appchannel.ErrModelDisplayGroupNotFound):
-			response.Error(c, http.StatusBadRequest, "model display group not found")
-		case modelIconErrorMessage(err) != "":
-			response.Error(c, http.StatusBadRequest, modelIconErrorMessage(err))
+			response.ErrorFrom(c, http.StatusBadRequest, errModelDisplayGroupNotFound)
+		case errors.Is(err, appchannel.ErrInvalidModelIconReference),
+			errors.Is(err, appchannel.ErrModelIconAssetNotFound):
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		default:
-			response.Error(c, http.StatusInternalServerError, "update model failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -1156,7 +1135,7 @@ func (h *Handler) UpdateModel(c *gin.Context) {
 func (h *Handler) SetModelProtocols(c *gin.Context) {
 	modelID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid model id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidModelID)
 		return
 	}
 
@@ -1173,23 +1152,23 @@ func (h *Handler) SetModelProtocols(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrModelNotFound):
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 		case errors.Is(err, appchannel.ErrUpstreamModelNotFound):
-			response.Error(c, http.StatusNotFound, "model upstream sources not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelUpstreamSourcesNotFound)
 		case errors.Is(err, appchannel.ErrUpstreamModelConflict):
-			response.ErrorWithCode(c, http.StatusConflict, "llm.upstream_model_conflict", "model upstream source conflict")
+			response.ErrorWithCode(c, http.StatusConflict, "llm.upstream_model_conflict")
 		case errors.Is(err, appchannel.ErrUpstreamModelBindingChanged):
-			response.ErrorWithCode(c, http.StatusConflict, "llm.upstream_model_binding_changed", "upstream model binding changed; reload and retry")
+			response.ErrorWithCode(c, http.StatusConflict, "llm.upstream_model_binding_changed")
 		case errors.Is(err, appchannel.ErrInvalidAdapter):
-			response.Error(c, http.StatusBadRequest, "invalid adapter")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidRouteProtocolCombination):
-			response.Error(c, http.StatusBadRequest, "invalid route protocol combination")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidKinds):
-			response.Error(c, http.StatusBadRequest, "invalid kinds")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrProtocolRequired):
-			response.Error(c, http.StatusBadRequest, "protocol required")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		default:
-			response.Error(c, http.StatusInternalServerError, "set model protocols failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -1219,11 +1198,11 @@ func (h *Handler) ReorderModels(c *gin.Context) {
 	if err := h.service.ReorderModels(c.Request.Context(), req.ModelIDs); err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrInvalidModelOrder):
-			response.Error(c, http.StatusBadRequest, "invalid model order")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrModelNotFound):
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 		default:
-			response.Error(c, http.StatusInternalServerError, "reorder models failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -1246,16 +1225,16 @@ func (h *Handler) ReorderModels(c *gin.Context) {
 func (h *Handler) DeleteModel(c *gin.Context) {
 	modelID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid model id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidModelID)
 		return
 	}
 
 	if err = h.service.DeleteModel(c.Request.Context(), modelID); err != nil {
 		if errors.Is(err, appchannel.ErrModelNotFound) {
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "delete model failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, nil)
@@ -1299,7 +1278,7 @@ func (h *Handler) BatchDeleteModels(c *gin.Context) {
 func (h *Handler) TestModel(c *gin.Context) {
 	modelID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid model id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidModelID)
 		return
 	}
 	req, ok := bindModelProbeRequest(c)
@@ -1312,10 +1291,10 @@ func (h *Handler) TestModel(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, appchannel.ErrModelNotFound) {
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "test model failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, toModelProbeResponse(*result))
@@ -1338,7 +1317,7 @@ func (h *Handler) TestModel(c *gin.Context) {
 func (h *Handler) TestModelAll(c *gin.Context) {
 	modelID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid model id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidModelID)
 		return
 	}
 	req, ok := bindModelProbeRequest(c)
@@ -1351,10 +1330,10 @@ func (h *Handler) TestModelAll(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, appchannel.ErrModelNotFound) {
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "test model failed")
+		response.InternalError(c)
 		return
 	}
 	response.Success(c, toModelProbeBatchResponse(*result))
@@ -1378,18 +1357,18 @@ func (h *Handler) TestModelAll(c *gin.Context) {
 func (h *Handler) ListModelUpstreamSources(c *gin.Context) {
 	modelID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid model id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidModelID)
 		return
 	}
 
-	page, pageSize := pageParams(c)
+	page, pageSize := pagination.Parse(c.Query("page"), c.Query("page_size"))
 	items, total, err := h.service.ListModelUpstreamSources(c.Request.Context(), modelID, page, pageSize)
 	if err != nil {
 		if errors.Is(err, appchannel.ErrModelNotFound) {
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, "list model upstream sources failed")
+		response.InternalError(c)
 		return
 	}
 	results := make([]ModelUpstreamSourceResponse, 0, len(items))
@@ -1417,7 +1396,7 @@ func (h *Handler) ListModelUpstreamSources(c *gin.Context) {
 func (h *Handler) BindModelUpstreamSource(c *gin.Context) {
 	modelID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid model id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidModelID)
 		return
 	}
 
@@ -1441,23 +1420,23 @@ func (h *Handler) BindModelUpstreamSource(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrModelNotFound):
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 		case errors.Is(err, appchannel.ErrUpstreamNotFound):
-			response.Error(c, http.StatusNotFound, "upstream not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamNotFound)
 		case errors.Is(err, appchannel.ErrUpstreamModelNotFound):
-			response.Error(c, http.StatusNotFound, "upstream model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamModelNotFound)
 		case errors.Is(err, appchannel.ErrInvalidAdapter):
-			response.Error(c, http.StatusBadRequest, "invalid adapter")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrProtocolRequired):
-			response.Error(c, http.StatusBadRequest, "protocol required")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidRouteProtocolCombination):
-			response.Error(c, http.StatusBadRequest, "invalid route protocol combination")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrUpstreamSourceUnavailable):
-			response.Error(c, http.StatusBadRequest, "upstream source unavailable")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrUpstreamModelConflict):
-			response.Error(c, http.StatusConflict, "target model already bound on this upstream")
+			response.ErrorFrom(c, http.StatusConflict, errTargetModelAlreadyBoundOnThisUpstream)
 		default:
-			response.Error(c, http.StatusInternalServerError, "bind model upstream source failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -1482,12 +1461,12 @@ func (h *Handler) BindModelUpstreamSource(c *gin.Context) {
 func (h *Handler) UpdateModelUpstreamSource(c *gin.Context) {
 	modelID, err := uintParam(c, "id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid model id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidModelID)
 		return
 	}
 	routeID, err := uintParam(c, "route_id")
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid route id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRouteID)
 		return
 	}
 
@@ -1509,19 +1488,19 @@ func (h *Handler) UpdateModelUpstreamSource(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrModelNotFound):
-			response.Error(c, http.StatusNotFound, "model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errModelNotFound)
 		case errors.Is(err, appchannel.ErrUpstreamModelNotFound):
-			response.Error(c, http.StatusNotFound, "upstream model not found")
+			response.ErrorFrom(c, http.StatusNotFound, errUpstreamModelNotFound)
 		case errors.Is(err, appchannel.ErrInvalidAdapter):
-			response.Error(c, http.StatusBadRequest, "invalid adapter")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrProtocolRequired):
-			response.Error(c, http.StatusBadRequest, "protocol required")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrInvalidRouteProtocolCombination):
-			response.Error(c, http.StatusBadRequest, "invalid route protocol combination")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appchannel.ErrUpstreamModelConflict):
-			response.Error(c, http.StatusConflict, "target model already bound on this upstream")
+			response.ErrorFrom(c, http.StatusConflict, errTargetModelAlreadyBoundOnThisUpstream)
 		default:
-			response.Error(c, http.StatusInternalServerError, "update model upstream source failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -1545,7 +1524,7 @@ func (h *Handler) UpdateModelUpstreamSource(c *gin.Context) {
 func (h *Handler) ListLLMSettings(c *gin.Context) {
 	items, err := h.service.ListLLMSettings(c.Request.Context())
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "list settings failed")
+		response.InternalError(c)
 		return
 	}
 	results := make([]LLMSettingResponse, 0, len(items))
@@ -1572,7 +1551,7 @@ func (h *Handler) ListLLMSettings(c *gin.Context) {
 func (h *Handler) UpdateLLMSetting(c *gin.Context) {
 	key := c.Param("key")
 	if key == "" {
-		response.Error(c, http.StatusBadRequest, "invalid setting key")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidSettingKey)
 		return
 	}
 
@@ -1588,11 +1567,11 @@ func (h *Handler) UpdateLLMSetting(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrLLMSettingNotFound):
-			response.Error(c, http.StatusNotFound, "setting not found")
+			response.ErrorFrom(c, http.StatusNotFound, errSettingNotFound)
 		case errors.Is(err, appchannel.ErrInvalidJSONConfig):
-			response.Error(c, http.StatusBadRequest, "invalid json config")
+			response.ErrorFrom(c, http.StatusBadRequest, err)
 		default:
-			response.Error(c, http.StatusInternalServerError, "update setting failed")
+			response.InternalError(c)
 		}
 		return
 	}
@@ -1602,26 +1581,6 @@ func (h *Handler) UpdateLLMSetting(c *gin.Context) {
 // ---------------------------------------------------------------------------
 // HTTP 辅助
 // ---------------------------------------------------------------------------
-
-func pageParams(c *gin.Context) (int, int) {
-	page := 1
-	pageSize := 20
-	const maxPageSize = 1000
-	if raw := c.Query("page"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			page = parsed
-		}
-	}
-	if raw := c.Query("page_size"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			if parsed > maxPageSize {
-				parsed = maxPageSize
-			}
-			pageSize = parsed
-		}
-	}
-	return page, pageSize
-}
 
 func uintParam(c *gin.Context, key string) (uint, error) {
 	value, err := strconv.ParseUint(c.Param(key), 10, strconv.IntSize)

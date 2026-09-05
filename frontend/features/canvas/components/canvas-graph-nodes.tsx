@@ -1,7 +1,5 @@
 "use client";
 
-import * as React from "react";
-import { useTranslations } from "next-intl";
 import {
   AlertTriangle,
   ChevronDown,
@@ -22,29 +20,30 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
-import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
-import { PromptTemplateLibrary } from "@/features/canvas/components/canvas-prompt-template-library";
-import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
-import { CanvasImageParams } from "@/features/canvas/components/canvas-image-params";
 import { GraphNodeShell } from "@/features/canvas/components/canvas-graph-node-shell";
+import { CanvasImageParams } from "@/features/canvas/components/canvas-image-params";
+import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
+import { PromptTemplateLibrary } from "@/features/canvas/components/canvas-prompt-template-library";
+import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
 import {
+  type GraphPortID,
   graphNodePorts,
   isGraphPortCompatibleTarget,
-  type GraphPortID,
 } from "@/features/canvas/model/canvas-graph";
 import {
   type GenerateGraphNode,
   type GraphNode,
   type GraphNodeUpdate,
+  graphNodeSize,
   type ImageGraphNode,
   type OutputGraphNode,
-  type PromptGraphNode,
-  graphNodeSize,
   PROMPT_MAX_LENGTH,
+  type PromptGraphNode,
 } from "@/features/canvas/model/canvas-types";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
 
 export type GraphNodeActionHandlers = {

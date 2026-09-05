@@ -1,20 +1,20 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import {
   listAdminLLMModelDisplayGroups,
   listAdminLLMModelVendors,
 } from "@/features/admin/api";
-import { listAllAdminPages } from "@/features/admin/api/shared";
 import type {
   AdminLLMModelDisplayGroupDTO,
   AdminLLMModelVendorDTO,
 } from "@/features/admin/api/llm.types";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { listAllAdminPages } from "@/features/admin/api/shared";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
 // useAdminModelPresentation 加载模型技术厂商和可选展示分组目录。
 export function useAdminModelPresentation() {

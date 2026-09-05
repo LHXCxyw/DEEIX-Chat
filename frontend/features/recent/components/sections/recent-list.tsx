@@ -1,19 +1,14 @@
 "use client";
 
-import * as React from "react";
-import Link from "next/link";
 import { Archive, Check, PencilLine, Share2, Star, Tag, Trash } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Ellipsis } from "@/components/animate-ui/icons/ellipsis";
 import { AnimatedText } from "@/components/ui/animated-text";
-import { LoadingReveal } from "@/shared/components/loading-reveal";
-import type { RecentRowState } from "@/features/recent/types/recent";
-import { ConversationLabelsMenuItem, isArchivedConversation } from "@/entities/conversation";
-import {
-  formatRelativeUpdatedAt,
-  recentEmptyStateTitle,
-} from "@/features/recent/utils/recent-display";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,15 +17,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ConversationProjectSubmenu } from "@/shared/components/conversation-project-submenu";
-import { ConversationShareExportSubmenu } from "@/shared/components/conversation-share-export-menu";
-import { cn } from "@/lib/utils";
+import { ConversationLabelsMenuItem, isArchivedConversation } from "@/entities/conversation";
+import type { RecentRowState } from "@/features/recent/types/recent";
+import {
+  formatRelativeUpdatedAt,
+  recentEmptyStateTitle,
+} from "@/features/recent/utils/recent-display";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
-import { parseConversationLabelsJSON } from "@/shared/lib/conversation-labels";
+import { cn } from "@/lib/utils";
 import type {
   ConversationDTO,
   ConversationProjectDTO,
@@ -38,6 +34,10 @@ import type {
   ConversationStarredFilter,
   ConversationStatusFilter,
 } from "@/shared/api/conversation.types";
+import { ConversationProjectSubmenu } from "@/shared/components/conversation-project-submenu";
+import { ConversationShareExportSubmenu } from "@/shared/components/conversation-share-export-menu";
+import { LoadingReveal } from "@/shared/components/loading-reveal";
+import { parseConversationLabelsJSON } from "@/shared/lib/conversation-labels";
 
 function RecentRowSkeleton({
   showCheckbox = true,

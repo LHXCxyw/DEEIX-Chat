@@ -8,9 +8,19 @@ import (
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 )
 
+// ListFileObjectsInput 定义用户文件列表的分页、筛选与排序条件。
+type ListFileObjectsInput struct {
+	UserID      uint
+	Offset      int
+	Limit       int
+	SearchQuery string
+	FilterKind  string
+	SortBy      string
+}
+
 // FileListingRepository 封装文件列表查询能力。
 type FileListingRepository interface {
-	ListFileObjectsByUserWithFilter(ctx context.Context, userID uint, offset int, limit int, searchQuery string, filterKind string, sortBy string) ([]domainconversation.FileObject, int64, error)
+	ListFileObjectsByUserWithFilter(ctx context.Context, input ListFileObjectsInput) ([]domainconversation.FileObject, int64, error)
 	MarkTimedOutFileEmbeddingsFailed(ctx context.Context, userID uint, cutoff time.Time, message string) (int64, error)
 }
 
@@ -18,7 +28,7 @@ type FileListingRepository interface {
 type FileLookupRepository interface {
 	GetActiveFileObjectByID(ctx context.Context, userID uint, fileID string) (*domainconversation.FileObject, error)
 	RenameFileObjectByID(ctx context.Context, userID uint, fileID string, fileName string) (*domainconversation.FileObject, error)
-	UpdateFileObjectRagOptOut(ctx context.Context, userID uint, fileID string, ragOptOut bool) (*domainconversation.FileObject, error)
+	UpdateFileObjectRAGOptOut(ctx context.Context, userID uint, fileID string, ragOptOut bool) (*domainconversation.FileObject, error)
 	TouchFileObjectLastAccessedAt(ctx context.Context, userID uint, fileID string, accessedAt time.Time) error
 }
 

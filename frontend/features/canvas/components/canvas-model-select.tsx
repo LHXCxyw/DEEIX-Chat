@@ -1,19 +1,18 @@
 "use client";
 
-import * as React from "react";
+import { Check, ChevronsUpDown, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { ChevronsUpDown, Check, Sparkles } from "lucide-react";
-
-import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
-import { modelSupportsImageEditRoute } from "@/features/canvas/model/canvas-image-options";
-import { ModelIcon } from "@/shared/components/model-icon";
-import { resolveModelIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
+import * as React from "react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { modelSupportsImageEditRoute } from "@/features/canvas/model/canvas-image-options";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
+import { ModelIcon } from "@/shared/components/model-icon";
+import { resolveModelIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
 
 export function CanvasModelSelect({
   imageModels,

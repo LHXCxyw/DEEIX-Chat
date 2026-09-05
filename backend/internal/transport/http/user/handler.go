@@ -28,7 +28,7 @@ func NewHandler(service *appuser.Service) *Handler {
 func (h *Handler) GetAvatar(c *gin.Context) {
 	publicID := strings.TrimSpace(c.Param("public_id"))
 	if publicID == "" {
-		response.Error(c, http.StatusBadRequest, "invalid user id")
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidUserID)
 		return
 	}
 	result, err := h.service.OpenAvatarContent(c.Request.Context(), publicID)
@@ -36,10 +36,10 @@ func (h *Handler) GetAvatar(c *gin.Context) {
 		switch {
 		case errors.Is(err, appuser.ErrUserNotFound),
 			errors.Is(err, appuser.ErrAvatarNotFound):
-			response.Error(c, http.StatusNotFound, "avatar not found")
+			response.ErrorFrom(c, http.StatusNotFound, err)
 			return
 		default:
-			response.Error(c, http.StatusInternalServerError, "open avatar failed")
+			response.InternalError(c)
 			return
 		}
 	}
@@ -47,7 +47,7 @@ func (h *Handler) GetAvatar(c *gin.Context) {
 
 	contentType := strings.TrimSpace(result.ContentType)
 	if !strings.HasPrefix(strings.ToLower(contentType), "image/") {
-		response.Error(c, http.StatusNotFound, "avatar not found")
+		response.ErrorFrom(c, http.StatusNotFound, errAvatarNotFound)
 		return
 	}
 	c.Header("Content-Type", contentType)
@@ -83,14 +83,14 @@ func (h *Handler) GetDailyActivity(c *gin.Context) {
 	if daysText := strings.TrimSpace(c.Query("days")); daysText != "" {
 		parsed, err := strconv.Atoi(daysText)
 		if err != nil || parsed <= 0 {
-			response.Error(c, http.StatusBadRequest, "invalid daily activity days")
+			response.ErrorFrom(c, http.StatusBadRequest, errInvalidDailyActivityDays)
 			return
 		}
 		days = parsed
 	}
 	items, err := h.service.GetDailyActivity(c.Request.Context(), middleware.MustUserID(c), days, time.Now())
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "list daily activity failed")
+		response.InternalError(c)
 		return
 	}
 	results := make([]UserDailyActivityItem, 0, len(items))

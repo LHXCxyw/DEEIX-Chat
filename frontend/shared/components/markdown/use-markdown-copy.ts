@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { useCopyAction } from "@/shared/components/copy-action";
 import { CODE_BLOCK_PLAIN_TEXT_MIME } from "@/shared/lib/clipboard";

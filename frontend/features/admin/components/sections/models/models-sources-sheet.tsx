@@ -63,7 +63,6 @@ import {
   testAdminLLMUpstreamModelRoute,
   updateAdminLLMModelUpstreamSource,
 } from "@/features/admin/api";
-import { listAllAdminPages } from "@/features/admin/api/shared";
 import type {
   AdminLLMAdapter,
   AdminLLMModelDTO,
@@ -73,6 +72,7 @@ import type {
   AdminLLMUpstreamModelDTO,
   AdminLLMUpstreamView,
 } from "@/features/admin/api/llm.types";
+import { listAllAdminPages } from "@/features/admin/api/shared";
 import {
   DEFAULT_MODEL_SOURCE_BIND_DRAFT,
   type ModelSourceBindDraft,

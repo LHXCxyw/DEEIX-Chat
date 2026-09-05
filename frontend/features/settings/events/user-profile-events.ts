@@ -1,4 +1,4 @@
 export {
-  USER_PROFILE_UPDATED_EVENT,
   dispatchUserProfileUpdated,
+  USER_PROFILE_UPDATED_EVENT,
 } from "@/shared/auth/user-profile-events";

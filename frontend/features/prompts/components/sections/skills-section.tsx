@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Box, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import {
@@ -17,8 +17,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,11 +33,11 @@ import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import {
   EMPTY_SKILL_FORM,
   SKILL_LIMITS,
+  type SkillFormValue,
   skillFormFromDTO,
   skillFormIsWithinLimits,
   skillPayloadFromForm,
   skillPayloadIsComplete,
-  type SkillFormValue,
 } from "@/shared/model/skills";
 
 const SKILL_PAGE_SIZE = 100;
@@ -310,12 +310,10 @@ export const SkillsSection = React.forwardRef<SkillsSectionHandle, { query: stri
         ) : (
           <div className="h-full min-h-0 overflow-y-auto pr-2" data-sidebar-scroll-root="true">
             {filteredItems.length === 0 ? (
-              <div className="flex h-full min-h-0 w-full items-center justify-center">
-                <CenteredEmptyState
-                  title={items.length === 0 ? t("skillsEmpty") : t("skillsNoResults")}
-                  description={items.length === 0 ? t("skillsEmptyDescription") : t("noResultsDescription")}
-                />
-              </div>
+              <CenteredEmptyState
+                title={items.length === 0 ? t("skillsEmpty") : t("skillsNoResults")}
+                description={items.length === 0 ? t("skillsEmptyDescription") : t("noResultsDescription")}
+              />
             ) : (
               <div className="grid gap-4 md:ml-13 md:w-[calc(100%-3.25rem)] md:grid-cols-2">
                 {filteredItems.map((item) => (

@@ -10,14 +10,12 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Marker, MarkerContent } from "@/components/ui/marker";
-import type { ChatMessageProcessTrace } from "@/features/chat/types/messages";
-import { useChatTraceLabels } from "@/features/chat/hooks/use-chat-trace-labels";
-import { cn } from "@/lib/utils";
 import {
   RAGCitationList,
   TRACE_ROOT_CLASS,
   TraceContent,
 } from "@/features/chat/components/shared/message-process-trace-shared";
+import { useChatTraceLabels } from "@/features/chat/hooks/use-chat-trace-labels";
 import {
   filterProcessTraceStages,
   isRAGTraceStage,
@@ -28,6 +26,8 @@ import {
   parseStructuredTraceStages,
   parseTraceStages,
 } from "@/features/chat/model/message-process-trace";
+import type { ChatMessageProcessTrace } from "@/features/chat/types/messages";
+import { cn } from "@/lib/utils";
 
 export { MessageAgentTrace } from "@/features/chat/components/message/message-agent-trace";
 
