@@ -1,6 +1,8 @@
 package channel
 
 import (
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
@@ -104,7 +106,7 @@ var (
 	ErrNoActiveKey = apperr.New("llm.no_active_api_key", "no active api key")
 	// ErrLLMSettingNotFound LLM 全局设置不存在。
 	ErrLLMSettingNotFound = repository.ErrLLMSettingNotFound
-	
+
 	// 用户自有渠道错误（BYOK）
 	ErrUserUpstreamDisabled      = errors.New("用户自有渠道功能已禁用")
 	ErrUserUpstreamQuotaExceeded = errors.New("已达到渠道创建数量上限")
@@ -112,6 +114,18 @@ var (
 	ErrInvalidBaseURL            = errors.New("无效的BaseURL格式")
 	ErrAPIKeysRequired           = errors.New("至少需要一个API Key")
 )
+
+// isDuplicateKeyError 判断底层错误是否为数据库唯一键冲突。
+func isDuplicateKeyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, repository.ErrDuplicate) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
+}
 
 // RoutesRateLimitedError 携带全部候选路由恢复前的最短等待时间。
 type RoutesRateLimitedError struct {

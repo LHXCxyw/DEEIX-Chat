@@ -76,6 +76,11 @@ func ErrorFrom(c *gin.Context, status int, err error) {
 	ErrorDescribed(c, Describe(status, err))
 }
 
+// Error 以纯文本消息写出错误响应（fork 兼容入口；上游推荐使用 ErrorFrom/ErrorWithCode）。
+func Error(c *gin.Context, status int, message string) {
+	ErrorDescribed(c, Description{Status: status, Message: message})
+}
+
 // ErrorDescribed 写出已确定的错误描述。
 func ErrorDescribed(c *gin.Context, description Description) {
 	write(c, description.Status, description.Code, description.Message, nil)

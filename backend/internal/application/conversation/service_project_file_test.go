@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
+	portllm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 )
 
 func TestNormalizeProjectFilePath(t *testing.T) {
@@ -46,7 +46,7 @@ func TestNormalizeProjectFilePath(t *testing.T) {
 func TestProjectToolGuidanceRequiresFileToolCalls(t *testing.T) {
 	t.Parallel()
 
-	runtime := selectedToolRuntime{definitions: []llm.ToolDefinition{{Name: "project_read_file"}}}
+	runtime := selectedToolRuntime{definitions: []portllm.ToolDefinition{{Name: "project_read_file"}}}
 	guidance := defaultMCPToolGuidancePrompt(runtime)
 	for _, required := range []string{"MUST use the corresponding project_* tool", "Never substitute a code block", "Read an existing file before modifying it"} {
 		if !strings.Contains(guidance, required) {

@@ -654,7 +654,7 @@ func TestReconcileRemoteModelSnapshotSoftlyReconcilesManagedCatalog(t *testing.T
 		{ID: "manual-model", OwnedBy: "custom"},
 		{ID: "new-model", OwnedBy: "duplicate"},
 		{ID: " "},
-	}, false)
+	}, false, nil)
 	if err != nil {
 		t.Fatalf("reconcile snapshot: %v", err)
 	}
@@ -688,14 +688,14 @@ func TestReconcileRemoteModelSnapshotRequiresConfirmationForEmptyCatalog(t *test
 	service := newTestService(config.Config{}, repo, repo, nil, nil)
 	upstream := &domainchannel.Upstream{ID: 9}
 
-	if _, err := service.reconcileRemoteModelSnapshot(t.Context(), upstream, nil, false); !errors.Is(err, ErrEmptyRemoteModels) {
+	if _, err := service.reconcileRemoteModelSnapshot(t.Context(), upstream, nil, false, nil); !errors.Is(err, ErrEmptyRemoteModels) {
 		t.Fatalf("expected empty snapshot error, got %v", err)
 	}
 	if repo.catalogApplyCalls != 0 {
 		t.Fatalf("empty snapshot changed data without confirmation")
 	}
 
-	result, err := service.reconcileRemoteModelSnapshot(t.Context(), upstream, nil, true)
+	result, err := service.reconcileRemoteModelSnapshot(t.Context(), upstream, nil, true, nil)
 	if err != nil {
 		t.Fatalf("confirmed empty snapshot: %v", err)
 	}

@@ -45,7 +45,7 @@ func (r *Repo) GetOrCreateProjectWorkspace(ctx context.Context, ownerUserID uint
 		return nil
 	})
 	if err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	value := toProjectWorkspaceDomain(result)
 	return &value, nil
@@ -56,7 +56,7 @@ func (r *Repo) GetProjectWorkspaceByProject(ctx context.Context, ownerUserID uin
 	if err := r.db.WithContext(ctx).
 		Where("owner_user_id = ? AND conversation_project_id = ?", ownerUserID, conversationProjectID).
 		First(&item).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	result := toProjectWorkspaceDomain(item)
 	return &result, nil
@@ -65,14 +65,14 @@ func (r *Repo) GetProjectWorkspaceByProject(ctx context.Context, ownerUserID uin
 func (r *Repo) CreateProjectImport(ctx context.Context, item *domainconversation.ProjectImport) error {
 	entity := toProjectImportModel(item)
 	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
-		return translateError(err)
+		return dberror.Translate(err)
 	}
 	*item = toProjectImportDomain(entity)
 	return nil
 }
 
 func (r *Repo) CompleteProjectImport(ctx context.Context, ownerUserID uint, projectID uint, importID uint, files []domainconversation.ProjectFile, fileCount int, totalBytes int64) error {
-	return translateError(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return dberror.Translate(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var job models.ProjectImport
 		if err := tx.Where("id = ? AND owner_user_id = ? AND project_id = ?", importID, ownerUserID, projectID).First(&job).Error; err != nil {
 			return err
@@ -106,7 +106,7 @@ func (r *Repo) FailProjectImport(ctx context.Context, ownerUserID uint, projectI
 		Where("id = ? AND owner_user_id = ? AND project_id = ?", importID, ownerUserID, projectID).
 		Updates(map[string]interface{}{"status": "failed", "error_code": code, "error_message": message, "completed_at": now})
 	if result.Error != nil {
-		return translateError(result.Error)
+		return dberror.Translate(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return repository.ErrNotFound
@@ -119,7 +119,7 @@ func (r *Repo) GetProjectImport(ctx context.Context, ownerUserID uint, projectID
 	if err := r.db.WithContext(ctx).
 		Where("owner_user_id = ? AND project_id = ? AND public_id = ?", ownerUserID, projectID, publicID).
 		First(&item).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	result := toProjectImportDomain(item)
 	return &result, nil
@@ -130,7 +130,7 @@ func (r *Repo) ListProjectFiles(ctx context.Context, ownerUserID uint, projectID
 	if err := r.db.WithContext(ctx).
 		Where("owner_user_id = ? AND project_id = ?", ownerUserID, projectID).
 		Order("relative_path ASC").Find(&items).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	result := make([]domainconversation.ProjectFile, 0, len(items))
 	for _, item := range items {
@@ -142,7 +142,7 @@ func (r *Repo) ListProjectFiles(ctx context.Context, ownerUserID uint, projectID
 func (r *Repo) CreateProjectFile(ctx context.Context, item *domainconversation.ProjectFile) error {
 	entity := toProjectFileModel(item)
 	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
-		return translateError(err)
+		return dberror.Translate(err)
 	}
 	*item = toProjectFileDomain(entity)
 	return nil
@@ -156,7 +156,7 @@ func (r *Repo) UpdateProjectWorkspaceUsage(ctx context.Context, ownerUserID uint
 			"file_count":    gorm.Expr("file_count + ?", fileDelta),
 		})
 	if result.Error != nil {
-		return translateError(result.Error)
+		return dberror.Translate(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return repository.ErrNotFound
@@ -168,10 +168,10 @@ func (r *Repo) UpdateProjectFile(ctx context.Context, ownerUserID uint, projectI
 	var item models.ProjectFile
 	result := r.db.WithContext(ctx).Where("owner_user_id = ? AND project_id = ? AND public_id = ?", ownerUserID, projectID, publicID).First(&item)
 	if result.Error != nil {
-		return nil, translateError(result.Error)
+		return nil, dberror.Translate(result.Error)
 	}
 	if err := r.db.WithContext(ctx).Model(&item).Updates(map[string]interface{}{"storage_key": storageKey, "mime_type": mimeType, "size_bytes": sizeBytes, "sha256": sha256, "version": version}).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	item.StorageKey, item.MimeType, item.SizeBytes, item.SHA256, item.Version = storageKey, mimeType, sizeBytes, sha256, version
 	value := toProjectFileDomain(item)
@@ -181,12 +181,12 @@ func (r *Repo) UpdateProjectFile(ctx context.Context, ownerUserID uint, projectI
 func (r *Repo) DeleteProjectFile(ctx context.Context, ownerUserID uint, projectID uint, publicID string) (*domainconversation.ProjectFile, error) {
 	var item models.ProjectFile
 	if err := r.db.WithContext(ctx).Where("owner_user_id = ? AND project_id = ? AND public_id = ?", ownerUserID, projectID, publicID).First(&item).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	// 硬删除：软删除行会继续占据 (project_id, relative_path) 唯一索引，
 	// 导致同路径文件重新创建时触发唯一约束冲突。
 	if err := r.db.WithContext(ctx).Unscoped().Delete(&item).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	value := toProjectFileDomain(item)
 	return &value, nil
@@ -196,7 +196,7 @@ func (r *Repo) GetProjectFile(ctx context.Context, ownerUserID uint, projectID u
 	if err := r.db.WithContext(ctx).
 		Where("owner_user_id = ? AND project_id = ? AND public_id = ?", ownerUserID, projectID, publicID).
 		First(&item).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	result := toProjectFileDomain(item)
 	return &result, nil
@@ -205,7 +205,7 @@ func (r *Repo) GetProjectFile(ctx context.Context, ownerUserID uint, projectID u
 // PurgeProjectFileByPath 硬删除指定路径的全部文件行（含历史软删除残留），
 // 为同路径重新创建腾出 (project_id, relative_path) 唯一索引。
 func (r *Repo) PurgeProjectFileByPath(ctx context.Context, ownerUserID uint, projectID uint, relativePath string) error {
-	return translateError(r.db.WithContext(ctx).Unscoped().
+	return dberror.Translate(r.db.WithContext(ctx).Unscoped().
 		Where("owner_user_id = ? AND project_id = ? AND relative_path = ?", ownerUserID, projectID, relativePath).
 		Delete(&models.ProjectFile{}).Error)
 }

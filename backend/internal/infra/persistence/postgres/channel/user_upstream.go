@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/gorm"
@@ -19,7 +20,7 @@ func (r *Repo) ListUserUpstreams(ctx context.Context, userID uint) ([]domainchan
 		Order("created_at DESC").
 		Find(&items).Error
 	if err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 
 	upstreams := make([]domainchannel.Upstream, len(items))
@@ -41,7 +42,7 @@ func (r *Repo) GetUserUpstreamByID(ctx context.Context, userID, upstreamID uint)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, repository.ErrNotFound
 		}
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 
 	upstream := toUpstreamDomain(m)
@@ -55,7 +56,7 @@ func (r *Repo) CreateUserUpstream(ctx context.Context, upstream *domainchannel.U
 	}
 	m := toUpstreamModel(upstream)
 	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
-		return translateError(err)
+		return dberror.Translate(err)
 	}
 	upstream.ID = m.ID
 	upstream.CreatedAt = m.CreatedAt
@@ -76,7 +77,7 @@ func (r *Repo) UpdateUserUpstream(ctx context.Context, upstream *domainchannel.U
 		Where("ownership_type = ?", "user").
 		Updates(&m)
 	if result.Error != nil {
-		return translateError(result.Error)
+		return dberror.Translate(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return repository.ErrNotFound
@@ -92,7 +93,7 @@ func (r *Repo) DeleteUserUpstream(ctx context.Context, userID, upstreamID uint) 
 		Where("ownership_type = ?", "user").
 		Delete(&model.LLMUpstream{})
 	if result.Error != nil {
-		return translateError(result.Error)
+		return dberror.Translate(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return repository.ErrNotFound
@@ -108,5 +109,5 @@ func (r *Repo) CountUserUpstreams(ctx context.Context, userID uint) (int64, erro
 		Where("owner_user_id = ?", userID).
 		Where("ownership_type = ?", "user").
 		Count(&count).Error
-	return count, translateError(err)
+	return count, dberror.Translate(err)
 }

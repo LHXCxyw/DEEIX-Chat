@@ -91,7 +91,7 @@ func validateValue(key, value string) error {
 
 func validateCanvasState(value, key string) error {
 	if len(value) > 512*1024 {
-		return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: JSON exceeds 512 KiB", key)}
+		return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: JSON exceeds 512 KiB", key))
 	}
 	// 兼容两代画布结构：v3 顶层 nodes/viewport；v4 多画布页 canvases[].nodes/graphNodes
 	var probe struct {
@@ -102,10 +102,10 @@ func validateCanvasState(value, key string) error {
 		} `json:"viewport"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(value)), &probe); err != nil {
-		return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key)}
+		return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key))
 	}
 	if probe.Nodes == nil && probe.Canvases == nil {
-		return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key)}
+		return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key))
 	}
 	// 缺失(0)视为合法，仅校验显式提供的取值范围
 	scaleValid := func(scale float64) bool {
@@ -114,10 +114,10 @@ func validateCanvasState(value, key string) error {
 	if probe.Nodes != nil {
 		var nodes []json.RawMessage
 		if err := json.Unmarshal(*probe.Nodes, &nodes); err != nil || nodes == nil {
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key)}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key))
 		}
 		if len(nodes) > 256 || !scaleValid(probe.Viewport.Scale) {
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: canvas limits exceeded", key)}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: canvas limits exceeded", key))
 		}
 	}
 	if probe.Canvases != nil {
@@ -129,20 +129,20 @@ func validateCanvasState(value, key string) error {
 			} `json:"viewport"`
 		}
 		if err := json.Unmarshal(*probe.Canvases, &canvases); err != nil || canvases == nil || len(canvases) == 0 {
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key)}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must be a canvas JSON object", key))
 		}
 		if len(canvases) > 16 {
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: canvas limits exceeded", key)}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: canvas limits exceeded", key))
 		}
 		total := 0
 		for _, page := range canvases {
 			total += len(page.Nodes) + len(page.GraphNodes)
 			if !scaleValid(page.Viewport.Scale) {
-				return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: canvas limits exceeded", key)}
+				return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: canvas limits exceeded", key))
 			}
 		}
 		if total > 1024 {
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: canvas limits exceeded", key)}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: canvas limits exceeded", key))
 		}
 	}
 	return nil

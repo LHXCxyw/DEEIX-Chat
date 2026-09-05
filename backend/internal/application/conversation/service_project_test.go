@@ -212,7 +212,7 @@ func TestCreateConversationUsesOnlyAvailableProjectDefaultModel(t *testing.T) {
 				}},
 			}
 
-			created, err := service.CreateConversation(context.Background(), 1, "New chat", test.explicitModel, repo.project.PublicID)
+			created, err := service.CreateConversation(context.Background(), 1, "New chat", test.explicitModel, repo.project.PublicID, "")
 			if err != nil {
 				t.Fatalf("CreateConversation() error = %v", err)
 			}

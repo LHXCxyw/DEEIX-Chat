@@ -1009,7 +1009,6 @@ func (s *Service) sendMessageInternal(
 		assistantText = upstreamOutput.Text
 		nextNativeToolRows := upstreamServerToolCallRows(upstreamOutput, runID)
 		toolCallRows = append(toolCallRows, nextNativeToolRows...)
-		finalSynthesisAttempted = true
 	}
 
 	effectiveInputTokens := runner.usage.effectiveInputTokens(plan.estimatedPromptTokens)

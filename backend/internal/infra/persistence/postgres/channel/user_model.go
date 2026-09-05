@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/gorm"
@@ -26,7 +27,7 @@ func (r *Repo) ListUserModels(ctx context.Context, userID uint) ([]domainchannel
 		Where("llm_user_models.owner_user_id = ? AND llm_user_models.status = ? AND u.owner_user_id = ? AND u.ownership_type = ? AND u.status = ?", userID, "active", userID, "user", "active").
 		Order("llm_user_models.priority ASC, llm_user_models.created_at DESC").
 		Preload("Upstream").Find(&items).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	result := make([]domainchannel.UserModel, len(items))
 	for i := range items {
@@ -43,7 +44,7 @@ func (r *Repo) GetUserModelByID(ctx context.Context, userID, modelID uint) (*dom
 		return nil, repository.ErrNotFound
 	}
 	if err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	result := toUserModelDomain(item)
 	return &result, nil
@@ -62,19 +63,19 @@ func (r *Repo) CreateUserModel(ctx context.Context, item *domainchannel.UserMode
 	if lookup.Error == nil {
 		entity = existing
 		if err := r.db.WithContext(ctx).Preload("Upstream", "owner_user_id = ? AND ownership_type = ?", item.OwnerUserID, "user").First(&entity, existing.ID).Error; err != nil {
-			return translateError(err)
+			return dberror.Translate(err)
 		}
 		*item = toUserModelDomain(entity)
 		return nil
 	}
 	if !errors.Is(lookup.Error, gorm.ErrRecordNotFound) {
-		return translateError(lookup.Error)
+		return dberror.Translate(lookup.Error)
 	}
 	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
-		return translateError(err)
+		return dberror.Translate(err)
 	}
 	if err := r.db.WithContext(ctx).Preload("Upstream", "owner_user_id = ? AND ownership_type = ?", item.OwnerUserID, "user").First(&entity, entity.ID).Error; err != nil {
-		return translateError(err)
+		return dberror.Translate(err)
 	}
 	*item = toUserModelDomain(entity)
 	return nil
@@ -88,7 +89,7 @@ func (r *Repo) UpdateUserModel(ctx context.Context, item *domainchannel.UserMode
 	entity := toUserModelModel(item)
 	result := r.db.WithContext(ctx).Model(&model.LLMUserModel{}).Where("id = ? AND owner_user_id = ?", item.ID, item.OwnerUserID).Updates(&entity)
 	if result.Error != nil {
-		return translateError(result.Error)
+		return dberror.Translate(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return repository.ErrNotFound
@@ -100,7 +101,7 @@ func (r *Repo) UpdateUserModel(ctx context.Context, item *domainchannel.UserMode
 func (r *Repo) DeleteUserModel(ctx context.Context, userID, modelID uint) error {
 	result := r.db.WithContext(ctx).Where("id = ? AND owner_user_id = ?", modelID, userID).Delete(&model.LLMUserModel{})
 	if result.Error != nil {
-		return translateError(result.Error)
+		return dberror.Translate(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return repository.ErrNotFound

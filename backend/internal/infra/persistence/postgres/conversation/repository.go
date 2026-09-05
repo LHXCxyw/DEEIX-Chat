@@ -509,7 +509,7 @@ func (r *Repo) UpdateConversationSystemPromptByPublicID(
 		Where("user_id = ? AND public_id = ?", userID, publicID).
 		Update("system_prompt", strings.TrimSpace(systemPrompt))
 	if result.Error != nil {
-		return nil, translateError(result.Error)
+		return nil, dberror.Translate(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return nil, repository.ErrNotFound
@@ -529,18 +529,18 @@ func (r *Repo) DeleteMessageByPublicID(ctx context.Context, userID uint, publicI
 		if err := tx.
 			Where("user_id = ? AND public_id = ?", userID, normalizedPublicID).
 			First(&target).Error; err != nil {
-			return translateError(err)
+			return dberror.Translate(err)
 		}
 		if err := tx.
 			Model(&models.Message{}).
 			Where("conversation_id = ? AND parent_message_id = ?", target.ConversationID, target.ID).
 			Update("parent_message_id", target.ParentMessageID).
 			Error; err != nil {
-			return translateError(err)
+			return dberror.Translate(err)
 		}
 		result := tx.Delete(&target)
 		if result.Error != nil {
-			return translateError(result.Error)
+			return dberror.Translate(result.Error)
 		}
 		deleted = result.RowsAffected
 		if err := tx.
@@ -548,7 +548,7 @@ func (r *Repo) DeleteMessageByPublicID(ctx context.Context, userID uint, publicI
 			Where("id = ?", target.ConversationID).
 			UpdateColumn("message_count", gorm.Expr("GREATEST(message_count - ?, 0)", deleted)).
 			Error; err != nil {
-			return translateError(err)
+			return dberror.Translate(err)
 		}
 		return nil
 	})

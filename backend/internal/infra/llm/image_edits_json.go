@@ -1,10 +1,11 @@
-﻿package llm
+package llm
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	portllm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"net/http"
 	"strings"
 )
@@ -16,31 +17,31 @@ type imageEditsJSONAdapter struct {
 	client *Client
 }
 
-func (a *imageEditsJSONAdapter) Name() string { return AdapterImageEditsJSON }
+func (a *imageEditsJSONAdapter) Name() string { return portllm.AdapterImageEditsJSON }
 
 // Generate 调用 JSON 体图片编辑接口，返回结构化图片结果。
-func (a *imageEditsJSONAdapter) Generate(ctx context.Context, route RouteConfig, input GenerateInput) (*GenerateOutput, error) {
+func (a *imageEditsJSONAdapter) Generate(ctx context.Context, route portllm.RouteConfig, input portllm.GenerateInput) (*portllm.GenerateOutput, error) {
 	return a.client.generateImageEditsJSON(ctx, route, input)
 }
 
 // GenerateStream：JSON 编辑接口为同步调用，不支持流式。
 func (a *imageEditsJSONAdapter) GenerateStream(
 	ctx context.Context,
-	route RouteConfig,
-	input GenerateInput,
-	onEvent func(GenerateStreamEvent) error,
-) (*GenerateOutput, error) {
-	return nil, fmt.Errorf("%w: %s", ErrUnsupportedStream, AdapterImageEditsJSON)
+	route portllm.RouteConfig,
+	input portllm.GenerateInput,
+	onEvent func(portllm.GenerateStreamEvent) error,
+) (*portllm.GenerateOutput, error) {
+	return nil, fmt.Errorf("%w: %s", portllm.ErrUnsupportedStream, portllm.AdapterImageEditsJSON)
 }
 
 // ListModels 复用 OpenAI 兼容 models 目录，供渠道校验和展示使用。
-func (a *imageEditsJSONAdapter) ListModels(ctx context.Context, route RouteConfig) ([]ModelItem, error) {
+func (a *imageEditsJSONAdapter) ListModels(ctx context.Context, route portllm.RouteConfig) ([]portllm.ModelItem, error) {
 	return a.client.listModelsOpenAICompatible(ctx, route)
 }
 
 // generateImageEditsJSON 构造并执行 JSON 图片编辑请求。
-func (c *Client) generateImageEditsJSON(ctx context.Context, route RouteConfig, input GenerateInput) (*GenerateOutput, error) {
-	requestURL := buildOpenAIRequestURL(route.BaseURL, EndpointImageEdits)
+func (c *Client) generateImageEditsJSON(ctx context.Context, route portllm.RouteConfig, input portllm.GenerateInput) (*portllm.GenerateOutput, error) {
+	requestURL := buildOpenAIRequestURL(route.BaseURL, portllm.EndpointImageEdits)
 	if requestURL == "" {
 		return nil, fmt.Errorf("invalid base url")
 	}
@@ -87,7 +88,7 @@ func (c *Client) generateImageEditsJSON(ctx context.Context, route RouteConfig, 
 // buildImageEditsJSONRequestBody 构造 JSON 编辑请求 JSON 体。
 // 参考图转为 Base64 Data-URL（纯无前缀 Base64 不被上游接受）；
 // n 上游仅支持 1，由调用方按次发起任务，这里不传。
-func buildImageEditsJSONRequestBody(model string, input GenerateInput) (map[string]interface{}, []byte, error) {
+func buildImageEditsJSONRequestBody(model string, input portllm.GenerateInput) (map[string]interface{}, []byte, error) {
 	prompt := buildOpenAIImageGenerationPrompt(input.Messages)
 	if strings.TrimSpace(prompt) == "" {
 		return nil, nil, fmt.Errorf("image edit prompt required")

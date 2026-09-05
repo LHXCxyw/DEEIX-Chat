@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/gorm"
@@ -19,7 +20,7 @@ func profileDomain(v model.UserEmbeddingProfile) domainchannel.UserEmbeddingProf
 func (r *Repo) ListUserEmbeddingProfiles(ctx context.Context, userID uint) ([]domainchannel.UserEmbeddingProfile, error) {
 	var rows []model.UserEmbeddingProfile
 	if err := r.db.WithContext(ctx).Joins("JOIN llm_upstreams u ON u.id = user_embedding_profiles.upstream_id").Where("user_embedding_profiles.owner_user_id = ? AND u.owner_user_id = ? AND u.ownership_type = ?", userID, userID, "user").Order("is_default DESC, id DESC").Find(&rows).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	out := make([]domainchannel.UserEmbeddingProfile, len(rows))
 	for i := range rows {
@@ -31,7 +32,7 @@ func (r *Repo) ListUserEmbeddingProfiles(ctx context.Context, userID uint) ([]do
 func (r *Repo) GetUserEmbeddingProfile(ctx context.Context, userID, profileID uint) (*domainchannel.UserEmbeddingProfile, error) {
 	var row model.UserEmbeddingProfile
 	if err := r.db.WithContext(ctx).Joins("JOIN llm_upstreams u ON u.id = user_embedding_profiles.upstream_id").Where("user_embedding_profiles.id = ? AND user_embedding_profiles.owner_user_id = ? AND u.owner_user_id = ? AND u.ownership_type = ?", profileID, userID, userID, "user").First(&row).Error; err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	v := profileDomain(row)
 	return &v, nil
@@ -59,19 +60,19 @@ func (r *Repo) SaveUserEmbeddingProfile(ctx context.Context, item *domainchannel
 		row := model.UserEmbeddingProfile{BaseModel: model.BaseModel{ID: item.ID}, PublicID: item.PublicID, OwnerUserID: item.OwnerUserID, UpstreamID: item.UpstreamID, UserModelID: item.UserModelID, Name: item.Name, Protocol: item.Protocol, EmbeddingModelID: item.EmbeddingModelID, OutputDimensions: item.OutputDimensions, Normalize: item.Normalize, BatchSize: item.BatchSize, RequestTimeoutSeconds: item.RequestTimeoutSeconds, Status: item.Status, IsDefault: item.IsDefault}
 		if item.ID == 0 {
 			if err := tx.Create(&row).Error; err != nil {
-				return translateError(err)
+				return dberror.Translate(err)
 			}
 		} else {
 			res := tx.Model(&model.UserEmbeddingProfile{}).Where("id = ? AND owner_user_id = ?", item.ID, item.OwnerUserID).Updates(&row)
 			if res.Error != nil {
-				return translateError(res.Error)
+				return dberror.Translate(res.Error)
 			}
 			if res.RowsAffected == 0 {
 				return repository.ErrNotFound
 			}
 		}
 		if err := tx.First(&row, row.ID).Error; err != nil {
-			return translateError(err)
+			return dberror.Translate(err)
 		}
 		*item = profileDomain(row)
 		return nil
@@ -81,7 +82,7 @@ func (r *Repo) SaveUserEmbeddingProfile(ctx context.Context, item *domainchannel
 func (r *Repo) DeleteUserEmbeddingProfile(ctx context.Context, userID, profileID uint) error {
 	res := r.db.WithContext(ctx).Where("id = ? AND owner_user_id = ?", profileID, userID).Delete(&model.UserEmbeddingProfile{})
 	if res.Error != nil {
-		return translateError(res.Error)
+		return dberror.Translate(res.Error)
 	}
 	if res.RowsAffected == 0 {
 		return repository.ErrNotFound
@@ -100,7 +101,7 @@ func (r *Repo) GetUserRAGSettings(ctx context.Context, userID uint) (*domainchan
 		return nil, repository.ErrNotFound
 	}
 	if err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	v := ragDomain(row)
 	return &v, nil
@@ -110,14 +111,14 @@ func (r *Repo) SaveUserRAGSettings(ctx context.Context, item *domainchannel.RAGS
 		return repository.ErrInvalidInput
 	}
 	row := model.UserRAGSetting{OwnerUserID: item.OwnerUserID, EmbeddingProfileID: item.EmbeddingProfileID, RAGEnabled: item.RAGEnabled, EmbedOnUpload: item.EmbedOnUpload, ChunkSizeTokens: item.ChunkSizeTokens, ChunkOverlapTokens: item.ChunkOverlapTokens, TopK: item.TopK, MinSimilarity: item.MinSimilarity, TokenBudget: item.TokenBudget, FetchMultiplier: item.FetchMultiplier, HybridEnabled: item.HybridEnabled}
-	return translateError(r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "owner_user_id"}}, DoUpdates: clause.AssignmentColumns([]string{"embedding_profile_id", "rag_enabled", "embed_on_upload", "chunk_size_tokens", "chunk_overlap_tokens", "top_k", "min_similarity", "token_budget", "fetch_multiplier", "hybrid_enabled", "updated_at"})}).Create(&row).Error)
+	return dberror.Translate(r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "owner_user_id"}}, DoUpdates: clause.AssignmentColumns([]string{"embedding_profile_id", "rag_enabled", "embed_on_upload", "chunk_size_tokens", "chunk_overlap_tokens", "top_k", "min_similarity", "token_budget", "fetch_multiplier", "hybrid_enabled", "updated_at"})}).Create(&row).Error)
 }
 
 func (r *Repo) GetProjectRAGSettings(ctx context.Context, userID uint, projectPublicID string) (*domainchannel.RAGSettings, error) {
 	var row model.ProjectRAGSetting
 	err := r.db.WithContext(ctx).Table("project_rag_settings prs").Select("prs.*").Joins("JOIN chat_conversation_projects p ON p.id = prs.project_id").Where("p.user_id = ? AND p.public_id = ? AND prs.owner_user_id = ?", userID, strings.TrimSpace(projectPublicID), userID).Scan(&row).Error
 	if err != nil {
-		return nil, translateError(err)
+		return nil, dberror.Translate(err)
 	}
 	if row.ProjectID == 0 {
 		return nil, repository.ErrNotFound
@@ -130,8 +131,8 @@ func (r *Repo) SaveProjectRAGSettings(ctx context.Context, userID uint, projectP
 	}
 	var project model.ConversationProject
 	if err := r.db.WithContext(ctx).Where("user_id = ? AND public_id = ?", userID, strings.TrimSpace(projectPublicID)).First(&project).Error; err != nil {
-		return translateError(err)
+		return dberror.Translate(err)
 	}
 	row := model.ProjectRAGSetting{ProjectID: project.ID, OwnerUserID: userID, InheritUserDefaults: item.InheritUserDefaults, EmbeddingProfileID: item.EmbeddingProfileID, RAGEnabled: item.RAGEnabled, EmbedOnImport: item.EmbedOnUpload, ChunkSizeTokens: item.ChunkSizeTokens, ChunkOverlapTokens: item.ChunkOverlapTokens, TopK: item.TopK, MinSimilarity: item.MinSimilarity, TokenBudget: item.TokenBudget, FetchMultiplier: item.FetchMultiplier, HybridEnabled: item.HybridEnabled}
-	return translateError(r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "project_id"}}, DoUpdates: clause.AssignmentColumns([]string{"owner_user_id", "inherit_user_defaults", "embedding_profile_id", "rag_enabled", "embed_on_import", "chunk_size_tokens", "chunk_overlap_tokens", "top_k", "min_similarity", "token_budget", "fetch_multiplier", "hybrid_enabled", "updated_at"})}).Create(&row).Error)
+	return dberror.Translate(r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "project_id"}}, DoUpdates: clause.AssignmentColumns([]string{"owner_user_id", "inherit_user_defaults", "embedding_profile_id", "rag_enabled", "embed_on_import", "chunk_size_tokens", "chunk_overlap_tokens", "top_k", "min_similarity", "token_budget", "fetch_multiplier", "hybrid_enabled", "updated_at"})}).Create(&row).Error)
 }

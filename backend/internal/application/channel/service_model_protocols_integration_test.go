@@ -324,7 +324,7 @@ func TestBindModelUpstreamSourceExpandsOpenAIDualImageRoutes(t *testing.T) {
 	}
 
 	repo := channelrepo.NewRepo(db)
-	service := appchannel.NewService(config.Config{}, repo, repo, nil, nil)
+	service := appchannel.NewServiceWithRuntime(config.NewRuntime(config.Config{}), repo, repo, nil, nil)
 	view, err := service.BindModelUpstreamSource(context.Background(), platformModel.ID, appchannel.BindModelUpstreamSourceInput{
 		UpstreamID: upstream.ID, UpstreamModelID: upstreamModel.ID,
 	})
