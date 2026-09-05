@@ -259,25 +259,40 @@ function getPersistedState(): PersistedCanvasState {
   };
 }
 
+// 变更停止后延迟落盘；持续变更期间按上限强制落盘，限制丢失窗口
+const PERSIST_DEBOUNCE_MS = 800;
+const PERSIST_MAX_PENDING_MS = 5000;
+let persistDirtyAt = 0;
+
+function flushPersistInternal(): void {
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  persistDirtyAt = 0;
+  const persisted = getPersistedState();
+  const raw = stringifyCanvasState(persisted);
+  if (raw === lastPersistedRaw) {
+    return;
+  }
+  lastPersistedRaw = raw;
+  saveCanvasState(persisted);
+  cloudPersist?.(raw);
+}
+
 function schedulePersist(): void {
   if (typeof window === "undefined" || !state.restored) {
     return;
   }
-  // 流式事件会高频更新；已有定时器时不重置，确保生成中节点定期真正写入。
-  if (persistTimer !== null) {
-    return;
+  const now = Date.now();
+  if (persistTimer === null) {
+    // 事件驱动防抖：只在变更停止后写入，而不是变更期间间歇性写入
+    persistDirtyAt = now;
+    persistTimer = window.setTimeout(flushPersistInternal, PERSIST_DEBOUNCE_MS);
+  } else if (now - persistDirtyAt >= PERSIST_MAX_PENDING_MS) {
+    // 长时间持续变更（如流式生成）时按上限强制落盘一次
+    flushPersistInternal();
   }
-  persistTimer = window.setTimeout(() => {
-    persistTimer = null;
-    const persisted = getPersistedState();
-    const raw = stringifyCanvasState(persisted);
-    if (raw === lastPersistedRaw) {
-      return;
-    }
-    lastPersistedRaw = raw;
-    saveCanvasState(persisted);
-    cloudPersist?.(raw);
-  }, 400);
 }
 
 function createNodeID(): string {
@@ -436,6 +451,11 @@ function frameRefitElements(nodes: ReadonlyArray<GraphNode>, decorations: Readon
     }),
     ...decorations.map((item) => ({ id: item.id, x: item.x, y: item.y, width: item.width, height: item.height, frameID: item.frameID })),
   ];
+}
+
+// 忽略 savedAt 后的状态内容指纹：判断两端画布内容是否真正一致
+function comparableCanvasState(persisted: PersistedCanvasState): string {
+  return JSON.stringify({ ...persisted, savedAt: 0 });
 }
 
 function restoreFromPersisted(persisted: PersistedCanvasState): void {
@@ -601,18 +621,12 @@ const canvasStoreImplementation = {
     if (typeof window === "undefined" || !state.restored) {
       return;
     }
-    if (persistTimer !== null) {
-      clearTimeout(persistTimer);
-      persistTimer = null;
-    }
-    const persisted = getPersistedState();
-    const raw = stringifyCanvasState(persisted);
-    if (raw === lastPersistedRaw) {
-      return;
-    }
-    lastPersistedRaw = raw;
-    saveCanvasState(persisted);
-    cloudPersist?.(raw);
+    flushPersistInternal();
+  },
+
+  // 是否有未落盘的变更：云端拉取期间存在未保存变更时跳过，防止覆盖本端编辑
+  hasUnsavedChanges(): boolean {
+    return persistTimer !== null;
   },
 
   // 模型目录由组件层注入，供生成节点按名称解析运行时模型
@@ -629,20 +643,42 @@ const canvasStoreImplementation = {
   },
 
   seedPersistedState(persisted: PersistedCanvasState): void {
+    // 内存态必须先从本地恢复：后续的内容比较与云端回推都要基于真实内容，
+    // 否则未恢复时会把空画布当成本地最新状态（导致画布空白/云端被清空）
+    if (!state.restored) {
+      canvasStore.restore();
+    }
     // 云端快照可能落后于本地（推送延迟或页面关闭时丢尾）：
     // 仅当云端快照更新时才采用，否则保留本地状态并把当前状态回推云端
     const local = loadCanvasState();
     const localSavedAt = local?.savedAt ?? 0;
     const cloudSavedAt = persisted.savedAt ?? 0;
+    // 内容一致（仅 savedAt 时间戳差异）时只对齐时间戳，不重建状态：
+    // 否则多端轮询会因时间戳互相抬升而反复"采纳"相同内容，表现为页面突然重置
+    if (local && comparableCanvasState(local) === comparableCanvasState(persisted)) {
+      if (cloudSavedAt > localSavedAt) {
+        const preserved = { ...local, savedAt: cloudSavedAt };
+        lastPersistedRaw = stringifyCanvasState(preserved);
+        saveCanvasState(preserved);
+      }
+      return;
+    }
     if (localSavedAt > 0 && cloudSavedAt < localSavedAt) {
       canvasStore.pushCurrentStateToCloud();
       return;
     }
     restoreFromPersisted(persisted);
-    saveCanvasState(getPersistedState());
+    // 采用云端内容时保留其 savedAt，避免拉取本身抬升时间戳造成另一端误判
+    const preserved = { ...getPersistedState(), savedAt: cloudSavedAt };
+    lastPersistedRaw = stringifyCanvasState(preserved);
+    saveCanvasState(preserved);
   },
 
   pushCurrentStateToCloud(): void {
+    // 未恢复的内存态是空画布：直接推送会用空快照覆盖云端真实内容（数据丢失）
+    if (!state.restored) {
+      canvasStore.restore();
+    }
     cloudPersist?.(stringifyCanvasState(getPersistedState()));
   },
 

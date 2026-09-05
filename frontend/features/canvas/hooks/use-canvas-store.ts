@@ -103,14 +103,21 @@ export function useCanvasStore({
     };
 
     // 云端快照拉取：多端同步的另一半。推送端 ~1.6s 内落云；
-    // 本端页面存活期间通过轮询 + 回到前台即时拉取（seedPersistedState 内部按
-    // savedAt 取更新的一方，云端更旧时自动回推本地，幂等无回环）。
-    const CLOUD_PULL_INTERVAL_MS = 10_000;
+    // 本端采用事件驱动拉取（切回标签页 / 窗口聚焦时），空闲时零请求。
+    // seedPersistedState 内部按 savedAt 取更新的一方，云端更旧时自动回推本地，幂等无回环。
+    let lastPullAt = 0;
     const pullCloud = () => {
-      // 生成中不拉取，避免云端旧快照打断进行中的任务展示
-      if (canvasStore.getState().generatingCount > 0) {
+      // 节流：切回标签页时 focus 与 visibilitychange 会先后触发，5 秒内只拉一次
+      const now = Date.now();
+      if (now - lastPullAt < 5000) {
         return;
       }
+      // 生成中不拉取，避免云端旧快照打断进行中的任务展示；
+      // 本端有未落盘变更时跳过，等防抖推送完成后再拉，防止覆盖本端编辑
+      if (canvasStore.getState().generatingCount > 0 || canvasStore.hasUnsavedChanges()) {
+        return;
+      }
+      lastPullAt = now;
       void loadUserSettingsSnapshot(accessToken, { refresh: true })
         .then((settings) => {
           const cloudState = parseCanvasState(settings[CANVAS_CLOUD_SETTING_KEY] ?? "");
@@ -119,14 +126,9 @@ export function useCanvasStore({
           }
         })
         .catch(() => {
-          // 拉取失败静默跳过，等待下一轮
+          // 拉取失败静默跳过，下次回到前台再拉
         });
     };
-    const pullTimer = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        pullCloud();
-      }
-    }, CLOUD_PULL_INTERVAL_MS);
     const pullOnVisible = () => {
       if (document.visibilityState === "visible") {
         pullCloud();
@@ -146,7 +148,9 @@ export function useCanvasStore({
         pullOnVisible();
       }
     };
+    const handleWindowFocus = () => pullOnVisible();
     window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     void loadUserSettingsSnapshot(accessToken).then((settings) => {
       if (!active) {
@@ -164,8 +168,8 @@ export function useCanvasStore({
     return () => {
       active = false;
       canvasStore.setCloudPersist(null);
-      clearInterval(pullTimer);
       window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (cloudTimer) {
         clearTimeout(cloudTimer);
