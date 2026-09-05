@@ -458,6 +458,14 @@ function comparableCanvasState(persisted: PersistedCanvasState): string {
   return JSON.stringify({ ...persisted, savedAt: 0 });
 }
 
+// 快照是否承载任何实际内容（节点/装饰）。空快照不允许靠时间戳覆盖有内容的画布：
+// 历史漏洞可能把空快照以最新时间戳写入云端，若按 savedAt 采纳会让画布随机变空
+function persistedStateHasContent(persisted: PersistedCanvasState): boolean {
+  const pageHasContent = (page: PersistedCanvasPage): boolean =>
+    (page.graphNodes?.length ?? 0) > 0 || (page.nodes?.length ?? 0) > 0 || (page.decorations?.length ?? 0) > 0;
+  return (persisted.graphNodes?.length ?? 0) > 0 || (persisted.canvases ?? []).some(pageHasContent);
+}
+
 function restoreFromPersisted(persisted: PersistedCanvasState): void {
   const canvases = persisted.canvases ?? [];
   const activeCanvasID = persisted.activeCanvasID ?? canvases[0]?.id ?? "canvas-main";
@@ -653,6 +661,8 @@ const canvasStoreImplementation = {
     const local = loadCanvasState();
     const localSavedAt = local?.savedAt ?? 0;
     const cloudSavedAt = persisted.savedAt ?? 0;
+    const localHasContent = local ? persistedStateHasContent(local) : false;
+    const cloudHasContent = persistedStateHasContent(persisted);
     // 内容一致（仅 savedAt 时间戳差异）时只对齐时间戳，不重建状态：
     // 否则多端轮询会因时间戳互相抬升而反复"采纳"相同内容，表现为页面突然重置
     if (local && comparableCanvasState(local) === comparableCanvasState(persisted)) {
@@ -661,6 +671,19 @@ const canvasStoreImplementation = {
         lastPersistedRaw = stringifyCanvasState(preserved);
         saveCanvasState(preserved);
       }
+      return;
+    }
+    // 空快照保护：空快照不覆盖非空内容（时间戳不可信的历史遗留），改为用本地回推云端
+    if (localHasContent && !cloudHasContent) {
+      canvasStore.pushCurrentStateToCloud();
+      return;
+    }
+    // 本地为空但云端有内容：采用云端而不是用空本地覆盖云端
+    if (!localHasContent && cloudHasContent) {
+      restoreFromPersisted(persisted);
+      const preserved = { ...getPersistedState(), savedAt: cloudSavedAt };
+      lastPersistedRaw = stringifyCanvasState(preserved);
+      saveCanvasState(preserved);
       return;
     }
     if (localSavedAt > 0 && cloudSavedAt < localSavedAt) {

@@ -152,7 +152,8 @@ export function useCanvasStore({
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    void loadUserSettingsSnapshot(accessToken).then((settings) => {
+    // 初始加载强制取新鲜快照：认证层的缓存快照可能滞后，误判云端新旧会导致错误采纳
+    void loadUserSettingsSnapshot(accessToken, { refresh: true }).then((settings) => {
       if (!active) {
         return;
       }
