@@ -31,6 +31,8 @@ export type OpenCodeArtifactInput = {
 const SCRIPT_CLOSE_RE = /<\/script/gi;
 const STYLE_CLOSE_RE = /<\/style/gi;
 const FENCE_OPEN_RE = /^[ \t]*(`{3,}|~{3,})([^\n]*)$/;
+// 以文档头开头的块一定是新文件，无论是否书写完整都不能拼进上一个 artifact
+const NEW_DOC_START_RE = /^\s*(?:<!doctype\s+html[^>]*>|<html\b[^>]*>)/i;
 const DOCTYPE_RE = /<!doctype\s+html[^>]*>/i;
 const HTML_OPEN_RE = /<html\b[^>]*>/i;
 const HTML_CLOSE_RE = /<\/html\s*>/i;
@@ -249,39 +251,27 @@ export function resolveArtifactDownloadName(kind: ArtifactPreviewKind): string {
   return "artifact-preview.html";
 }
 
-export function extractArtifactsFromContent(
-  message: Pick<ChatAreaMessage, "content" | "isStreaming" | "key" | "publicID" | "runID" | "updatedAt">,
-): ChatArtifact[] {
-  const content = message.content;
-  const artifacts: ChatArtifact[] = [];
-  const lines = content.split(/\r?\n/);
-  const stableMessageID = artifactStableMessageID(message);
-  const runID = message.runID?.trim() || undefined;
+type RawCodeBlock = {
+  language: string;
+  code: string;
+  complete: boolean;
+};
+
+function extractRawCodeBlocks(
+  message: Pick<ChatAreaMessage, "content">,
+  resumeLanguage?: string,
+): RawCodeBlock[] {
+  const blocks: RawCodeBlock[] = [];
+  const lines = message.content.split(/\r?\n/);
   let openMarker = "";
   let language = "";
   let codeLines: string[] = [];
-  let blockIndex = 0;
 
-  const pushArtifact = (code: string, complete: boolean) => {
-    const kind = resolveArtifactPreviewKind(language, code);
-    if (!kind || !code.trim()) {
-      return;
-    }
-    artifacts.push({
-      id: `${stableMessageID}:artifact:${blockIndex}`,
-      messageID: message.publicID,
-      messageKey: message.key,
-      runID,
-      blockIndex,
-      kind,
-      language,
-      code,
-      complete,
-      streaming: Boolean(message.isStreaming),
-      updatedAt: message.updatedAt,
-    });
-    blockIndex += 1;
-  };
+  // resumeLanguage 表示上一条消息的中断围栏跨消息续接：本消息以裸围栏闭合该块后继续扫描
+  if (resumeLanguage !== undefined) {
+    openMarker = "```";
+    language = resumeLanguage;
+  }
 
   for (const line of lines) {
     if (!openMarker) {
@@ -296,7 +286,7 @@ export function extractArtifactsFromContent(
     }
 
     if (isFenceClose(line, openMarker)) {
-      pushArtifact(codeLines.join("\n"), true);
+      blocks.push({ language, code: codeLines.join("\n"), complete: true });
       openMarker = "";
       language = "";
       codeLines = [];
@@ -306,13 +296,48 @@ export function extractArtifactsFromContent(
     codeLines.push(line);
   }
 
-  if (openMarker && message.isStreaming) {
-    pushArtifact(codeLines.join("\n"), false);
+  // 未闭合的围栏即使消息已结束也要保留：说明生成被中断，后续消息可能是同一文件的续写
+  if (openMarker) {
+    blocks.push({ language, code: codeLines.join("\n"), complete: false });
+  }
+
+  return blocks;
+}
+
+export function extractArtifactsFromContent(
+  message: Pick<ChatAreaMessage, "content" | "isStreaming" | "key" | "publicID" | "runID" | "updatedAt">,
+): ChatArtifact[] {
+  const stableMessageID = artifactStableMessageID(message);
+  const runID = message.runID?.trim() || undefined;
+  const streaming = Boolean(message.isStreaming);
+  const artifacts: ChatArtifact[] = [];
+  let blockIndex = 0;
+
+  for (const block of extractRawCodeBlocks(message)) {
+    const kind = resolveArtifactPreviewKind(block.language, block.code);
+    if (!kind || !block.code.trim()) {
+      continue;
+    }
+    artifacts.push({
+      id: `${stableMessageID}:artifact:${blockIndex}`,
+      messageID: message.publicID,
+      messageKey: message.key,
+      runID,
+      blockIndex,
+      kind,
+      language: block.language,
+      code: block.code,
+      complete: block.complete,
+      streaming,
+      updatedAt: message.updatedAt,
+    });
+    blockIndex += 1;
   }
 
   if (artifacts.length === 0) {
-    const kind = resolveArtifactPreviewKind("", content);
-    if (kind && content.trim()) {
+    const kind = resolveArtifactPreviewKind("", message.content);
+    if (kind && message.content.trim()) {
+      const htmlTruncated = kind === "html" && !HTML_CLOSE_RE.test(message.content);
       artifacts.push({
         id: `${stableMessageID}:artifact:0`,
         messageID: message.publicID,
@@ -321,9 +346,9 @@ export function extractArtifactsFromContent(
         blockIndex: 0,
         kind,
         language: kind,
-        code: content,
-        complete: !message.isStreaming,
-        streaming: Boolean(message.isStreaming),
+        code: message.content,
+        complete: !streaming && !htmlTruncated,
+        streaming,
         updatedAt: message.updatedAt,
       });
     }
@@ -332,6 +357,150 @@ export function extractArtifactsFromContent(
   return artifacts;
 }
 
+function canMergeRawBlock(previous: ChatArtifact, block: RawCodeBlock): boolean {
+  if (previous.kind !== "html") {
+    // 非 HTML 类型无法从内容区分"续写"与"新文件"，仅在续写片段本身仍不完整时合并
+    return (
+      resolveArtifactPreviewKind(block.language, block.code) === previous.kind && !block.complete
+    );
+  }
+  if (block.language) {
+    const kind = resolveArtifactPreviewKind(block.language, block.code);
+    if (kind !== "html") return false;
+  }
+  // 续写块重新生成了完整文档（自带文档头）时视为新文件，不合并
+  if (NEW_DOC_START_RE.test(block.code)) {
+    return false;
+  }
+  return true;
+}
+
+function appendBlock(
+  merged: ChatArtifact,
+  block: RawCodeBlock,
+  message: Pick<ChatAreaMessage, "publicID" | "key" | "runID" | "updatedAt">,
+  streaming: boolean,
+): ChatArtifact {
+  const code = `${merged.code}\n${block.code}`;
+  const language = merged.language || block.language;
+  const kind = resolveArtifactPreviewKind(language, code) ?? merged.kind;
+  return {
+    id: `${merged.id}:merged`,
+    messageID: message.publicID,
+    messageKey: message.key,
+    runID: message.runID?.trim() || undefined,
+    blockIndex: merged.blockIndex,
+    kind,
+    language,
+    code,
+    complete: block.complete,
+    streaming,
+    updatedAt: message.updatedAt,
+  };
+}
+
+function isContinuationFragment(previous: ChatArtifact, block: RawCodeBlock): boolean {
+  if (NEW_DOC_START_RE.test(block.code)) {
+    return false;
+  }
+  if (previous.kind !== "html") {
+    return resolveArtifactPreviewKind(block.language, block.code) === previous.kind && !block.complete;
+  }
+  if (block.language && resolveArtifactPreviewKind(block.language, block.code) !== "html") {
+    return false;
+  }
+  return true;
+}
+
 export function extractArtifactsFromMessages(messages: ChatAreaMessage[]): ChatArtifact[] {
-  return messages.flatMap((message) => (message.role === "assistant" ? extractArtifactsFromContent(message) : []));
+  const artifacts: ChatArtifact[] = [];
+  // pending 指向一段未写完的 artifact（生成被中断）；若后续 assistant 消息是同一文件的
+  // 续写（以裸围栏闭合上一条的中断块，或其代码块是延续片段而非重新生成的完整文档），
+  // 则拼接为同一个 artifact
+  let pending: ChatArtifact | null = null;
+
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const streaming = Boolean(message.isStreaming);
+    const stableMessageID = artifactStableMessageID(message);
+    let messageBlockIndex = 0;
+    // 续接模式下，本消息中属于同一续篇的后续片段也拼进同一 artifact
+    let resumeArtifact: ChatArtifact | null = null;
+
+    const handleBlock = (block: RawCodeBlock, resumed: boolean) => {
+      const target = resumed
+        ? pending
+        : resumeArtifact && isContinuationFragment(resumeArtifact, block)
+          ? resumeArtifact
+          : pending && canMergeRawBlock(pending, block)
+            ? pending
+            : null;
+      if (target) {
+        const merged = appendBlock(target, block, message, streaming);
+        artifacts[artifacts.length - 1] = merged;
+        if (resumed || resumeArtifact) {
+          resumeArtifact = merged;
+        }
+        pending = merged.complete ? null : merged;
+        return;
+      }
+      resumeArtifact = null;
+      pending = null;
+
+      const kind = resolveArtifactPreviewKind(block.language, block.code);
+      if (!kind || !block.code.trim()) {
+        return;
+      }
+      const artifact: ChatArtifact = {
+        id: `${stableMessageID}:artifact:${messageBlockIndex}`,
+        messageID: message.publicID,
+        messageKey: message.key,
+        runID: message.runID?.trim() || undefined,
+        blockIndex: messageBlockIndex,
+        kind,
+        language: block.language,
+        code: block.code,
+        complete: block.complete,
+        streaming,
+        updatedAt: message.updatedAt,
+      };
+      messageBlockIndex += 1;
+      artifacts.push(artifact);
+      if (!block.complete) {
+        pending = artifact;
+      }
+    };
+
+    // 续接模式：pending 未完成且本消息以裸围栏开头，视为闭合上一条的中断块并继续。
+    // 只有第一个块是中断块的续篇，其余块仍是独立代码块
+    const firstLine = message.content.split(/\r?\n/).find((line) => line.trim()) ?? "";
+    const firstOpen = firstLine.match(FENCE_OPEN_RE);
+    if (pending && firstOpen && !parseFenceLanguage(firstOpen[2] ?? "")) {
+      const blocks = extractRawCodeBlocks(message, pending.language);
+      if (blocks.length === 0) {
+        continue;
+      }
+      handleBlock(blocks[0], true);
+      for (const block of blocks.slice(1)) {
+        handleBlock(block, false);
+      }
+      continue;
+    }
+
+    const rawBlocks = extractRawCodeBlocks(message);
+    for (const block of rawBlocks) {
+      handleBlock(block, false);
+    }
+
+    if (rawBlocks.length === 0) {
+      for (const artifact of extractArtifactsFromContent(message)) {
+        artifacts.push(artifact);
+        if (!artifact.complete) {
+          pending = artifact;
+        }
+      }
+    }
+  }
+
+  return artifacts;
 }
