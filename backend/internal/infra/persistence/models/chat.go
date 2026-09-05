@@ -12,6 +12,7 @@ type Conversation struct {
 	LabelsJSON            string     `gorm:"type:text;not null;default:'[]';comment:会话标签JSON"`
 	LabelsManuallyManaged bool       `gorm:"not null;default:false;comment:会话标签是否已由用户手动管理"`
 	Model                 string     `gorm:"size:128;not null;default:'';comment:模型名称"`
+	SystemPrompt          string     `gorm:"type:text;not null;default:'';comment:会话级系统提示词"`
 	Provider              string     `gorm:"size:32;not null;default:'';index:idx_chat_conversations_provider;comment:模型提供商"`
 	SessionKey            string     `gorm:"size:128;not null;default:'';uniqueIndex:idx_chat_conversations_session_key;comment:会话上下文键"`
 	IsStarred             bool       `gorm:"not null;default:false;index:idx_chat_conversations_is_starred;comment:是否星标"`

@@ -18,8 +18,8 @@ import (
 
 // Handler 封装会话 HTTP 处理。
 type Handler struct {
-	service  *appconversation.Service
-	cfg      *config.Runtime
+	service *appconversation.Service
+	cfg     *config.Runtime
 	// shutdown 触发时订阅型长连接（run 对账流、run 观看流）立即退出，
 	// 让优雅关停不被常驻 SSE 拖到超时；客户端依靠既有重连逻辑恢复。
 	shutdown *lifecycle.Shutdown

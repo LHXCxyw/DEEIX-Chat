@@ -777,17 +777,18 @@ func (s *Service) sendMessageInternal(
 	}
 	recordSkillPromptTrace(traceRecorder, skillPrompts)
 	routePromptInput := messageRoutePromptInput{
-		UserContent:             input.Content,
-		ProjectSystemPrompt:     conversation.ProjectSystemPrompt,
-		HTMLVisualPromptEnabled: input.HTMLVisualPromptEnabled,
-		DomainMessages:          promptScope.activeMessages(),
-		StableAttachments:       stableFullContextAttachments,
-		DynamicContext:          userCtx,
-		PreferencePrompt:        preferencePrompt,
-		SkillPrompts:            skillPrompts,
-		ToolRuntime:             toolRuntime,
-		SkipImageAttachments:    imageAttachmentRoutingActive,
-		Config:                  cfg,
+		UserContent:              input.Content,
+		ProjectSystemPrompt:      conversation.ProjectSystemPrompt,
+		ConversationSystemPrompt: conversation.SystemPrompt,
+		HTMLVisualPromptEnabled:  input.HTMLVisualPromptEnabled,
+		DomainMessages:           promptScope.activeMessages(),
+		StableAttachments:        stableFullContextAttachments,
+		DynamicContext:           userCtx,
+		PreferencePrompt:         preferencePrompt,
+		SkillPrompts:             skillPrompts,
+		ToolRuntime:              toolRuntime,
+		SkipImageAttachments:     imageAttachmentRoutingActive,
+		Config:                   cfg,
 	}
 	buildRoutePrompt := func(currentRoute *channel.ResolvedRoute) (PromptPlan, bool, error) {
 		passbackEnabled := s.reasoningContentPassbackEnabled(ctx, input.UserID, currentRoute)

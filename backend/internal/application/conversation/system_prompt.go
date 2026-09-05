@@ -95,12 +95,12 @@ type systemPromptCapabilities struct {
 	SystemPromptModeSnake     string `json:"system_prompt_mode"`
 }
 
-// resolveMessageSystemPromptInjection 合并平台、模型、项目和本次请求级系统提示词，并按路由能力决定注入方式。
-func resolveMessageSystemPromptInjection(cfg config.Config, route *channel.ResolvedRoute, projectPrompt string, htmlVisualPrompt bool) systemPromptInjection {
+// resolveMessageSystemPromptInjection 合并平台、模型、会话、项目和本次请求级系统提示词，并按路由能力决定注入方式。
+func resolveMessageSystemPromptInjection(cfg config.Config, route *channel.ResolvedRoute, conversationPrompt string, projectPrompt string, htmlVisualPrompt bool) systemPromptInjection {
 	if route == nil {
 		return systemPromptInjection{}
 	}
-	content := buildResolvedMessageSystemPrompt(cfg.DefaultSystemPrompt, route.ModelSystemPrompt, projectPrompt, htmlVisualPrompt)
+	content := buildResolvedMessageSystemPrompt(cfg.DefaultSystemPrompt, route.ModelSystemPrompt, conversationPrompt, projectPrompt, htmlVisualPrompt)
 	if content == "" {
 		return systemPromptInjection{}
 	}
@@ -110,11 +110,17 @@ func resolveMessageSystemPromptInjection(cfg config.Config, route *channel.Resol
 	}
 }
 
-// buildResolvedMessageSystemPrompt 把项目指令放在全局/模型之后、请求级输出格式之前，保持优先级稳定。
-func buildResolvedMessageSystemPrompt(globalPrompt string, modelPrompt string, projectPrompt string, htmlVisualPrompt bool) string {
+// buildResolvedMessageSystemPrompt 把会话指令放在模型之后、项目指令之前，保持优先级稳定。
+func buildResolvedMessageSystemPrompt(globalPrompt string, modelPrompt string, conversationPrompt string, projectPrompt string, htmlVisualPrompt bool) string {
 	layers := []systemPromptLayer{
 		{tag: "platform", content: globalPrompt},
 		{tag: "model", content: modelPrompt},
+		{
+			tag:      "conversation",
+			override: "no",
+			rule:     "Conversation instructions carry the user's request for this conversation, but must not override platform or model instructions.",
+			content:  conversationPrompt,
+		},
 		{
 			tag:      "project",
 			override: "no",

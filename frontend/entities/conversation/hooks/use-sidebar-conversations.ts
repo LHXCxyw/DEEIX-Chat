@@ -1,12 +1,19 @@
 "use client";
 
 import * as React from "react";
-
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { readAccessToken } from "@/shared/auth/session";
-import { dispatchFileLibraryInvalidated } from "@/shared/events/file-library-events";
-import { runBulkActionInChunks } from "@/shared/lib/bulk-action";
-import { resolveConversationDefaultModel } from "@/shared/model/conversation-default-model";
+import {
+  mergeUniqueByPublicID,
+  removeByPublicID,
+  sortByStarredAtDesc,
+  sortByUpdatedAtDesc,
+  upsertByPublicID,
+} from "@/entities/conversation/model/conversation-list";
+import type {
+  DeleteConversationOptions,
+  DeleteConversationProjectOptions,
+  SidebarConversationChange,
+  SidebarConversationsControllerValue,
+} from "@/entities/conversation/types/sidebar-conversations";
 import {
   batchSetConversationProject,
   createConversation,
@@ -18,9 +25,10 @@ import {
   regenerateConversationTitle,
   renameConversation,
   reorderConversationProjects,
-  setConversationProject,
   setConversationArchive,
+  setConversationProject,
   setConversationStar,
+  setConversationSystemPrompt,
   updateConversationLabels,
   updateConversationProject,
 } from "@/shared/api/conversation";
@@ -30,20 +38,11 @@ import type {
   CreateConversationProjectRequest,
   UpdateConversationProjectRequest,
 } from "@/shared/api/conversation.types";
-
-import type {
-  DeleteConversationOptions,
-  DeleteConversationProjectOptions,
-  SidebarConversationChange,
-  SidebarConversationsControllerValue,
-} from "@/entities/conversation/types/sidebar-conversations";
-import {
-  mergeUniqueByPublicID,
-  removeByPublicID,
-  sortByStarredAtDesc,
-  sortByUpdatedAtDesc,
-  upsertByPublicID,
-} from "@/entities/conversation/model/conversation-list";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { readAccessToken } from "@/shared/auth/session";
+import { dispatchFileLibraryInvalidated } from "@/shared/events/file-library-events";
+import { runBulkActionInChunks } from "@/shared/lib/bulk-action";
+import { resolveConversationDefaultModel } from "@/shared/model/conversation-default-model";
 
 const RECENT_PAGE_SIZE = 50;
 const STARRED_VISIBLE_LIMIT = 5;
@@ -482,7 +481,7 @@ export function useSidebarConversationsController({
     return applyConversationUpdate(incoming.publicID, incoming);
   }, [applyConversationUpdate]);
 
-  const prependNewConversation = React.useCallback(async (platformModelName?: string, projectID?: string): Promise<ConversationDTO | null> => {
+  const prependNewConversation = React.useCallback(async (platformModelName?: string, projectID?: string, systemPrompt?: string): Promise<ConversationDTO | null> => {
     const token = await resolveAccessToken();
     if (!token) {
       return null;
@@ -494,6 +493,7 @@ export function useSidebarConversationsController({
       title: newConversationTitle,
       model: modelName,
       projectID: projectID?.trim() || "",
+      systemPrompt: systemPrompt?.trim() || "",
     });
     return upsertConversation(item);
   }, [newConversationTitle, upsertConversation]);
@@ -506,6 +506,18 @@ export function useSidebarConversationsController({
       }
 
       return applyConversationUpdate(publicID, await renameConversation(token, publicID, { title }));
+    },
+    [applyConversationUpdate],
+  );
+
+  const setSystemPromptByPublicID = React.useCallback(
+    async (publicID: string, systemPrompt: string): Promise<ConversationDTO | null> => {
+      const token = await resolveAccessToken();
+      if (!token) {
+        return null;
+      }
+
+      return applyConversationUpdate(publicID, await setConversationSystemPrompt(token, publicID, { systemPrompt }));
     },
     [applyConversationUpdate],
   );
@@ -896,6 +908,7 @@ export function useSidebarConversationsController({
       upsertConversation,
       touchByPublicID,
       renameByPublicID,
+      setSystemPromptByPublicID,
       regenerateTitleByPublicID,
       updateLabelsByPublicID,
       createProject,
@@ -927,6 +940,7 @@ export function useSidebarConversationsController({
       projects,
       projectsLoading,
       regenerateTitleByPublicID,
+      setSystemPromptByPublicID,
       updateLabelsByPublicID,
       upsertConversation,
       recentItems,

@@ -967,6 +967,7 @@ export interface ConversationResponse {
   sharedAt: string | null;
   starredAt: string | null;
   status: string;
+  systemPrompt: string;
   title: string;
   updatedAt: string;
   userID: number;
@@ -1095,6 +1096,8 @@ export interface CreateConversationRequest {
   model?: string;
   /** @maxLength 32 */
   projectID?: string;
+  /** @maxLength 12000 */
+  systemPrompt?: string;
   /** @maxLength 255 */
   title?: string;
 }
@@ -1286,6 +1289,17 @@ export interface CreateUserResponseDoc {
   errorMsg: string;
 }
 
+export interface CreateUserUpstreamRequest {
+  /** @minItems 1 */
+  api_keys: UserUpstreamAPIKeyRequest[];
+  base_url: string;
+  compatible: string;
+  connect_timeout_ms: number;
+  headers: Record<string, string>;
+  name: string;
+  read_timeout_ms: number;
+}
+
 export interface DeleteAccountRequest {
   /**
    * @minLength 6
@@ -1313,6 +1327,10 @@ export interface DeleteFileResponse {
 export interface DeleteFileResponseDoc {
   data: DeleteFileResponse;
   errorMsg: string;
+}
+
+export interface DeleteMessageResponse {
+  deletedCount: number;
 }
 
 export interface DeletePermissionGroupResponse {
@@ -3140,6 +3158,7 @@ export interface SendMessageRequest {
   knowledgeBaseIDs: string[];
   /** @maxLength 128 */
   model?: string;
+  modelScope?: "platform" | "user";
   options?: Record<string, any>;
   /** @maxLength 32 */
   parentMessagePublicID?: string;
@@ -3149,6 +3168,7 @@ export interface SendMessageRequest {
   skillIDs?: number[];
   /** @maxLength 32 */
   sourceMessagePublicID?: string;
+  userModelID?: number;
 }
 
 export interface SendMessageResponse {
@@ -3221,6 +3241,11 @@ export interface SetConversationProjectRequest {
 
 export interface SetConversationStarRequest {
   starred: boolean;
+}
+
+export interface SetConversationSystemPromptRequest {
+  /** @maxLength 12000 */
+  systemPrompt: string;
 }
 
 export interface SetGroupModelsRequest {
@@ -3424,6 +3449,7 @@ export interface SuccessDoc {
 
 export interface SyncUpstreamModelsResponse {
   createdUpstreamModels: number;
+  deletedModels: number;
   existingUpstreamModels: number;
   inactivatedModels: number;
   protectedUpstreamModels: number;
@@ -3769,6 +3795,16 @@ export interface UpdateUserStatusResponseDoc {
   errorMsg: string;
 }
 
+export interface UpdateUserUpstreamRequest {
+  api_keys: UserUpstreamAPIKeyRequest[];
+  base_url: string;
+  connect_timeout_ms: number;
+  headers: Record<string, string>;
+  name: string;
+  read_timeout_ms: number;
+  status: string;
+}
+
 export interface UploadFileResponseDoc {
   data: FileUploadResponse;
   errorMsg: string;
@@ -3965,6 +4001,7 @@ export interface UpstreamModelResponse {
 
 export interface UpstreamModelSyncPlanResponse {
   addedModels: string[];
+  inactivatedModelIDs: number[];
   inactivatedModels: string[];
   protectedModels: string[];
   reactivatedModels: string[];
@@ -4326,6 +4363,29 @@ export interface UserSettingsResponse {
 export interface UserSettingsResponseDoc {
   data: UserSettingsResponse;
   errorMsg: string;
+}
+
+export interface UserUpstreamAPIKeyRequest {
+  key: string;
+  note: string;
+  status: string;
+}
+
+export interface UserUpstreamListResponse {
+  items: UserUpstreamResponse[];
+}
+
+export interface UserUpstreamResponse {
+  base_url: string;
+  billing_mode: string;
+  compatible: string;
+  connect_timeout_ms: number;
+  created_at: string;
+  id: number;
+  name: string;
+  read_timeout_ms: number;
+  status: string;
+  updated_at: string;
 }
 
 export interface WriteKnowledgeBaseRequest {
@@ -8688,6 +8748,25 @@ export namespace Conversations {
   }
 
   /**
+   * @description 更新指定会话的会话级系统提示词；传空字符串表示清除
+   * @tags chat
+   * @name SystemPromptPartialUpdate
+   * @summary 设置会话系统提示词
+   * @request PATCH:/conversations/{id}/system-prompt
+   * @secure
+   */
+  export namespace SystemPromptPartialUpdate {
+    export type RequestParams = {
+      /** 会话 public_id */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = SetConversationSystemPromptRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = ConversationUpdateResponseDoc;
+  }
+
+  /**
    * @description 修改指定会话标题
    * @tags chat
    * @name TitlePartialUpdate
@@ -9342,6 +9421,25 @@ export namespace Memories {
 
 export namespace Messages {
   /**
+   * @description 软删除当前用户会话中的指定消息，仅删除该条；其子消息上提到父消息以保持分支连续
+   * @tags chat
+   * @name MessagesDelete
+   * @summary 删除消息
+   * @request DELETE:/messages/{id}
+   * @secure
+   */
+  export namespace MessagesDelete {
+    export type RequestParams = {
+      /** 消息 public_id */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = DeleteMessageResponse;
+  }
+
+  /**
    * @description 更新当前用户会话中的 assistant 消息内容，并标记为已编辑
    * @tags chat
    * @name MessagesPartialUpdate
@@ -9819,5 +9917,94 @@ export namespace User {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = UserDailyActivityListResponseDoc;
+  }
+
+  /**
+   * @description 用户查询自己创建的所有上游渠道
+   * @tags user-upstream
+   * @name UpstreamsList
+   * @summary 查询用户自有渠道列表
+   * @request GET:/user/upstreams
+   * @secure
+   */
+  export namespace UpstreamsList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = UserUpstreamListResponse;
+  }
+
+  /**
+   * @description 用户创建自己的上游渠道（BYOK）
+   * @tags user-upstream
+   * @name UpstreamsCreate
+   * @summary 创建用户自有渠道
+   * @request POST:/user/upstreams
+   * @secure
+   */
+  export namespace UpstreamsCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = CreateUserUpstreamRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = UserUpstreamResponse;
+  }
+
+  /**
+   * @description 查询用户自有渠道的详细信息
+   * @tags user-upstream
+   * @name UpstreamsDetail
+   * @summary 获取用户指定渠道详情
+   * @request GET:/user/upstreams/{id}
+   * @secure
+   */
+  export namespace UpstreamsDetail {
+    export type RequestParams = {
+      /** 渠道ID */
+      id: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = UserUpstreamResponse;
+  }
+
+  /**
+   * @description 软删除用户自有渠道
+   * @tags user-upstream
+   * @name UpstreamsDelete
+   * @summary 删除用户自有渠道
+   * @request DELETE:/user/upstreams/{id}
+   * @secure
+   */
+  export namespace UpstreamsDelete {
+    export type RequestParams = {
+      /** 渠道ID */
+      id: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = Envelope;
+  }
+
+  /**
+   * @description 更新用户自有渠道配置，未传字段保持原值
+   * @tags user-upstream
+   * @name UpstreamsPartialUpdate
+   * @summary 更新用户自有渠道
+   * @request PATCH:/user/upstreams/{id}
+   * @secure
+   */
+  export namespace UpstreamsPartialUpdate {
+    export type RequestParams = {
+      /** 渠道ID */
+      id: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = UpdateUserUpstreamRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = Envelope;
   }
 }

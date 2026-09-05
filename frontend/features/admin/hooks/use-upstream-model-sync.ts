@@ -4,21 +4,22 @@ import {
   listAdminLLMRemoteModels,
   syncAdminLLMUpstreamModels,
 } from "@/features/admin/api";
-import {
-  listPermissionGroups,
-  type PermissionGroup,
-} from "@/features/admin/api/permission-groups";
 import type {
   ImportAdminLLMUpstreamModelsData,
   ImportAdminLLMUpstreamModelsRequest,
   ListAdminLLMRemoteModelsData,
   SyncAdminLLMUpstreamModelsData,
 } from "@/features/admin/api/llm.types";
+import {
+  listPermissionGroups,
+  type PermissionGroup,
+} from "@/features/admin/api/permission-groups";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
 type ApplyUpstreamModelSyncInput = {
   allowEmpty: boolean;
   expectedSnapshot: string;
+  deleteMissingModelNames?: string[];
   items: ImportAdminLLMUpstreamModelsRequest["items"];
   permissionGroupIDs?: number[];
 };
@@ -162,6 +163,7 @@ export function useUpstreamModelSync(open: boolean, upstreamID: number | null) {
       const catalogResult = await syncAdminLLMUpstreamModels(token, upstreamID, {
         allowEmpty: input.allowEmpty,
         expectedSnapshot: input.expectedSnapshot,
+        deleteMissingModelNames: input.deleteMissingModelNames,
         signal: controller.signal,
       });
       throwIfAborted(controller.signal);

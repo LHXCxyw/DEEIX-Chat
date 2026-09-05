@@ -13,6 +13,7 @@ import {
   FilePenLine,
   Forward,
   TicketSlash,
+  Trash2,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
@@ -32,12 +33,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useChatElapsedDurationMS } from "@/features/chat/hooks/use-chat-elapsed-duration";
 import {
   durationBetweenMS,
   firstDurationMS,
   formatDurationMS,
 } from "@/features/chat/model/duration";
-import { useChatElapsedDurationMS } from "@/features/chat/hooks/use-chat-elapsed-duration";
 import { resolvePersistedPublicID } from "@/features/chat/model/message-submit";
 import type { ChatBillingCost, ChatMessageBranchNavigator } from "@/features/chat/types/messages";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
@@ -294,6 +295,7 @@ export function UserMessageMeta({
   onRetry,
   onEdit,
   onCopy,
+  onDelete,
   copySucceeded = false,
   readOnly = false,
   alwaysVisible = false,
@@ -305,6 +307,7 @@ export function UserMessageMeta({
   onRetry: () => void;
   onEdit: () => void;
   onCopy: () => void;
+  onDelete?: () => Promise<void> | void;
   copySucceeded?: boolean;
   readOnly?: boolean;
   alwaysVisible?: boolean;
@@ -349,6 +352,16 @@ export function UserMessageMeta({
               <Copy size={14} strokeWidth={1.8} animateOnHover="default" />
             )}
           </MetaIconButton>
+          {showRetry && hasPersistedMessage && onDelete ? (
+            <MetaIconButton
+              label={t("deleteMessage")}
+              className="hover:text-destructive"
+              disabled={messagePending}
+              onClick={() => void onDelete()}
+            >
+              <Trash2 size={14} strokeWidth={1.8} />
+            </MetaIconButton>
+          ) : null}
         </div>
       ) : null}
       {canShowBranchNavigator ? <BranchSwitcher item={item} onCycle={onCycleBranch} /> : null}
@@ -977,6 +990,7 @@ export function AssistantMessageMeta({
   onEdit,
   onCopy,
   onFork,
+  onDelete,
   copySucceeded = false,
   onReact,
   showModelInfo = true,
@@ -998,6 +1012,7 @@ export function AssistantMessageMeta({
   onEdit?: () => void;
   onCopy: () => void;
   onFork?: () => Promise<void> | void;
+  onDelete?: () => Promise<void> | void;
   copySucceeded?: boolean;
   onReact: (value: AssistantReaction) => void;
   showModelInfo?: boolean;
@@ -1023,6 +1038,7 @@ export function AssistantMessageMeta({
   const canEdit = Boolean(canRetry && !busy && onEdit);
   const canContinue = Boolean(canRetry && !busy && item.status === "interrupted");
   const canFork = Boolean(canRetry && onFork);
+  const canDelete = Boolean(canRetry && onDelete);
   const canShowBranchNavigator = Boolean(showBranchNavigator && item.branchNavigator);
   const hasTokenUsage = Boolean(
     (item.inputTokens ?? 0) > 0 ||
@@ -1135,6 +1151,15 @@ export function AssistantMessageMeta({
                     label={t("forkMessage")}
                     onFork={onFork}
                   />
+                ) : null}
+                {canDelete && onDelete ? (
+                  <MetaIconButton
+                    label={t("deleteMessage")}
+                    className="hover:text-destructive"
+                    onClick={() => void onDelete()}
+                  >
+                    <Trash2 size={14} strokeWidth={1.8} />
+                  </MetaIconButton>
                 ) : null}
                 <QuickMemoryPin disabled={messagePending} />
               </>

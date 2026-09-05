@@ -20,6 +20,7 @@ type Conversation struct {
 	LabelsJSON            string
 	LabelsManuallyManaged bool
 	Model                 string
+	SystemPrompt          string
 	Provider              string
 	SessionKey            string
 	IsStarred             bool

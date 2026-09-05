@@ -1,5 +1,12 @@
 package channel
 
+// SyncUpstreamModelsRequest 提交远端模型目录对账时的可选约束；请求体可省略。
+type SyncUpstreamModelsRequest struct {
+	AllowEmpty              *bool    `json:"allowEmpty,omitempty"`
+	ExpectedSnapshot        string   `json:"expectedSnapshot,omitempty"`
+	DeleteMissingModelNames []string `json:"deleteMissingModelNames,omitempty" binding:"max=500,dive,max=200"`
+}
+
 // BatchDeleteRequest 批量删除请求。
 type BatchDeleteRequest struct {
 	IDs []uint `json:"ids" binding:"required,min=1,dive,gt=0"`

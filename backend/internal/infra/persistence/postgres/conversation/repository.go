@@ -541,6 +541,67 @@ func (r *Repo) UpdateConversationTitleByPublicID(
 	return r.GetConversationByPublicID(ctx, publicID, userID)
 }
 
+// UpdateConversationSystemPromptByPublicID 更新会话级系统提示词。
+func (r *Repo) UpdateConversationSystemPromptByPublicID(
+	ctx context.Context,
+	userID uint,
+	publicID string,
+	systemPrompt string,
+) (*domainconversation.Conversation, error) {
+	result := r.db.WithContext(ctx).
+		Model(&models.Conversation{}).
+		Where("user_id = ? AND public_id = ?", userID, publicID).
+		Update("system_prompt", strings.TrimSpace(systemPrompt))
+	if result.Error != nil {
+		return nil, translateError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, repository.ErrNotFound
+	}
+	return r.GetConversationByPublicID(ctx, publicID, userID)
+}
+
+// DeleteMessageByPublicID 软删除当前用户的一条消息，仅删除该条；其子消息上提到父消息以保持分支连续。
+func (r *Repo) DeleteMessageByPublicID(ctx context.Context, userID uint, publicID string) (int64, error) {
+	normalizedPublicID := strings.TrimSpace(publicID)
+	if userID == 0 || normalizedPublicID == "" {
+		return 0, repository.ErrInvalidInput
+	}
+	var deleted int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var target models.Message
+		if err := tx.
+			Where("user_id = ? AND public_id = ?", userID, normalizedPublicID).
+			First(&target).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.
+			Model(&models.Message{}).
+			Where("conversation_id = ? AND parent_message_id = ?", target.ConversationID, target.ID).
+			Update("parent_message_id", target.ParentMessageID).
+			Error; err != nil {
+			return translateError(err)
+		}
+		result := tx.Delete(&target)
+		if result.Error != nil {
+			return translateError(result.Error)
+		}
+		deleted = result.RowsAffected
+		if err := tx.
+			Model(&models.Conversation{}).
+			Where("id = ?", target.ConversationID).
+			UpdateColumn("message_count", gorm.Expr("GREATEST(message_count - ?, 0)", deleted)).
+			Error; err != nil {
+			return translateError(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return deleted, nil
+}
+
 // UpdateConversationMetadata 更新自动生成的会话元数据。
 func (r *Repo) UpdateConversationMetadata(ctx context.Context, conversationID uint, patch repository.ConversationMetadataPatch) (*domainconversation.Conversation, error) {
 	updates := map[string]interface{}{}
@@ -3747,6 +3808,7 @@ func toConversationDomain(item models.Conversation) domainconversation.Conversat
 		LabelsJSON:            labelsJSON,
 		LabelsManuallyManaged: item.LabelsManuallyManaged,
 		Model:                 item.Model,
+		SystemPrompt:          item.SystemPrompt,
 		Provider:              item.Provider,
 		SessionKey:            item.SessionKey,
 		IsStarred:             item.IsStarred,
@@ -3805,6 +3867,7 @@ func toConversationModel(item *domainconversation.Conversation) models.Conversat
 		LabelsJSON:            labelsJSON,
 		LabelsManuallyManaged: item.LabelsManuallyManaged,
 		Model:                 item.Model,
+		SystemPrompt:          item.SystemPrompt,
 		Provider:              item.Provider,
 		SessionKey:            item.SessionKey,
 		IsStarred:             item.IsStarred,

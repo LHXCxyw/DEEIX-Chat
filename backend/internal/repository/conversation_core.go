@@ -83,6 +83,7 @@ type ConversationMetadataRepository interface {
 	RevokeActiveConversationShares(ctx context.Context, userID uint, conversationIDs []uint) error
 	TouchConversationShareAccess(ctx context.Context, shareID string, accessedAt time.Time) error
 	UpdateConversationTitleByPublicID(ctx context.Context, userID uint, publicID string, title string) (*domainconversation.Conversation, error)
+	UpdateConversationSystemPromptByPublicID(ctx context.Context, userID uint, publicID string, systemPrompt string) (*domainconversation.Conversation, error)
 	UpdateConversationMetadata(ctx context.Context, conversationID uint, patch ConversationMetadataPatch) (*domainconversation.Conversation, error)
 	UpdateConversationLabelsByPublicID(ctx context.Context, userID uint, publicID string, labelsJSON string) (*domainconversation.Conversation, error)
 	SetGeneratedConversationLabelsIfEligible(ctx context.Context, conversationID uint, labelsJSON string) (*domainconversation.Conversation, bool, error)
@@ -110,6 +111,7 @@ type MessageRepository interface {
 	UpdateMessageUsage(ctx context.Context, messageID uint, inputTokens int64, outputTokens int64, cacheReadTokens int64, cacheWriteTokens int64, reasoningTokens int64) error
 	UpdateMessageState(ctx context.Context, messageID uint, status string, errorCode string, errorMessage string) error
 	UpdateAssistantMessageContent(ctx context.Context, userID uint, publicID string, content string, editedAt time.Time) (*domainconversation.Message, error)
+	DeleteMessageByPublicID(ctx context.Context, userID uint, publicID string) (int64, error)
 	CancelPendingGenerationMessagesByRunID(ctx context.Context, userID uint, runID string, errorCode string, errorMessage string) (bool, error)
 	InterruptPendingAssistantMessageByRunID(ctx context.Context, userID uint, runID string, errorCode string, errorMessage string) (bool, error)
 	UpdateAssistantMessageCompletion(ctx context.Context, messageID uint, update AssistantMessageCompletionUpdate) error

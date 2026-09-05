@@ -25,8 +25,7 @@ import { ChatArea, ChatAreaLoadError, ChatAreaSkeleton } from "@/features/chat/c
 import { ChatArtifactWorkspace } from "@/features/chat/components/sections/chat-artifact";
 import { ChatEmptyState } from "@/features/chat/components/sections/chat-empty";
 import { ChatInput } from "@/features/chat/components/sections/chat-input";
-import { ChatProjectWorkspace, ProjectFileEditor, collectProjectFileChanges, reconstructProjectFileInitial, type ProjectChange, type ProjectFileTab, type ProjectWorkspaceHandle } from "@/features/chat/components/sections/chat-project-workspace";
-import { useIsMobile } from "@/shared/hooks/use-mobile";
+import { ChatProjectWorkspace, collectProjectFileChanges, type ProjectChange, ProjectFileEditor, type ProjectFileTab, type ProjectWorkspaceHandle, reconstructProjectFileInitial } from "@/features/chat/components/sections/chat-project-workspace";
 import { ChatScreenshotPreviewDialog } from "@/features/chat/components/sections/chat-screenshot-preview-dialog";
 import { TemporaryChatModeControl } from "@/features/chat/components/temporary-chat-mode-control";
 import { useChatSession } from "@/features/chat/context/chat-session-context";
@@ -34,24 +33,24 @@ import { useChatArtifactResize } from "@/features/chat/hooks/use-chat-artifact-r
 import { useChatArtifacts } from "@/features/chat/hooks/use-chat-artifacts";
 import { useChatAttachments } from "@/features/chat/hooks/use-chat-attachments";
 import { useChatComposerSelection } from "@/features/chat/hooks/use-chat-composer-selection";
-import { useChatConversationActions } from "@/features/chat/hooks/use-chat-conversation-actions";
-import { useChatFileDrag } from "@/features/chat/hooks/use-chat-file-drag";
-import { useChatMCPTools } from "@/features/chat/hooks/use-chat-mcp-tools";
-import { useChatMediaAttachmentActions } from "@/features/chat/hooks/use-chat-media-attachment-actions";
-import { useChatModelOptionState } from "@/features/chat/hooks/use-chat-model-option-state";
-import { useChatScreenshotPreview } from "@/features/chat/hooks/use-chat-screenshot-preview";
 import {
   resolveConversationComposerKey,
   useChatComposerState,
 } from "@/features/chat/hooks/use-chat-composer-state";
+import { useChatConversationActions } from "@/features/chat/hooks/use-chat-conversation-actions";
+import { useChatConversationDefaults } from "@/features/chat/hooks/use-chat-conversation-defaults";
 import { useChatData } from "@/features/chat/hooks/use-chat-data";
+import { useChatFileDrag } from "@/features/chat/hooks/use-chat-file-drag";
+import { useChatMCPTools } from "@/features/chat/hooks/use-chat-mcp-tools";
+import { useChatMediaAttachmentActions } from "@/features/chat/hooks/use-chat-media-attachment-actions";
+import { useChatModelOptionState } from "@/features/chat/hooks/use-chat-model-option-state";
 import { useChatModelOptions } from "@/features/chat/hooks/use-chat-model-options";
 import { useChatRuntime } from "@/features/chat/hooks/use-chat-runtime";
 import { useChatScreenshot } from "@/features/chat/hooks/use-chat-screenshot";
+import { useChatScreenshotPreview } from "@/features/chat/hooks/use-chat-screenshot-preview";
+import { useChatTemporaryRuntime } from "@/features/chat/hooks/use-chat-temporary-runtime";
 import { useChatViewerProfile } from "@/features/chat/hooks/use-chat-viewer-profile";
 import { useChatVisualPrompt } from "@/features/chat/hooks/use-chat-visual-prompt";
-import { useChatConversationDefaults } from "@/features/chat/hooks/use-chat-conversation-defaults";
-import { useChatTemporaryRuntime } from "@/features/chat/hooks/use-chat-temporary-runtime";
 import { filterAvailableMCPToolIDs } from "@/features/chat/model/chat-mcp-tool-defaults";
 import type { ChatAreaMessage, } from "@/features/chat/types/messages";
 import { useSettingsChatPreferences } from "@/features/settings";
@@ -62,13 +61,14 @@ import {
   fetchProjectFileContent,
   getConversation,
   getProjectWorkspace,
-  saveProjectFile,
   type ProjectWorkspaceFileDTO,
+  saveProjectFile,
 } from "@/shared/api/conversation";
 import type { ConversationDTO, ConversationOptions } from "@/shared/api/conversation.types";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { DeleteFilesOption } from "@/shared/components/delete-files-option";
+import { useIsMobile } from "@/shared/hooks/use-mobile";
 import {
   hasMultipleImageAttachmentProcessors,
   normalizeImageAttachmentProcessorSelection,
@@ -235,8 +235,19 @@ export function AppChatArea() {
     [newConversationProjectID, projects],
   );
   const newConversationDefaultsPending = Boolean(newConversationProjectID && projectsLoading);
+  // 首次对话时尚无会话，输入框工具栏设置的系统提示词暂存于此，随首条消息创建会话时一并写入。
+  const [pendingSystemPrompt, setPendingSystemPrompt] = React.useState("");
+  const pendingSystemPromptRef = React.useRef(pendingSystemPrompt);
+  pendingSystemPromptRef.current = pendingSystemPrompt;
   const prependNewConversationInContext = React.useCallback(
-    (platformModelName?: string) => prependNewConversation(platformModelName, newConversationProjectID || undefined),
+    async (platformModelName?: string) => {
+      const pendingPrompt = pendingSystemPromptRef.current.trim();
+      const created = await prependNewConversation(platformModelName, newConversationProjectID || undefined, pendingPrompt || undefined);
+      if (created && pendingPrompt) {
+        setPendingSystemPrompt("");
+      }
+      return created;
+    },
     [newConversationProjectID, prependNewConversation],
   );
 
@@ -458,6 +469,7 @@ export function AppChatArea() {
     onEditUserMessage,
     onContinueAssistantMessage,
     onForkMessage,
+    onDeleteMessage,
     onRetryAssistantMessage,
     onRetryUserMessage,
     onSendMessage,
@@ -591,6 +603,7 @@ export function AppChatArea() {
     deleteFilesID,
     onToggleActiveConversationStar,
     onRenameActiveConversation,
+    onSetSystemPrompt,
     onAutoRenameActiveConversation,
     onUpdateActiveConversationLabels,
     onRequestDeleteActiveConversation,
@@ -971,6 +984,12 @@ export function AppChatArea() {
     modelLoading: modelsLoading,
     dropActive: fileDragActive,
     temporaryMode,
+    systemPromptEditor: temporaryMode
+      ? undefined
+      : {
+          value: conversationID ? currentConversation?.systemPrompt ?? "" : pendingSystemPrompt,
+          onSave: conversationID ? onSetSystemPrompt : setPendingSystemPrompt,
+        },
     onDraftChange: setDraft,
     onModelChange: setSelectedPlatformModelName,
     onModelCatalogRefresh: refreshModelCatalogForComposer,
@@ -1142,6 +1161,7 @@ export function AppChatArea() {
                     onEditAssistantMessage={onEditAssistantMessage}
                     onEditUserMessage={onEditUserMessage}
                     onForkMessage={temporaryMode ? undefined : onForkMessage}
+                    onDeleteMessage={temporaryMode ? undefined : onDeleteMessage}
                     modelOptions={modelOptions}
                     selectedPlatformModelName={selectedPlatformModelName}
                     onModelChange={setSelectedPlatformModelName}
@@ -1153,6 +1173,8 @@ export function AppChatArea() {
                     onCycleMessageBranch={onCycleMessageBranch}
                     onToggleStar={temporaryMode ? undefined : onToggleActiveConversationStar}
                     onRename={temporaryMode ? undefined : onRenameActiveConversation}
+                    onSetSystemPrompt={temporaryMode ? undefined : onSetSystemPrompt}
+                    systemPrompt={currentConversation?.systemPrompt ?? ""}
                     onAutoRename={temporaryMode ? undefined : onAutoRenameActiveConversation}
                     labels={temporaryMode ? EMPTY_LIST : activeConversationLabels}
                     onUpdateLabels={temporaryMode ? undefined : onUpdateActiveConversationLabels}

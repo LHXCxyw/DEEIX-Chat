@@ -8,7 +8,6 @@ import { authedFetch, authedRequest } from "@/shared/api/authed-client";
 import type { PagePayload } from "@/shared/api/common.types";
 import type {
   ActiveConversationRunEvent,
-  ConversationRunStatusDTO,
   BatchSetConversationProjectRequest,
   BatchSetConversationProjectResult,
   ContextArtifactDTO,
@@ -20,6 +19,7 @@ import type {
   ConversationProjectFilter,
   ConversationProjectStatusFilter,
   ConversationRunDTO,
+  ConversationRunStatusDTO,
   ConversationSearchPageDTO,
   ConversationShareDTO,
   ConversationShareFilter,
@@ -29,6 +29,7 @@ import type {
   CreateConversationRequest,
   CreateConversationShareRequest,
   DeleteConversationData,
+  DeleteMessageResult,
   MediaImageRequest,
   MediaVideoExtensionRequest,
   MediaVideoRequest,
@@ -45,6 +46,7 @@ import type {
   SetConversationArchiveRequest,
   SetConversationProjectRequest,
   SetConversationStarRequest,
+  SetConversationSystemPromptRequest,
   SetMessageFeedbackRequest,
   StreamMessageEvent,
   TemporaryChatMessageRequest,
@@ -693,6 +695,36 @@ export async function renameConversation(
       method: "PATCH",
       accessToken,
       body: payload,
+    },
+    true,
+  );
+}
+
+export async function setConversationSystemPrompt(
+  accessToken: string,
+  conversationPublicID: string,
+  payload: SetConversationSystemPromptRequest,
+): Promise<ConversationDTO> {
+  return authedRequest<ConversationDTO>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/system-prompt`,
+    {
+      method: "PATCH",
+      accessToken,
+      body: payload,
+    },
+    true,
+  );
+}
+
+export async function deleteMessage(
+  accessToken: string,
+  messagePublicID: string,
+): Promise<DeleteMessageResult> {
+  return authedRequest<DeleteMessageResult>(
+    `/api/v1/messages/${pathParam(messagePublicID)}`,
+    {
+      method: "DELETE",
+      accessToken,
     },
     true,
   );

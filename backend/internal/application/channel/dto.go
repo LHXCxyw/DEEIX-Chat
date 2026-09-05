@@ -45,8 +45,10 @@ type UpstreamModelSyncPlanView struct {
 	UpdatedModels     []string
 	ReactivatedModels []string
 	InactivatedModels []string
-	UnchangedModels   []string
-	ProtectedModels   []string
+	// InactivatedModelIDs 与 InactivatedModels 一一对应，供前端勾选需要删除的缺失模型。
+	InactivatedModelIDs []uint
+	UnchangedModels     []string
+	ProtectedModels     []string
 }
 
 // UpstreamRemoteModelView 上游远程模型预览项（内部传输，不携带序列化标记）。
@@ -76,6 +78,7 @@ type SyncUpstreamModelsData struct {
 	// SkippedUpstreamModels 保留旧版响应字段；原子对账失败时整体回滚，因此始终为 0。
 	SkippedUpstreamModels int
 	InactivatedModels     int64
+	DeletedModels         int64
 	ReactivatedModels     int
 	SyncedModels          []UpstreamSyncModelView
 }

@@ -11595,6 +11595,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/conversations/{id}/system-prompt": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "更新指定会话的会话级系统提示词；传空字符串表示清除",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "设置会话系统提示词",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "会话 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "系统提示词",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SetConversationSystemPromptRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationUpdateResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/conversations/{id}/title": {
             "patch": {
                 "security": [
@@ -13267,6 +13331,53 @@ const docTemplate = `{
             }
         },
         "/messages/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "软删除当前用户会话中的指定消息，仅删除该条；其子消息上提到父消息以保持分支连续",
+                "tags": [
+                    "chat"
+                ],
+                "summary": "删除消息",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "消息 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/DeleteMessageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            },
             "patch": {
                 "security": [
                     {
@@ -14507,6 +14618,277 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/UserErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/upstreams": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "用户查询自己创建的所有上游渠道",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-upstream"
+                ],
+                "summary": "查询用户自有渠道列表",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/UserUpstreamListResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "功能未启用",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "用户创建自己的上游渠道（BYOK）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-upstream"
+                ],
+                "summary": "创建用户自有渠道",
+                "parameters": [
+                    {
+                        "description": "渠道配置",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/CreateUserUpstreamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/UserUpstreamResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "403": {
+                        "description": "功能未启用或超过配额",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/upstreams/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "查询用户自有渠道的详细信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-upstream"
+                ],
+                "summary": "获取用户指定渠道详情",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "渠道ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/UserUpstreamResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "软删除用户自有渠道",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-upstream"
+                ],
+                "summary": "删除用户自有渠道",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "渠道ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "更新用户自有渠道配置，未传字段保持原值",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-upstream"
+                ],
+                "summary": "更新用户自有渠道",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "渠道ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "更新内容",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateUserUpstreamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
                         }
                     }
                 }
@@ -17815,6 +18197,7 @@ const docTemplate = `{
                 "sharedAt",
                 "starredAt",
                 "status",
+                "systemPrompt",
                 "title",
                 "updatedAt",
                 "userID"
@@ -17883,6 +18266,9 @@ const docTemplate = `{
                     "x-omitempty": false
                 },
                 "status": {
+                    "type": "string"
+                },
+                "systemPrompt": {
                     "type": "string"
                 },
                 "title": {
@@ -18259,6 +18645,10 @@ const docTemplate = `{
                 "projectID": {
                     "type": "string",
                     "maxLength": 32
+                },
+                "systemPrompt": {
+                    "type": "string",
+                    "maxLength": 12000
                 },
                 "title": {
                     "type": "string",
@@ -18669,6 +19059,48 @@ const docTemplate = `{
                 }
             }
         },
+        "CreateUserUpstreamRequest": {
+            "type": "object",
+            "required": [
+                "api_keys",
+                "base_url",
+                "compatible",
+                "connect_timeout_ms",
+                "headers",
+                "name",
+                "read_timeout_ms"
+            ],
+            "properties": {
+                "api_keys": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/UserUpstreamAPIKeyRequest"
+                    }
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "compatible": {
+                    "type": "string"
+                },
+                "connect_timeout_ms": {
+                    "type": "integer"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "read_timeout_ms": {
+                    "type": "integer"
+                }
+            }
+        },
         "DeleteAccountRequest": {
             "type": "object",
             "required": [
@@ -18747,6 +19179,17 @@ const docTemplate = `{
                 },
                 "errorMsg": {
                     "type": "string"
+                }
+            }
+        },
+        "DeleteMessageResponse": {
+            "type": "object",
+            "required": [
+                "deletedCount"
+            ],
+            "properties": {
+                "deletedCount": {
+                    "type": "integer"
                 }
             }
         },
@@ -24640,6 +25083,13 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 128
                 },
+                "modelScope": {
+                    "type": "string",
+                    "enum": [
+                        "platform",
+                        "user"
+                    ]
+                },
                 "options": {
                     "type": "object",
                     "additionalProperties": true
@@ -24665,6 +25115,9 @@ const docTemplate = `{
                 "sourceMessagePublicID": {
                     "type": "string",
                     "maxLength": 32
+                },
+                "userModelID": {
+                    "type": "integer"
                 }
             }
         },
@@ -24892,6 +25345,18 @@ const docTemplate = `{
             "properties": {
                 "starred": {
                     "type": "boolean"
+                }
+            }
+        },
+        "SetConversationSystemPromptRequest": {
+            "type": "object",
+            "required": [
+                "systemPrompt"
+            ],
+            "properties": {
+                "systemPrompt": {
+                    "type": "string",
+                    "maxLength": 12000
                 }
             }
         },
@@ -25483,6 +25948,7 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "createdUpstreamModels",
+                "deletedModels",
                 "existingUpstreamModels",
                 "inactivatedModels",
                 "protectedUpstreamModels",
@@ -25496,6 +25962,9 @@ const docTemplate = `{
             ],
             "properties": {
                 "createdUpstreamModels": {
+                    "type": "integer"
+                },
+                "deletedModels": {
                     "type": "integer"
                 },
                 "existingUpstreamModels": {
@@ -26422,6 +26891,47 @@ const docTemplate = `{
                 }
             }
         },
+        "UpdateUserUpstreamRequest": {
+            "type": "object",
+            "required": [
+                "api_keys",
+                "base_url",
+                "connect_timeout_ms",
+                "headers",
+                "name",
+                "read_timeout_ms",
+                "status"
+            ],
+            "properties": {
+                "api_keys": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/UserUpstreamAPIKeyRequest"
+                    }
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "connect_timeout_ms": {
+                    "type": "integer"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "read_timeout_ms": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "UploadFileResponseDoc": {
             "type": "object",
             "required": [
@@ -26974,6 +27484,7 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "addedModels",
+                "inactivatedModelIDs",
                 "inactivatedModels",
                 "protectedModels",
                 "reactivatedModels",
@@ -26985,6 +27496,12 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                },
+                "inactivatedModelIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
                     }
                 },
                 "inactivatedModels": {
@@ -28352,6 +28869,86 @@ const docTemplate = `{
                     "$ref": "#/definitions/UserSettingsResponse"
                 },
                 "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "UserUpstreamAPIKeyRequest": {
+            "type": "object",
+            "required": [
+                "key",
+                "note",
+                "status"
+            ],
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "UserUpstreamListResponse": {
+            "type": "object",
+            "required": [
+                "items"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/UserUpstreamResponse"
+                    }
+                }
+            }
+        },
+        "UserUpstreamResponse": {
+            "type": "object",
+            "required": [
+                "base_url",
+                "billing_mode",
+                "compatible",
+                "connect_timeout_ms",
+                "created_at",
+                "id",
+                "name",
+                "read_timeout_ms",
+                "status",
+                "updated_at"
+            ],
+            "properties": {
+                "base_url": {
+                    "type": "string"
+                },
+                "billing_mode": {
+                    "type": "string"
+                },
+                "compatible": {
+                    "type": "string"
+                },
+                "connect_timeout_ms": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "read_timeout_ms": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
                     "type": "string"
                 }
             }

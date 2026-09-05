@@ -39,7 +39,7 @@ func (h *Handler) CreateConversation(c *gin.Context) {
 		return
 	}
 
-	item, err := h.service.CreateConversation(c.Request.Context(), userID, req.Title, req.Model, req.ProjectID)
+	item, err := h.service.CreateConversation(c.Request.Context(), userID, req.Title, req.Model, req.ProjectID, req.SystemPrompt)
 	if err != nil {
 		if errors.Is(err, appconversation.ErrConversationProjectNotFound) {
 			response.Error(c, http.StatusNotFound, "conversation project not found")
@@ -362,6 +362,55 @@ func (h *Handler) RenameConversation(c *gin.Context) {
 		"conversation",
 		item.PublicID,
 		map[string]string{"title": item.Title},
+	)
+
+	response.Success(c, toConversationResponse(item))
+}
+
+// SetConversationSystemPrompt godoc
+// @Summary 设置会话系统提示词
+// @Description 更新指定会话的会话级系统提示词；传空字符串表示清除
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "会话 public_id"
+// @Param body body SetConversationSystemPromptRequest true "系统提示词"
+// @Success 200 {object} ConversationUpdateResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /conversations/{id}/system-prompt [patch]
+func (h *Handler) SetConversationSystemPrompt(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+
+	var req SetConversationSystemPromptRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+
+	item, err := h.service.SetConversationSystemPrompt(c.Request.Context(), userID, publicID, req.SystemPrompt)
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrConversationNotFound):
+			response.Error(c, http.StatusNotFound, "conversation not found")
+			return
+		default:
+			response.Error(c, http.StatusInternalServerError, "set conversation system prompt failed")
+			return
+		}
+	}
+
+	h.recordAudit(c, "set_conversation_system_prompt",
+		"conversation",
+		item.PublicID,
+		map[string]string{},
 	)
 
 	response.Success(c, toConversationResponse(item))

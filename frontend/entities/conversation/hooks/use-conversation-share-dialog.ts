@@ -1,9 +1,9 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import {
   createConversationShare,
   getConversationShare,
@@ -12,7 +12,6 @@ import {
 } from "@/shared/api/conversation";
 import type { ConversationShareDTO } from "@/shared/api/conversation.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 
 function resolveShareURL(shareID: string): string {
   const path = `/share?conversation_id=${encodeURIComponent(shareID)}`;

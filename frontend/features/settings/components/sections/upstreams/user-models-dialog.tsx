@@ -1,8 +1,8 @@
 "use client";
 
+import { Activity, Cable, CloudDownload, Search, Tags, ToggleLeft, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
-import { CloudDownload, Search, ToggleLeft, Cable, Tags, Trash2, Activity } from "lucide-react";
 
 import {
   AlertDialog,
@@ -34,7 +34,6 @@ import {
 } from "@/components/ui/select";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -46,22 +45,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import { cn } from "@/lib/utils";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { PROTOCOL_PRESETS, DEFAULT_PROTOCOL_BY_COMPATIBLE } from "@/shared/lib/llm-presets";
 import {
+  batchCreateUserModels,
+  batchDeleteUserModels,
+  batchUpdateUserModels,
+  createUserModel,
   listUserModels,
   listUserRemoteModels,
-  batchCreateUserModels,
-  createUserModel,
-  batchUpdateUserModels,
-  batchDeleteUserModels,
   testUserModel,
-  updateUserModel,
   type UserModelDTO,
   type UserUpstreamDTO,
+  updateUserModel,
 } from "@/shared/api/user-upstream";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { DEFAULT_PROTOCOL_BY_COMPATIBLE, PROTOCOL_PRESETS } from "@/shared/lib/llm-presets";
 import { UserKindsDropdown, UserProtocolDropdown } from "./user-model-dropdowns";
 
 type UserRowDraft = UserModelDTO & {
@@ -271,6 +271,10 @@ export function UserModelsDialog({
   const [selectedRemote, setSelectedRemote] = React.useState<string[]>([]);
   const [importProtocol, setImportProtocol] = React.useState("openai_chat_completions");
   const [importing, setImporting] = React.useState(false);
+  // 渠道已不存在的本地模型：默认全部勾选为"删除"，未勾选的保持不动。
+  const [missingModels, setMissingModels] = React.useState<UserRowDraft[]>([]);
+  const [missingSelected, setMissingSelected] = React.useState<Set<number>>(new Set());
+  const [deletingMissing, setDeletingMissing] = React.useState(false);
 
   const upstreamID = upstream?.id ?? 0;
   const upstreamInactive = upstream?.status === "inactive";
@@ -443,14 +447,45 @@ export function UserModelsDialog({
     setRemoteOpen(true);
     setSelectedRemote([]);
     setRemoteKeyword("");
+    setMissingModels([]);
+    setMissingSelected(new Set());
     setRemoteLoading(true);
     try {
       const accessToken = await resolveAccessToken();
-      setRemoteModels(await listUserRemoteModels(accessToken, upstreamID));
+      const remote = await listUserRemoteModels(accessToken, upstreamID);
+      setRemoteModels(remote);
+      // 自动识别本地已有、但渠道远端模型列表中已不存在的模型，默认全选等待用户确认删除。
+      const remoteSet = new Set(remote.map((name) => name.trim()));
+      const missing = rows.filter((row) => !remoteSet.has(row.upstreamModelId.trim()));
+      setMissingModels(missing);
+      setMissingSelected(new Set(missing.map((row) => row.id)));
     } catch (error) {
       toast.error(resolveErrorText(error, "获取远端模型失败"));
     } finally {
       setRemoteLoading(false);
+    }
+  }
+
+  async function handleDeleteMissing() {
+    if (missingSelected.size === 0) return;
+    setDeletingMissing(true);
+    try {
+      const accessToken = await resolveAccessToken();
+      const result = await batchDeleteUserModels(accessToken, Array.from(missingSelected));
+      if (result.failedCount > 0) {
+        toast.error(`删除完成，${result.successCount} 成功 / ${result.failedCount} 失败`);
+      } else {
+        toast.success(`已删除 ${result.successCount} 个渠道中已不存在的模型`);
+      }
+      setMissingModels([]);
+      setMissingSelected(new Set());
+      setRemoteOpen(false);
+      await loadModels();
+      onChanged();
+    } catch (error) {
+      toast.error(resolveErrorText(error, "删除失败"));
+    } finally {
+      setDeletingMissing(false);
     }
   }
 
@@ -805,6 +840,66 @@ export function UserModelsDialog({
               </div>
             )}
           </div>
+
+          {missingModels.length > 0 && !remoteLoading ? (
+            <div className="space-y-2">
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2">
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <span className="text-xs font-medium text-destructive">
+                    渠道已不存在 {missingModels.length} 个本地模型
+                  </span>
+                  <Checkbox
+                    checked={missingSelected.size === missingModels.length}
+                    onCheckedChange={(checked) =>
+                      setMissingSelected(checked === true ? new Set(missingModels.map((row) => row.id)) : new Set())
+                    }
+                    aria-label="全选删除"
+                  />
+                </div>
+                <p className="px-1 pb-1.5 pt-1 text-[11px] leading-4 text-muted-foreground">
+                  已勾选 {missingSelected.size} 个将在确认后删除（含其路由），未勾选的保持不变。
+                </p>
+                <div className="max-h-32 space-y-0.5 overflow-y-auto overscroll-contain px-1">
+                  {missingModels.map((row) => (
+                    <label
+                      key={row.id}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted/60"
+                    >
+                      <Checkbox
+                        checked={missingSelected.has(row.id)}
+                        onCheckedChange={(checked) =>
+                          setMissingSelected((prev) => {
+                            const next = new Set(prev);
+                            if (checked === true) next.add(row.id);
+                            else next.delete(row.id);
+                            return next;
+                          })
+                        }
+                        aria-label={row.upstreamModelId}
+                      />
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate font-mono",
+                          missingSelected.has(row.id) && "text-destructive",
+                        )}
+                      >
+                        {row.upstreamModelId}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="w-full"
+                disabled={deletingMissing || missingSelected.size === 0}
+                onClick={() => void handleDeleteMissing()}
+              >
+                {deletingMissing ? <SpinnerLabel>删除中</SpinnerLabel> : `删除所选 ${missingSelected.size} 个模型`}
+              </Button>
+            </div>
+          ) : null}
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemoteOpen(false)}>

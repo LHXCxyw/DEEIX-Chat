@@ -73,11 +73,11 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
-    "@deeix/api-contract": "workspace:*",
     "@biomejs/biome": "2.5.4",
+    "@deeix/api-contract": "workspace:*",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^25.6.0",
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.3",
     "@types/turndown": "^5.0.6",
     "shadcn": "4.16.1",

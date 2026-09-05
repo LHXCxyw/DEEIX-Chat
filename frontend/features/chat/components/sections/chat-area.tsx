@@ -27,11 +27,11 @@ import {
   ChatMessagePositionRail,
   chatMessageScrollerID,
 } from "@/features/chat/components/sections/chat-message-position-rail";
+import type { ProjectChange } from "@/features/chat/components/sections/chat-project-workspace";
 import { ChatResponseOutlineRail } from "@/features/chat/components/sections/chat-response-outline-rail";
 import { ChatScreenshotSelectionBar } from "@/features/chat/components/sections/chat-screenshot-selection-bar";
 import { useChatMessageFeedback } from "@/features/chat/hooks/use-chat-message-feedback";
 import type { OpenCodeArtifactInput } from "@/features/chat/model/chat-artifacts";
-import type { ProjectChange } from "@/features/chat/components/sections/chat-project-workspace";
 import { areChatAreaMessagesRenderEqual } from "@/features/chat/model/chat-message-render";
 import { MAX_SCREENSHOT_MESSAGES } from "@/features/chat/model/conversation-screenshot";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
@@ -193,6 +193,7 @@ type ChatAreaProps = {
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   modelOptions: ChatModelOption[];
   selectedPlatformModelName: string;
   onModelChange: (platformModelName: string) => void;
@@ -205,6 +206,8 @@ type ChatAreaProps = {
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onToggleStar?: () => void | Promise<void>;
   onRename?: (title: string) => void | Promise<void>;
+  onSetSystemPrompt?: (systemPrompt: string) => void | Promise<void>;
+  systemPrompt?: string;
   onAutoRename?: () => void | Promise<void>;
   labels?: string[];
   onUpdateLabels?: (labels: string[]) => void | Promise<void>;
@@ -362,6 +365,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onEditAssistantMessage,
   onEditUserMessage,
   onForkMessage,
+  onDeleteMessage,
   modelOptions,
   selectedPlatformModelName,
   onModelChange,
@@ -397,6 +401,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   modelOptions: ChatModelOption[];
   selectedPlatformModelName: string;
   onModelChange: (platformModelName: string) => void;
@@ -480,6 +485,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onCycleMessageBranch={onCycleMessageBranch}
         onCopy={() => void onCopy()}
         copySucceeded={isCopied(copyKey)}
+        onDeleteMessage={onDeleteMessage}
         attachmentContentLoader={attachmentContentLoader}
         readOnly={readOnly}
         screenshotMeta={screenshotMeta}
@@ -497,6 +503,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onContinueAssistantMessage={onContinueAssistantMessage}
         onEditAssistantMessage={onEditAssistantMessage}
         onForkMessage={onForkMessage}
+        onDeleteMessage={onDeleteMessage}
         onCycleMessageBranch={onCycleMessageBranch}
         onReactAssistantMessage={onReactAssistantMessage}
         onCopy={() => void onCopy()}
@@ -558,6 +565,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   previous.selectedPlatformModelName === next.selectedPlatformModelName &&
   previous.onModelChange === next.onModelChange &&
   previous.onModelCatalogRefresh === next.onModelCatalogRefresh &&
+  previous.onDeleteMessage === next.onDeleteMessage &&
   previous.attachmentContentLoader === next.attachmentContentLoader &&
   previous.onEditImageAttachment === next.onEditImageAttachment &&
   previous.onExtendVideoAttachment === next.onExtendVideoAttachment &&
@@ -582,6 +590,7 @@ export function ChatArea({
   onEditAssistantMessage,
   onEditUserMessage,
   onForkMessage,
+  onDeleteMessage,
   modelOptions,
   selectedPlatformModelName,
   onModelChange,
@@ -594,6 +603,8 @@ export function ChatArea({
   onCycleMessageBranch,
   onToggleStar,
   onRename,
+  onSetSystemPrompt,
+  systemPrompt,
   onAutoRename,
   labels,
   onUpdateLabels,
@@ -627,6 +638,7 @@ export function ChatArea({
   const stableOnEditAssistantMessage = useStableEvent(onEditAssistantMessage);
   const stableOnEditUserMessage = useStableEvent(onEditUserMessage);
   const stableOnForkMessage = useStableEvent(onForkMessage ?? ((): undefined => undefined));
+  const stableOnDeleteMessage = useStableEvent(onDeleteMessage ?? ((): undefined => undefined));
   const stableOnModelChange = useStableEvent(onModelChange);
   const stableOnModelCatalogRefresh = useStableEvent(onModelCatalogRefresh ?? ((): undefined => undefined));
   const stableOnEditImageAttachment = useStableEvent((attachment: MessageAttachment, sourceModelName?: string) => {
@@ -687,6 +699,8 @@ export function ChatArea({
             starred={starred}
             onToggleStar={canOperateConversation ? onToggleStar : undefined}
             onRename={canOperateConversation ? onRename : undefined}
+            onSetSystemPrompt={canOperateConversation ? onSetSystemPrompt : undefined}
+            systemPrompt={systemPrompt}
             onAutoRename={canOperateConversation ? onAutoRename : undefined}
             labels={labels}
             onUpdateLabels={canOperateConversation ? onUpdateLabels : undefined}
@@ -780,6 +794,7 @@ export function ChatArea({
                       onEditAssistantMessage={stableOnEditAssistantMessage}
                       onEditUserMessage={stableOnEditUserMessage}
                       onForkMessage={onForkMessage ? stableOnForkMessage : undefined}
+                      onDeleteMessage={onDeleteMessage ? stableOnDeleteMessage : undefined}
                       modelOptions={modelOptions}
                       selectedPlatformModelName={selectedPlatformModelName}
                       onModelChange={stableOnModelChange}

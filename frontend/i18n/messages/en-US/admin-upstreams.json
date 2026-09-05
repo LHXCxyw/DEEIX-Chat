@@ -187,7 +187,7 @@
     "importFailed": "Model sync failed",
     "importAfterSyncFailed": "The model catalog was synced, but platform model or route creation failed",
     "importSummary": "Imported {importedCount}, failed {failedCount}, created {createdPlatform} platform models, created {createdRoutes} routes, reused {existingRoutes} routes",
-    "catalogSyncSummary": "Catalog: {createdUpstreamModels} added, {updatedUpstreamModels} updated, {reactivatedModels} restored, {inactivatedModels} deactivated, {unchangedUpstreamModels} unchanged, {protectedUpstreamModels} preserved",
+    "catalogSyncSummary": "Catalog: {createdUpstreamModels} added, {updatedUpstreamModels} updated, {reactivatedModels} restored, {inactivatedModels} deactivated, {deletedModels} deleted, {unchangedUpstreamModels} unchanged, {protectedUpstreamModels} preserved",
     "syncTitle": "Sync upstream models - {name}",
     "syncDescription": "Preview remote catalog changes, then update the catalog and bind selected models after confirmation.",
     "syncPlanTitle": "Remote catalog",
@@ -268,6 +268,9 @@
     "bulkConfirmApply": "Apply",
     "bulkConfirmApplying": "Applying",
     "deleting": "Deleting...",
-    "confirmDelete": "Delete"
+    "confirmDelete": "Delete",
+    "missingModelsTitle": "{count} local models no longer exist on the channel",
+    "missingModelsHint": "{deleted} checked model(s) will be deleted on sync (including their route bindings); the {kept} unchecked will only be deactivated and restored automatically if the channel serves them again.",
+    "inactivateSyncDeleteWarning": "{count} of them are checked for deletion and will be removed from the catalog; re-syncing will not restore them."
   }
 }

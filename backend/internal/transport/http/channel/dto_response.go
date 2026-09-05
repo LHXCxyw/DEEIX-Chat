@@ -437,6 +437,7 @@ type UpstreamModelSyncPlanResponse struct {
 	UpdatedModels     []string `json:"updatedModels"`
 	ReactivatedModels []string `json:"reactivatedModels"`
 	InactivatedModels []string `json:"inactivatedModels"`
+	InactivatedIDs    []uint   `json:"inactivatedModelIDs"`
 	UnchangedModels   []string `json:"unchangedModels"`
 	ProtectedModels   []string `json:"protectedModels"`
 }
@@ -466,6 +467,7 @@ func toUpstreamRemoteModelsResponse(d appchannel.UpstreamRemoteModelsData) Upstr
 			UpdatedModels:     stringList(d.SyncPlan.UpdatedModels),
 			ReactivatedModels: stringList(d.SyncPlan.ReactivatedModels),
 			InactivatedModels: stringList(d.SyncPlan.InactivatedModels),
+			InactivatedIDs:    uintList(d.SyncPlan.InactivatedModelIDs),
 			UnchangedModels:   stringList(d.SyncPlan.UnchangedModels),
 			ProtectedModels:   stringList(d.SyncPlan.ProtectedModels),
 		},
@@ -475,6 +477,13 @@ func toUpstreamRemoteModelsResponse(d appchannel.UpstreamRemoteModelsData) Upstr
 func stringList(items []string) []string {
 	if items == nil {
 		return []string{}
+	}
+	return items
+}
+
+func uintList(items []uint) []uint {
+	if items == nil {
+		return []uint{}
 	}
 	return items
 }
@@ -503,6 +512,7 @@ type SyncUpstreamModelsResponse struct {
 	ExistingUpstreamModels  int                         `json:"existingUpstreamModels"`
 	SkippedUpstreamModels   int                         `json:"skippedUpstreamModels"`
 	InactivatedModels       int64                       `json:"inactivatedModels"`
+	DeletedModels           int64                       `json:"deletedModels"`
 	ReactivatedModels       int                         `json:"reactivatedModels"`
 	SyncedModels            []UpstreamSyncModelResponse `json:"syncedModels"`
 }
@@ -532,6 +542,7 @@ func toSyncUpstreamModelsResponse(d appchannel.SyncUpstreamModelsData) SyncUpstr
 		ExistingUpstreamModels:  d.ExistingUpstreamModels,
 		SkippedUpstreamModels:   d.SkippedUpstreamModels,
 		InactivatedModels:       d.InactivatedModels,
+		DeletedModels:           d.DeletedModels,
 		ReactivatedModels:       d.ReactivatedModels,
 		SyncedModels:            models,
 	}

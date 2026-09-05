@@ -971,6 +971,7 @@ export function useChatMessageSubmit({
     onEditUserMessage,
     onEditAssistantMessage,
     onForkMessage,
+    onDeleteMessage,
     onCycleMessageBranch,
   } = useChatMessageActions({
     submitMessage,
@@ -979,6 +980,7 @@ export function useChatMessageSubmit({
     onConversationForked,
     conversationIDRef,
     setBranchSelections,
+    reload,
   });
 
   return {
@@ -987,6 +989,7 @@ export function useChatMessageSubmit({
     onEditUserMessage,
     onContinueAssistantMessage,
     onForkMessage,
+    onDeleteMessage,
     onRetryAssistantMessage,
     onRetryUserMessage,
     onSendMessage,

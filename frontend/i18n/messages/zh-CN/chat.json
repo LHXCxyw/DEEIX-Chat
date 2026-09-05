@@ -102,7 +102,10 @@
     "share": "分享",
     "manageShare": "管理分享",
     "exportJSON": "导出 JSON",
-    "delete": "删除"
+    "delete": "删除",
+    "systemPrompt": "系统提示词",
+    "systemPromptDescription": "为本会话设置系统提示词，将注入此会话的每次回复；留空表示清除。",
+    "systemPromptPlaceholder": "例如：你是一位严谨的学术写作助手，回答保持正式、引用可靠来源……"
   },
   "screenshot": {
     "captureLatest": "最近 100 条消息截图",
@@ -270,7 +273,9 @@
     "memoryNamePlaceholder": "偏好名称（如：回复风格）",
     "memoryValuePlaceholder": "偏好内容（如：请用简洁的中文回复）",
     "savingPreference": "保存中…",
-    "savePreference": "保存偏好"
+    "savePreference": "保存偏好",
+    "deleteMessage": "删除消息",
+    "deleteMessageFailed": "删除消息失败"
   },
   "loadError": {
     "title": "会话加载失败",
@@ -359,7 +364,8 @@
     "moderationBlocked": "内容已拦截",
     "moderationBlockedDescription": "安全检查后已撤回本轮回答。",
     "moderationEventId": "事件编号：{id}",
-    "moderationCategories": "命中分类：{categories}"
+    "moderationCategories": "命中分类：{categories}",
+    "deleteMessageFailed": "删除消息失败"
   },
   "data": {
     "signInRequired": "未登录，无法加载会话消息",
@@ -580,7 +586,8 @@
       "openai": "OpenAI 原生工具",
       "claude": "Claude 原生工具",
       "google": "Google 原生工具"
-    }
+    },
+    "systemPrompt": "系统提示词"
   },
   "modelPicker": {
     "selectModel": "选择模型",

@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, CornerDownRight, Eye, EyeOff, Film, HatGlasses, Image, ImageOff, ImagePlus, LoaderCircle, PencilLine, Trash2 } from "lucide-react";
+import { Box, CornerDownRight, Eye, EyeOff, Film, HatGlasses, Image, ImageOff, ImagePlus, LoaderCircle, MessagesSquare, PencilLine, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import dynamic from "next/dynamic";
 import { useLocale, useTranslations } from "next-intl";
@@ -44,15 +44,16 @@ import { ChatMCP } from "@/features/chat/components/sections/chat-mcp";
 import { ChatModelConfig } from "@/features/chat/components/sections/chat-model-config";
 import { ChatModelPicker } from "@/features/chat/components/sections/chat-model-picker";
 import { ChatMentionMenuPortal } from "@/features/chat/components/shared/chat-mention-menu";
+import { ConversationSystemPromptDialog } from "@/features/chat/components/shared/conversation-system-prompt-dialog";
 import {
   type ChatMentionMenuKind,
   useChatMentionMenu,
 } from "@/features/chat/hooks/use-chat-mention-menu";
+import { useChatPreviewSync } from "@/features/chat/hooks/use-chat-preview-sync";
 import {
   type SpeechInputErrorCode,
   useChatSpeechInput,
 } from "@/features/chat/hooks/use-chat-speech-input";
-import { useChatPreviewSync } from "@/features/chat/hooks/use-chat-preview-sync";
 import type { ChatSubmitDecision } from "@/features/chat/model/chat-task";
 import { isMediaSubmitTask, resolveChatSubmitDecision } from "@/features/chat/model/chat-task";
 import type {
@@ -150,6 +151,10 @@ type ChatInputProps = {
   onDeleteQueuedMessage: (id: string) => void;
   onEditQueuedMessage: (id: string, content: string) => void;
   onGuideQueuedMessage: (id: string) => void;
+  systemPromptEditor?: {
+    value: string;
+    onSave: (systemPrompt: string) => void | Promise<void>;
+  };
 };
 
 type ComposerModeIndicator = {
@@ -306,12 +311,14 @@ function ChatInputComponent({
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onGuideQueuedMessage,
+  systemPromptEditor,
 }: ChatInputProps) {
   const tChat = useTranslations("chat");
   const tComposer = useTranslations("chat.composer");
   const tFileStatus = useTranslations("files.status");
   const locale = useLocale();
   const [isBlocksHovered, setIsBlocksHovered] = React.useState(false);
+  const [systemPromptDialogOpen, setSystemPromptDialogOpen] = React.useState(false);
   const [isVoiceHovered, setIsVoiceHovered] = React.useState(false);
   const [toolsMenuHovered, setToolsMenuHovered] = React.useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = React.useState(false);
@@ -1027,6 +1034,32 @@ function ChatInputComponent({
                 />
               ) : null}
 
+              {systemPromptEditor ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <InputGroupButton
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className={cn(
+                        "size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8",
+                        systemPromptEditor.value.trim() &&
+                          "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
+                      )}
+                      disabled={loading || uploading}
+                      aria-label={tComposer("systemPrompt")}
+                      aria-pressed={Boolean(systemPromptEditor.value.trim())}
+                      onClick={() => setSystemPromptDialogOpen(true)}
+                    >
+                      <MessagesSquare size={18} strokeWidth={1.5} />
+                    </InputGroupButton>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    {tComposer("systemPrompt")}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+
               {showHTMLVisualPromptButton ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1208,6 +1241,14 @@ function ChatInputComponent({
         ) : null}
       </AnimatePresence>
 
+      {systemPromptEditor ? (
+        <ConversationSystemPromptDialog
+          open={systemPromptDialogOpen}
+          onOpenChange={setSystemPromptDialogOpen}
+          systemPrompt={systemPromptEditor.value}
+          onSave={systemPromptEditor.onSave}
+        />
+      ) : null}
     </div >
   );
 }

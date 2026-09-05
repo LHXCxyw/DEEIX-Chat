@@ -102,7 +102,10 @@
     "share": "Share",
     "manageShare": "Manage share",
     "exportJSON": "Export JSON",
-    "delete": "Delete"
+    "delete": "Delete",
+    "systemPrompt": "System Prompt",
+    "systemPromptDescription": "Set a system prompt for this conversation. It applies to every reply in this conversation; leave empty to clear.",
+    "systemPromptPlaceholder": "e.g. You are a rigorous academic writing assistant. Keep responses formal and cite reliable sources..."
   },
   "screenshot": {
     "captureLatest": "Capture latest 100 messages",
@@ -270,7 +273,9 @@
     "memoryNamePlaceholder": "Preference name, e.g. response style",
     "memoryValuePlaceholder": "Preference content, e.g. answer concisely",
     "savingPreference": "Saving...",
-    "savePreference": "Save preference"
+    "savePreference": "Save preference",
+    "deleteMessage": "Delete message",
+    "deleteMessageFailed": "Failed to delete message"
   },
   "loadError": {
     "title": "Failed to load conversation",
@@ -359,7 +364,8 @@
     "moderationBlocked": "Content blocked",
     "moderationBlockedDescription": "This response was withdrawn after a safety check.",
     "moderationEventId": "Event ID: {id}",
-    "moderationCategories": "Categories: {categories}"
+    "moderationCategories": "Categories: {categories}",
+    "deleteMessageFailed": "Failed to delete message"
   },
   "data": {
     "signInRequired": "Sign in before loading conversation messages.",
@@ -580,7 +586,8 @@
       "openai": "OpenAI native tools",
       "claude": "Claude native tools",
       "google": "Google native tools"
-    }
+    },
+    "systemPrompt": "System Prompt"
   },
   "modelPicker": {
     "selectModel": "Select model",

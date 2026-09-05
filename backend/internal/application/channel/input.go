@@ -131,6 +131,8 @@ type UpsertUpstreamModelInput struct {
 type SyncUpstreamModelsInput struct {
 	ExpectedSnapshot string
 	AllowEmpty       bool
+	// DeleteMissingModelNames 指定同步时从渠道消失、需要删除（而非停用）的本地目录模型名。
+	DeleteMissingModelNames []string
 }
 
 // UpdateModelUpstreamSourceInput 定义更新模型来源入参。

@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Plus, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";

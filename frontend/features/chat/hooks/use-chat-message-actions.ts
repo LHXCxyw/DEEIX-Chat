@@ -12,7 +12,11 @@ import type { QueuedChatSubmission } from "@/features/chat/model/message-submit-
 import type { PendingAttachment } from "@/features/chat/types/chat-runtime";
 import type { ChatAreaMessage } from "@/features/chat/types/messages";
 import { resolveErrorMessage } from "@/features/chat/utils/chat-runtime";
-import { forkConversationFromMessage, updateMessage } from "@/shared/api/conversation";
+import {
+  deleteMessage,
+  forkConversationFromMessage,
+  updateMessage,
+} from "@/shared/api/conversation";
 import type { ConversationDTO, MessageDTO } from "@/shared/api/conversation.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
@@ -41,6 +45,7 @@ export function useChatMessageActions({
   onConversationForked,
   conversationIDRef,
   setBranchSelections,
+  reload,
 }: {
   submitMessage: (input: SubmitChatMessageInput) => Promise<boolean>;
   combinedMessages: ChatAreaMessage[];
@@ -48,6 +53,7 @@ export function useChatMessageActions({
   onConversationForked?: (conversation: ConversationDTO) => Promise<void> | void;
   conversationIDRef: React.RefObject<string | null>;
   setBranchSelections: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  reload: () => void;
 }) {
   const t = useTranslations("chat.submit");
 
@@ -186,6 +192,30 @@ export function useChatMessageActions({
     [conversationIDRef, onConversationForked, t],
   );
 
+  const onDeleteMessage = React.useCallback(
+    async (message: ChatAreaMessage) => {
+      const messagePublicID = resolvePersistedPublicID(message.publicID);
+      if (!messagePublicID) {
+        toast.error(t("deleteMessageFailed"), { description: t("continueReplyUnavailable") });
+        return;
+      }
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("deleteMessageFailed"), { description: t("signInRequired") });
+        return;
+      }
+      try {
+        await deleteMessage(token, messagePublicID);
+        reload();
+      } catch (error) {
+        toast.error(t("deleteMessageFailed"), {
+          description: resolveErrorMessage(error, t("retryLater")),
+        });
+      }
+    },
+    [reload, t],
+  );
+
   const onCycleMessageBranch = React.useCallback(
     (parentPublicID: string | null, direction: "previous" | "next") => {
       const siblings = buildChildrenIndex(combinedMessages).get(toBranchKey(parentPublicID)) ?? [];
@@ -219,6 +249,7 @@ export function useChatMessageActions({
     onEditUserMessage,
     onEditAssistantMessage,
     onForkMessage,
+    onDeleteMessage,
     onCycleMessageBranch,
   };
 }

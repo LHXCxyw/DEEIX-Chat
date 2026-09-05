@@ -142,7 +142,7 @@ func (s *Service) SyncUpstreamModels(ctx context.Context, upstreamID uint, input
 	if expected := strings.TrimSpace(input.ExpectedSnapshot); expected != "" && expected != remoteModelsSnapshotID(items) {
 		return nil, ErrRemoteModelsSnapshotChanged
 	}
-	return s.reconcileRemoteModelSnapshot(ctx, upstreamItem, items, input.AllowEmpty)
+	return s.reconcileRemoteModelSnapshot(ctx, upstreamItem, items, input.AllowEmpty, input.DeleteMissingModelNames)
 }
 
 // reconcileRemoteModelSnapshot 在一个事务内完成目录读取、分类与批量写入；
@@ -152,6 +152,7 @@ func (s *Service) reconcileRemoteModelSnapshot(
 	upstreamItem *domainchannel.Upstream,
 	items []llm.ModelItem,
 	allowEmpty bool,
+	deleteMissingModelNames []string,
 ) (*SyncUpstreamModelsData, error) {
 	items = normalizeRemoteModelItems(items)
 	if len(items) == 0 && !allowEmpty {
@@ -194,6 +195,12 @@ func (s *Service) reconcileRemoteModelSnapshot(
 			name := strings.TrimSpace(model.UpstreamModelName)
 			if name != "" {
 				managedByName[name] = model
+			}
+		}
+		deleteNameSet := make(map[string]struct{}, len(deleteMissingModelNames))
+		for _, name := range deleteMissingModelNames {
+			if name = strings.TrimSpace(name); name != "" {
+				deleteNameSet[name] = struct{}{}
 			}
 		}
 
@@ -270,9 +277,19 @@ func (s *Service) reconcileRemoteModelSnapshot(
 			if !strings.EqualFold(strings.TrimSpace(model.Status), "active") {
 				continue
 			}
-			if _, present := remoteNameSet[strings.TrimSpace(model.UpstreamModelName)]; !present {
-				changes.InactivateIDs = append(changes.InactivateIDs, model.ID)
+			name := strings.TrimSpace(model.UpstreamModelName)
+			if _, present := remoteNameSet[name]; present {
+				continue
 			}
+			if _, deleteRequested := deleteNameSet[name]; deleteRequested {
+				// 渠道已不提供该模型且用户勾选删除：硬删除目录项及其平台路由。
+				if delErr := txRepo.DeleteUpstreamModel(ctx, model.ID, upstreamItem.ID); delErr != nil && !errors.Is(delErr, repository.ErrNotFound) {
+					return delErr
+				}
+				result.DeletedModels++
+				continue
+			}
+			changes.InactivateIDs = append(changes.InactivateIDs, model.ID)
 		}
 
 		inactivated, syncErr := txRepo.ApplyUpstreamModelCatalogChanges(ctx, upstreamItem.ID, changes)
@@ -381,6 +398,7 @@ func buildUpstreamModelSyncPlan(
 		}
 		if _, present := remoteNames[name]; !present {
 			plan.InactivatedModels = append(plan.InactivatedModels, name)
+			plan.InactivatedModelIDs = append(plan.InactivatedModelIDs, item.ID)
 		}
 	}
 	return plan, nil

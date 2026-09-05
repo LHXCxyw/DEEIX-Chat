@@ -24,6 +24,7 @@ export function useChatConversationActions({
   const t = useTranslations("chat");
   const router = useRouter();
   const renameByPublicID = useSidebarConversationField("renameByPublicID");
+  const setSystemPromptByPublicID = useSidebarConversationField("setSystemPromptByPublicID");
   const regenerateTitleByPublicID = useSidebarConversationField("regenerateTitleByPublicID");
   const updateLabelsByPublicID = useSidebarConversationField("updateLabelsByPublicID");
   const setStarByPublicID = useSidebarConversationField("setStarByPublicID");
@@ -97,6 +98,19 @@ export function useChatConversationActions({
       throw error;
     }
   }, [actionConversationID, canOperateConversation, regenerateTitleByPublicID, t]);
+
+  const onSetSystemPrompt = React.useCallback(
+    async (systemPrompt: string) => {
+      if (!canOperateConversation) {
+        return;
+      }
+      const updated = await setSystemPromptByPublicID(actionConversationID, systemPrompt);
+      if (!updated) {
+        throw new Error("conversation system prompt was not updated");
+      }
+    },
+    [actionConversationID, canOperateConversation, setSystemPromptByPublicID],
+  );
 
   const onUpdateActiveConversationLabels = React.useCallback(
     async (labels: string[]) => {
@@ -176,6 +190,7 @@ export function useChatConversationActions({
     deleteFilesID,
     onToggleActiveConversationStar,
     onRenameActiveConversation,
+    onSetSystemPrompt,
     onAutoRenameActiveConversation,
     onUpdateActiveConversationLabels,
     onRequestDeleteActiveConversation,

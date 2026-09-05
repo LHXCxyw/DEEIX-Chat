@@ -37,10 +37,11 @@ export type SidebarConversationsControllerValue = {
   lastChange: SidebarConversationChange | null;
   loadMore: () => Promise<void>;
   retryLoadMore: () => Promise<void>;
-  prependNewConversation: (platformModelName?: string, projectID?: string) => Promise<ConversationDTO | null>;
+  prependNewConversation: (platformModelName?: string, projectID?: string, systemPrompt?: string) => Promise<ConversationDTO | null>;
   upsertConversation: (incoming: ConversationDTO) => ConversationDTO;
   touchByPublicID: (publicID: string, patch: Partial<ConversationDTO>) => void;
   renameByPublicID: (publicID: string, title: string) => Promise<ConversationDTO | null>;
+  setSystemPromptByPublicID: (publicID: string, systemPrompt: string) => Promise<ConversationDTO | null>;
   regenerateTitleByPublicID: (publicID: string) => Promise<ConversationDTO | null>;
   updateLabelsByPublicID: (publicID: string, labels: string[]) => Promise<ConversationDTO | null>;
   createProject: (payload: CreateConversationProjectRequest) => Promise<ConversationProjectDTO | null>;

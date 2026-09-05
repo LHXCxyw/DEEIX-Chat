@@ -1,24 +1,24 @@
 "use client";
 
-import * as React from "react";
 import { CircleAlert } from "lucide-react";
 import { motion } from "motion/react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { ChevronDown } from "@/components/animate-ui/icons/chevron-down";
 import { ChevronUp } from "@/components/animate-ui/icons/chevron-up";
-import { ChatMentionMenuPortal } from "@/features/chat/components/shared/chat-mention-menu";
-import { MessageAttachmentRow } from "@/features/chat/components/message/message-attachment";
-import { UserMessageMeta } from "@/features/chat/components/message/message-meta";
-import type { ChatAreaMessage } from "@/features/chat/types/messages";
-import {
-  useChatMentionMenu,
-  type ChatMentionMenuKind,
-} from "@/features/chat/hooks/use-chat-mention-menu";
-import type { ChatModelOption, PendingAttachment } from "@/features/chat/types/chat-runtime";
-import type { MCPToolDTO } from "@/shared/api/mcp.types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { MessageAttachmentRow } from "@/features/chat/components/message/message-attachment";
+import { UserMessageMeta } from "@/features/chat/components/message/message-meta";
+import { ChatMentionMenuPortal } from "@/features/chat/components/shared/chat-mention-menu";
+import {
+  type ChatMentionMenuKind,
+  useChatMentionMenu,
+} from "@/features/chat/hooks/use-chat-mention-menu";
+import type { ChatModelOption, PendingAttachment } from "@/features/chat/types/chat-runtime";
+import type { ChatAreaMessage } from "@/features/chat/types/messages";
+import type { MCPToolDTO } from "@/shared/api/mcp.types";
 import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 
@@ -38,6 +38,7 @@ type ChatMessageUserProps = {
   item: ChatAreaMessage;
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
+  onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   modelOptions?: ChatModelOption[];
   selectedPlatformModelName?: string;
   onModelChange?: (platformModelName: string) => void;
@@ -55,6 +56,7 @@ export function ChatMessageUser({
   item,
   onRetryUserMessage,
   onEditUserMessage,
+  onDeleteMessage,
   modelOptions = [],
   selectedPlatformModelName = "",
   onModelChange = () => undefined,
@@ -134,6 +136,8 @@ export function ChatMessageUser({
   const onRetry = React.useCallback(() => {
     void onRetryUserMessage(item);
   }, [item, onRetryUserMessage]);
+
+  const onDelete = React.useCallback(() => onDeleteMessage?.(item), [item, onDeleteMessage]);
 
   const onEditSave = React.useCallback(async () => {
     const nextContent = editingValue.trim();
@@ -319,6 +323,7 @@ export function ChatMessageUser({
         onRetry={onRetry}
         onEdit={() => setIsEditing(true)}
         onCopy={onCopy}
+        onDelete={onDeleteMessage ? onDelete : undefined}
         copySucceeded={copySucceeded}
         readOnly={readOnly}
         alwaysVisible={readOnly}

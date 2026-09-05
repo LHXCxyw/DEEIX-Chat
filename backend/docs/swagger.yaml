@@ -2363,6 +2363,8 @@ definitions:
         x-omitempty: false
       status:
         type: string
+      systemPrompt:
+        type: string
       title:
         type: string
       updatedAt:
@@ -2389,6 +2391,7 @@ definitions:
     - sharedAt
     - starredAt
     - status
+    - systemPrompt
     - title
     - updatedAt
     - userID
@@ -2651,6 +2654,9 @@ definitions:
         type: string
       projectID:
         maxLength: 32
+        type: string
+      systemPrompt:
+        maxLength: 12000
         type: string
       title:
         maxLength: 255
@@ -2945,6 +2951,36 @@ definitions:
     - data
     - errorMsg
     type: object
+  CreateUserUpstreamRequest:
+    properties:
+      api_keys:
+        items:
+          $ref: '#/definitions/UserUpstreamAPIKeyRequest'
+        minItems: 1
+        type: array
+      base_url:
+        type: string
+      compatible:
+        type: string
+      connect_timeout_ms:
+        type: integer
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      read_timeout_ms:
+        type: integer
+    required:
+    - api_keys
+    - base_url
+    - compatible
+    - connect_timeout_ms
+    - headers
+    - name
+    - read_timeout_ms
+    type: object
   DeleteAccountRequest:
     properties:
       code:
@@ -2999,6 +3035,13 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  DeleteMessageResponse:
+    properties:
+      deletedCount:
+        type: integer
+    required:
+    - deletedCount
     type: object
   DeletePermissionGroupResponse:
     properties:
@@ -7130,6 +7173,11 @@ definitions:
       model:
         maxLength: 128
         type: string
+      modelScope:
+        enum:
+        - platform
+        - user
+        type: string
       options:
         additionalProperties: true
         type: object
@@ -7149,6 +7197,8 @@ definitions:
       sourceMessagePublicID:
         maxLength: 32
         type: string
+      userModelID:
+        type: integer
     required:
     - content
     - contentType
@@ -7307,6 +7357,14 @@ definitions:
         type: boolean
     required:
     - starred
+    type: object
+  SetConversationSystemPromptRequest:
+    properties:
+      systemPrompt:
+        maxLength: 12000
+        type: string
+    required:
+    - systemPrompt
     type: object
   SetGroupModelsRequest:
     properties:
@@ -7719,6 +7777,8 @@ definitions:
     properties:
       createdUpstreamModels:
         type: integer
+      deletedModels:
+        type: integer
       existingUpstreamModels:
         type: integer
       inactivatedModels:
@@ -7743,6 +7803,7 @@ definitions:
         type: integer
     required:
     - createdUpstreamModels
+    - deletedModels
     - existingUpstreamModels
     - inactivatedModels
     - protectedUpstreamModels
@@ -8383,6 +8444,35 @@ definitions:
     - data
     - errorMsg
     type: object
+  UpdateUserUpstreamRequest:
+    properties:
+      api_keys:
+        items:
+          $ref: '#/definitions/UserUpstreamAPIKeyRequest'
+        type: array
+      base_url:
+        type: string
+      connect_timeout_ms:
+        type: integer
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      read_timeout_ms:
+        type: integer
+      status:
+        type: string
+    required:
+    - api_keys
+    - base_url
+    - connect_timeout_ms
+    - headers
+    - name
+    - read_timeout_ms
+    - status
+    type: object
   UploadFileResponseDoc:
     properties:
       data:
@@ -8784,6 +8874,10 @@ definitions:
         items:
           type: string
         type: array
+      inactivatedModelIDs:
+        items:
+          type: integer
+        type: array
       inactivatedModels:
         items:
           type: string
@@ -8806,6 +8900,7 @@ definitions:
         type: array
     required:
     - addedModels
+    - inactivatedModelIDs
     - inactivatedModels
     - protectedModels
     - reactivatedModels
@@ -9767,6 +9862,62 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  UserUpstreamAPIKeyRequest:
+    properties:
+      key:
+        type: string
+      note:
+        type: string
+      status:
+        type: string
+    required:
+    - key
+    - note
+    - status
+    type: object
+  UserUpstreamListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/UserUpstreamResponse'
+        type: array
+    required:
+    - items
+    type: object
+  UserUpstreamResponse:
+    properties:
+      base_url:
+        type: string
+      billing_mode:
+        type: string
+      compatible:
+        type: string
+      connect_timeout_ms:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      read_timeout_ms:
+        type: integer
+      status:
+        type: string
+      updated_at:
+        type: string
+    required:
+    - base_url
+    - billing_mode
+    - compatible
+    - connect_timeout_ms
+    - created_at
+    - id
+    - name
+    - read_timeout_ms
+    - status
+    - updated_at
     type: object
   WriteKnowledgeBaseRequest:
     properties:
@@ -17049,6 +17200,47 @@ paths:
       summary: 设置会话星标
       tags:
       - chat
+  /conversations/{id}/system-prompt:
+    patch:
+      consumes:
+      - application/json
+      description: 更新指定会话的会话级系统提示词；传空字符串表示清除
+      parameters:
+      - description: 会话 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 系统提示词
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/SetConversationSystemPromptRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationUpdateResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 设置会话系统提示词
+      tags:
+      - chat
   /conversations/{id}/title:
     patch:
       consumes:
@@ -18257,6 +18449,36 @@ paths:
       tags:
       - memory
   /messages/{id}:
+    delete:
+      description: 软删除当前用户会话中的指定消息，仅删除该条；其子消息上提到父消息以保持分支连续
+      parameters:
+      - description: 消息 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/DeleteMessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 删除消息
+      tags:
+      - chat
     patch:
       consumes:
       - application/json
@@ -19045,6 +19267,179 @@ paths:
       summary: 查询每日活跃度
       tags:
       - user
+  /user/upstreams:
+    get:
+      consumes:
+      - application/json
+      description: 用户查询自己创建的所有上游渠道
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/UserUpstreamListResponse'
+        "403":
+          description: 功能未启用
+          schema:
+            $ref: '#/definitions/Envelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 查询用户自有渠道列表
+      tags:
+      - user-upstream
+    post:
+      consumes:
+      - application/json
+      description: 用户创建自己的上游渠道（BYOK）
+      parameters:
+      - description: 渠道配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/CreateUserUpstreamRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/UserUpstreamResponse'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/Envelope'
+        "403":
+          description: 功能未启用或超过配额
+          schema:
+            $ref: '#/definitions/Envelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 创建用户自有渠道
+      tags:
+      - user-upstream
+  /user/upstreams/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 软删除用户自有渠道
+      parameters:
+      - description: 渠道ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Envelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/Envelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/Envelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 删除用户自有渠道
+      tags:
+      - user-upstream
+    get:
+      consumes:
+      - application/json
+      description: 查询用户自有渠道的详细信息
+      parameters:
+      - description: 渠道ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/UserUpstreamResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/Envelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 获取用户指定渠道详情
+      tags:
+      - user-upstream
+    patch:
+      consumes:
+      - application/json
+      description: 更新用户自有渠道配置，未传字段保持原值
+      parameters:
+      - description: 渠道ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 更新内容
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateUserUpstreamRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Envelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/Envelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/Envelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 更新用户自有渠道
+      tags:
+      - user-upstream
 securityDefinitions:
   BearerAuth:
     in: header

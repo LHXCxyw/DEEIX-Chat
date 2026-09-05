@@ -81,6 +81,48 @@ func (h *Handler) UpdateMessage(c *gin.Context) {
 	response.Success(c, toMessageResponseWithRun(*item, run))
 }
 
+// DeleteMessage godoc
+// @Summary 删除消息
+// @Description 软删除当前用户会话中的指定消息，仅删除该条；其子消息上提到父消息以保持分支连续
+// @Tags chat
+// @Security BearerAuth
+// @Param id path string true "消息 public_id"
+// @Success 200 {object} DeleteMessageResponse
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /messages/{id} [delete]
+func (h *Handler) DeleteMessage(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid message id")
+		return
+	}
+
+	deletedCount, err := h.service.DeleteMessage(c.Request.Context(), userID, publicID)
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrMessageNotFound):
+			response.Error(c, http.StatusNotFound, "message not found")
+			return
+		default:
+			response.Error(c, http.StatusInternalServerError, "delete message failed")
+			return
+		}
+	}
+
+	h.recordAudit(c, "delete_message",
+		"message",
+		publicID,
+		map[string]interface{}{
+			"deletedCount": deletedCount,
+		},
+	)
+
+	response.Success(c, DeleteMessageResponse{DeletedCount: deletedCount})
+}
+
 // SetMessageFeedback godoc
 // @Summary 设置消息反馈
 // @Description 对 assistant 消息设置点赞/点踩，传空 feedback 表示取消反馈

@@ -1,7 +1,7 @@
-import * as React from "react";
-import { toast } from "sonner";
 import { Activity, Cable, Check, ChevronDownIcon, CloudDownload, Plus, RefreshCw, Search, Tags, ToggleLeft, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -40,11 +41,6 @@ import {
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   Table,
   TableBody,
   TableCell,
@@ -55,17 +51,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
-import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
-import { AdminBulkConfirmDialog } from "@/features/admin/components/bulk-confirm-dialog";
-import { Badge } from "@/components/ui/badge";
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { ApiError } from "@/shared/api/http-client";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import {
-  mergeBatchResultData,
-  runBulkActionInChunks,
-} from "@/shared/lib/bulk-action";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import {
   batchDeleteAdminLLMUpstreamModels,
   deleteAdminLLMUpstreamModel,
@@ -73,7 +64,6 @@ import {
   testAdminLLMUpstreamModelRoute,
   upsertAdminLLMUpstreamModel,
 } from "@/features/admin/api";
-import { cn } from "@/lib/utils";
 import type {
   AdminLLMAdapter,
   AdminLLMModelProbeResult,
@@ -81,31 +71,41 @@ import type {
   AdminLLMUpstreamView,
   UpsertAdminLLMUpstreamModelRequest,
 } from "@/features/admin/api/llm.types";
+import { AdminBulkConfirmDialog } from "@/features/admin/components/bulk-confirm-dialog";
+import { PermissionGroupSelector } from "@/features/admin/components/sections/groups/permission-group-selector";
 import { ModelProbeDialog } from "@/features/admin/components/sections/models/models-probe-dialog";
+import {
+  isUpstreamModelSyncAbort,
+  UpstreamModelBindingsApplyError,
+  useUpstreamModelSync,
+} from "@/features/admin/hooks/use-upstream-model-sync";
+import {
+  buildRowDrafts,
+  createDraftPlatformModelNameMap,
+  DEFAULT_NEW_BINDING,
+  displayToKindsJson,
+  type NewBindingFormState,
+  type RowDraft,
+  summarizeBatchDeleteResult,
+  summarizeImportResult,
+  validateRowDrafts,
+} from "@/features/admin/model/upstreams-models";
+import { MODEL_KIND_OPTIONS, PAGE_SIZE_DEFAULT } from "@/features/admin/types/llm";
 import {
   PROTOCOL_OPTIONS,
   resolveKindsDisplayForProtocols,
   resolveNextRouteProtocolSelection,
   sortProtocolsForDisplay,
 } from "@/features/admin/utils/llm-display";
-import { MODEL_KIND_OPTIONS, PAGE_SIZE_DEFAULT } from "@/features/admin/types/llm";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { cn } from "@/lib/utils";
+import { ApiError } from "@/shared/api/http-client";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import {
-  buildRowDrafts,
-  createDraftPlatformModelNameMap,
-  DEFAULT_NEW_BINDING,
-  displayToKindsJson,
-  summarizeBatchDeleteResult,
-  summarizeImportResult,
-  validateRowDrafts,
-  type NewBindingFormState,
-  type RowDraft,
-} from "@/features/admin/model/upstreams-models";
-import { PermissionGroupSelector } from "@/features/admin/components/sections/groups/permission-group-selector";
-import {
-  isUpstreamModelSyncAbort,
-  UpstreamModelBindingsApplyError,
-  useUpstreamModelSync,
-} from "@/features/admin/hooks/use-upstream-model-sync";
+  mergeBatchResultData,
+  runBulkActionInChunks,
+} from "@/shared/lib/bulk-action";
 
 function KindsDropdown({
   value,
@@ -509,6 +509,8 @@ function RemoteModelsDialog({
   const [importing, setImporting] = React.useState(false);
   const [remoteItems, setRemoteItems] = React.useState<AdminLLMRemoteModelItem[]>([]);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  // 渠道已不存在的模型：默认全部勾选为"删除"，未勾选的同步时仅停用。
+  const [missingSelected, setMissingSelected] = React.useState<Set<string>>(new Set());
   const [draftPlatformModelNames, setDraftPlatformModelNames] = React.useState<Map<string, string>>(new Map());
   const [query, setQuery] = React.useState("");
   const [permissionGroupIDs, setPermissionGroupIDs] = React.useState<number[]>([]);
@@ -531,6 +533,7 @@ function RemoteModelsDialog({
   React.useEffect(() => {
     setRemoteItems([]);
     setSelected(new Set());
+    setMissingSelected(new Set());
     setDraftPlatformModelNames(new Map());
     setQuery("");
     if (!catalog) return;
@@ -538,6 +541,7 @@ function RemoteModelsDialog({
     setRemoteItems(syncableItems);
     setSelected(new Set(syncableItems.map((item) => item.upstreamModelName)));
     setDraftPlatformModelNames(createDraftPlatformModelNameMap(syncableItems));
+    setMissingSelected(new Set(catalog.syncPlan?.inactivatedModels ?? []));
   }, [catalog]);
 
   React.useEffect(() => {
@@ -637,9 +641,26 @@ function RemoteModelsDialog({
       updatedUpstreamModels: result.updatedUpstreamModels,
       reactivatedModels: result.reactivatedModels,
       inactivatedModels: result.inactivatedModels,
+      deletedModels: result.deletedModels ?? 0,
       unchangedUpstreamModels: result.unchangedUpstreamModels,
       protectedUpstreamModels: result.protectedUpstreamModels,
     });
+  }
+
+  const missingModels = syncPlan?.inactivatedModels ?? [];
+  const missingModelsDirty = missingModels.some((name) => !missingSelected.has(name));
+
+  function toggleMissingOne(name: string, checked: boolean) {
+    setMissingSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(name);
+      else next.delete(name);
+      return next;
+    });
+  }
+
+  function toggleMissingAll(checked: boolean) {
+    setMissingSelected(checked ? new Set(missingModels) : new Set());
   }
 
   async function executeSyncBindings(allowEmpty: boolean) {
@@ -659,6 +680,7 @@ function RemoteModelsDialog({
       const result = await applySync({
         allowEmpty,
         expectedSnapshot: remoteSnapshotID,
+        deleteMissingModelNames: Array.from(missingSelected),
         items,
         permissionGroupIDs: permissionGroupIDs.length > 0 ? permissionGroupIDs : undefined,
       });
@@ -711,6 +733,8 @@ function RemoteModelsDialog({
     }
     void executeSyncBindings(remoteTotal === 0);
   }
+
+  const deletingMissingCount = missingSelected.size;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -791,6 +815,46 @@ function RemoteModelsDialog({
             </div>
           </div>
         </div>
+
+        {missingModels.length > 0 ? (
+          <div className="shrink-0 px-5 pb-2">
+            <div className="rounded-md border border-destructive/40 bg-destructive/5">
+              <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+                <span className="text-xs font-medium text-destructive">
+                  {t("modelsDialog.missingModelsTitle", { count: missingModels.length })}
+                </span>
+                <Checkbox
+                  checked={missingSelected.size === missingModels.length}
+                  onCheckedChange={(v) => toggleMissingAll(v === true)}
+                  aria-label={t("table.selectAll")}
+                />
+              </div>
+              <p className="px-3 pb-1.5 text-[11px] leading-4 text-muted-foreground">
+                {t("modelsDialog.missingModelsHint", {
+                  deleted: missingSelected.size,
+                  kept: missingModels.length - missingSelected.size,
+                })}
+              </p>
+              <div className="max-h-32 space-y-0.5 overflow-y-auto overscroll-contain px-2 pb-2">
+                {missingModels.map((name) => (
+                  <label
+                    key={name}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted/60"
+                  >
+                    <Checkbox
+                      checked={missingSelected.has(name)}
+                      onCheckedChange={(v) => toggleMissingOne(name, v === true)}
+                      aria-label={name}
+                    />
+                    <span className={cn("min-w-0 flex-1 truncate font-mono", missingSelected.has(name) && "text-destructive")}>
+                      {name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <DialogCollapsible open={remoteItems.length > 0} className="shrink-0">
           <div>
@@ -943,6 +1007,11 @@ function RemoteModelsDialog({
                     count: syncPlan?.inactivatedModels.length ?? 0,
                   })}
                 </p>
+                {deletingMissingCount > 0 ? (
+                  <p className="text-destructive">
+                    {t("modelsDialog.inactivateSyncDeleteWarning", { count: deletingMissingCount })}
+                  </p>
+                ) : null}
                 <p>{t("modelsDialog.inactivateSyncImpact")}</p>
               </div>
             </AlertDialogDescription>

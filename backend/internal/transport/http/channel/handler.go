@@ -831,9 +831,25 @@ func (h *Handler) SyncUpstreamModels(c *gin.Context) {
 		return
 	}
 
+	// 请求体可省略，保持旧客户端仅通过查询参数同步的兼容性。
+	var req SyncUpstreamModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil && c.Request.ContentLength > 0 {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	allowEmpty := c.Query("allow_empty") == "true"
+	if req.AllowEmpty != nil {
+		allowEmpty = *req.AllowEmpty
+	}
+	expectedSnapshot := c.Query("expected_snapshot")
+	if req.ExpectedSnapshot != "" {
+		expectedSnapshot = req.ExpectedSnapshot
+	}
+
 	data, err := h.service.SyncUpstreamModels(c.Request.Context(), upstreamID, appchannel.SyncUpstreamModelsInput{
-		AllowEmpty:       c.Query("allow_empty") == "true",
-		ExpectedSnapshot: c.Query("expected_snapshot"),
+		AllowEmpty:              allowEmpty,
+		ExpectedSnapshot:        expectedSnapshot,
+		DeleteMissingModelNames: req.DeleteMissingModelNames,
 	})
 	if err != nil {
 		switch {

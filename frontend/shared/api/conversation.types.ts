@@ -5,6 +5,7 @@ import type {
   CreateConversationProjectRequest as ContractCreateConversationProjectRequest,
   CreateConversationRequest as ContractCreateConversationRequest,
   CreateConversationShareRequest as ContractCreateConversationShareRequest,
+  DeleteMessageResponse as ContractDeleteMessageResponse,
   MediaVideoExtensionRequest as ContractMediaVideoExtensionRequest,
   RenameConversationRequest as ContractRenameConversationRequest,
   ReorderConversationProjectsRequest as ContractReorderConversationProjectsRequest,
@@ -13,6 +14,7 @@ import type {
   SetConversationArchiveRequest as ContractSetConversationArchiveRequest,
   SetConversationProjectRequest as ContractSetConversationProjectRequest,
   SetConversationStarRequest as ContractSetConversationStarRequest,
+  SetConversationSystemPromptRequest as ContractSetConversationSystemPromptRequest,
   SetMessageFeedbackRequest as ContractSetMessageFeedbackRequest,
   TemporaryChatHistoryMessage as ContractTemporaryChatHistoryMessage,
   UpdateConversationLabelsRequest as ContractUpdateConversationLabelsRequest,
@@ -24,6 +26,7 @@ import type {
   ConversationPreviewMessageResponse,
   ConversationProjectResponse,
   ConversationResponse,
+  ConversationRunStatusResponse,
   ConversationSearchPageResponse,
   ConversationSearchResultResponse,
   ConversationShareResponse,
@@ -40,7 +43,6 @@ import type {
   PublicSharedConversationResponse,
   PublicSharedMessageResponse,
   RevokeConversationSharesResponse,
-  ConversationRunStatusResponse,
   RunResponse,
   SendMessageResponse,
 } from "@deeix/api-contract";
@@ -172,6 +174,10 @@ export type ConversationOptions = Record<string, unknown>;
 export type UpstreamDebugInfo = ModelProbeDebugResponse;
 
 export type RenameConversationRequest = ContractRenameConversationRequest;
+
+export type SetConversationSystemPromptRequest = ContractSetConversationSystemPromptRequest;
+
+export type DeleteMessageResult = ContractDeleteMessageResponse;
 
 export type UpdateConversationLabelsRequest = ContractUpdateConversationLabelsRequest;
 

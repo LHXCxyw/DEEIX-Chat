@@ -14,9 +14,11 @@ ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY frontend/package.json ./frontend/package.json
 COPY backend/package.json ./backend/package.json
-COPY packages/api-contract/package.json ./packages/api-contract/package.json
 COPY frontend/scripts ./frontend/scripts
 COPY frontend/public/pwa ./frontend/public/pwa
+# api-contract 的源码必须在 pnpm install 之前就位，否则 workspace 链接的包缺少 src，
+# 生成类型会是安装时快照的旧内容。
+COPY packages/api-contract ./packages/api-contract
 
 RUN corepack enable
 
@@ -27,9 +29,12 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY VERSION /src/VERSION
 COPY scripts /src/scripts
 COPY frontend ./frontend
-COPY packages/api-contract ./packages/api-contract
 
 WORKDIR /src/frontend
+
+RUN grep -A6 "export interface CreateConversationRequest" ../packages/api-contract/src/types.generated.ts | grep -q "systemPrompt" \
+    && grep -q "deletedModels" ../packages/api-contract/src/types.generated.ts \
+    || (echo "api-contract types are stale: upload the latest packages/api-contract/src/types.generated.ts (run 'pnpm api:generate')" && exit 1)
 
 RUN node ../scripts/sync-version.mjs frontend \
     && pnpm build
