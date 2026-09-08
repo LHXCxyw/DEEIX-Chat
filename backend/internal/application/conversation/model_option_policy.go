@@ -43,6 +43,48 @@ type modelOptionPolicyConfig struct {
 	ModelCapabilitiesJSON string
 }
 
+// mediaOptionBaselinePaths 媒体生成协议的产品化参数兜底白名单。
+// 这些路径是画布/对话 UI 实际暴露的媒体控件，发送后仍会被协议级 sanitize 收敛；
+// 管理员白名单无论是否包含对应协议段（如旧版本初始化的配置缺少视频段），都保证放行，
+// 避免媒体参数被整体丢弃后静默回退到产品默认值。
+var mediaOptionBaselinePaths = map[string][]string{
+	"openai_image_generations": {"background", "n", "output_compression", "output_format", "partial_images", "quality", "response_format", "size"},
+	"openai_image_edits":       {"background", "input_fidelity", "n", "output_compression", "output_format", "partial_images", "quality", "response_format", "size"},
+	"xai_image":                {"aspect_ratio", "n", "resolution", "response_format"},
+	"xai_image_edits":          {"aspect_ratio", "n", "resolution", "response_format"},
+	"google_image_generation":  {"generationConfig.responseModalities", "generationConfig.imageConfig.aspectRatio", "generationConfig.imageConfig.imageSize"},
+	"gemini_interactions": {
+		"generation_config.temperature",
+		"generation_config.top_p",
+		"generation_config.max_output_tokens",
+		"response_format.type",
+		"response_format.aspect_ratio",
+		"response_format.image_size",
+		"response_format.mime_type",
+		"response_format.schema",
+		"generation_config.video_config.task",
+		"generation_config.video_config.duration_seconds",
+	},
+	"xai_video":                {"aspect_ratio", "duration", "resolution"},
+	"xai_video_extensions":     {"duration"},
+	"openai_video_generations": {"aspect_ratio", "duration", "resolution", "seconds", "size"},
+}
+
+// mediaOptionBaselinePathsFor 返回指定协议的产品化媒体参数兜底路径。
+func mediaOptionBaselinePathsFor(protocolKey string) [][]string {
+	raw, ok := mediaOptionBaselinePaths[protocolKey]
+	if !ok {
+		return nil
+	}
+	paths := make([][]string, 0, len(raw))
+	for _, value := range raw {
+		if path := splitModelOptionPath(value); len(path) > 0 {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
 func filterModelOptions(options map[string]any, protocol string, cfg modelOptionPolicyConfig) map[string]any {
 	mode := strings.TrimSpace(cfg.Mode)
 	if mode == "" {
@@ -73,6 +115,10 @@ func filterModelOptions(options map[string]any, protocol string, cfg modelOption
 		filtered = policyOptions
 	default:
 		filtered = make(map[string]any)
+		// 产品化媒体参数兜底放行在前，管理员配置的白名单在其上叠加（重复路径拷贝幂等）。
+		for _, path := range mediaOptionBaselinePathsFor(protocolKey) {
+			copyModelOptionPath(filtered, policyOptions, path)
+		}
 		for _, path := range modelOptionPathsForProtocol(cfg.AllowedPathsJSON, protocolKey) {
 			copyModelOptionPath(filtered, policyOptions, path)
 		}
@@ -492,6 +538,8 @@ func sanitizeModelOptionValues(options map[string]any, protocolKey string) {
 		llm.SanitizeXAIVideoOptions(options)
 	case "xai_video_extensions":
 		llm.SanitizeXAIVideoExtensionOptions(options)
+	case "openai_video_generations":
+		llm.SanitizeOpenAIVideoOptions(options)
 	case "openai_image_generations", "openai_image_edits":
 		value, ok := modelParamIntFromOption(options["partial_images"])
 		if !ok {
@@ -573,6 +621,8 @@ func modelOptionPolicyProtocolKey(protocol string) string {
 		return "xai_video"
 	case llm.AdapterXAIVideoExtensions:
 		return "xai_video_extensions"
+	case llm.AdapterOpenAIVideo:
+		return "openai_video_generations"
 	case llm.AdapterXAIResponses:
 		return "xai_responses"
 	default:

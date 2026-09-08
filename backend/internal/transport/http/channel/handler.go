@@ -1007,6 +1007,7 @@ func (h *Handler) CreateModel(c *gin.Context) {
 		CbFailureThreshold: req.CbFailureThreshold,
 		CbDurationMin:      req.CbDurationMin,
 		CbWindowMin:        req.CbWindowMin,
+		DefaultTaskTypes:   req.DefaultTaskTypes,
 	})
 	if err != nil {
 		switch {
@@ -1083,6 +1084,7 @@ func (h *Handler) UpdateModel(c *gin.Context) {
 		CbFailureThreshold: req.CbFailureThreshold,
 		CbDurationMin:      req.CbDurationMin,
 		CbWindowMin:        req.CbWindowMin,
+		DefaultTaskTypes:   req.DefaultTaskTypes,
 	})
 	if err != nil {
 		switch {

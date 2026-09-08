@@ -139,6 +139,9 @@ func Migrate(db *gorm.DB) error {
 	if err := dropLegacyProjectWorkspaceOwnerPublicIndex(db); err != nil {
 		return err
 	}
+	if err := dropLegacyUpstreamNameOnlyUniqueIndex(db); err != nil {
+		return err
+	}
 	if err := invalidateUnsignedFileEmbeddings(db); err != nil {
 		return err
 	}
@@ -159,6 +162,20 @@ func dropLegacyProjectWorkspaceOwnerPublicIndex(db *gorm.DB) error {
 		return nil
 	}
 	return migrator.DropIndex(&model.ProjectWorkspace{}, "idx_project_workspaces_owner_public")
+}
+
+// dropLegacyUpstreamNameOnlyUniqueIndex 删除历史版本的错误单列唯一索引。
+// 该索引因复合定义不完整只覆盖 name，会阻止用户创建与既有渠道（包括软删除渠道、平台渠道、
+// 其他用户的渠道）同名的自用渠道，导致创建时唯一冲突被笼统上报为 500。
+func dropLegacyUpstreamNameOnlyUniqueIndex(db *gorm.DB) error {
+	migrator := db.Migrator()
+	if !migrator.HasTable(&model.LLMUpstream{}) {
+		return nil
+	}
+	if !migrator.HasIndex(&model.LLMUpstream{}, "idx_llm_upstreams_owner_name") {
+		return nil
+	}
+	return migrator.DropIndex(&model.LLMUpstream{}, "idx_llm_upstreams_owner_name")
 }
 
 // invalidateUnsignedFileEmbeddings makes legacy vectors enter the existing reindex flow.
@@ -297,6 +314,13 @@ func SeedLLMSettings(db *gorm.DB) error {
 			Value:       `{"algorithm":"weighted_random"}`,
 			ValueType:   "json",
 			Description: "负载均衡默认参数",
+		},
+		{
+			Namespace:   "llm",
+			Key:         "default_task_routes",
+			Value:       `{}`,
+			ValueType:   "json",
+			Description: "按任务类型配置默认平台模型",
 		},
 	}
 

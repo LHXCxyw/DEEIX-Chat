@@ -44,6 +44,13 @@
     "video_gen": "Video generation",
     "video_extension": "Video extension"
   },
+  "defaultTasks": {
+    "chat": "Chat and internal text tasks",
+    "image_generation": "Image generation",
+    "image_edit": "Image editing",
+    "video_generation": "Video generation",
+    "video_extension": "Video extension"
+  },
   "table": {
     "searchPlaceholder": "Search model, vendor, group, or description",
     "allStatus": "All",
@@ -374,6 +381,8 @@
     "noMatchedVendors": "No matching vendors",
     "kind": "Kind",
     "selectKind": "Select kind",
+    "defaultTasks": "Default task routing",
+    "defaultTasksDescription": "When a request does not specify a model, this model is preferred for the selected tasks. Each task can have only one default model.",
     "otherInfo": "Other information",
     "accessScope": "Availability",
     "permissionGroups": "Permission groups",

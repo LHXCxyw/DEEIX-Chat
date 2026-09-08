@@ -14,7 +14,7 @@ import (
 )
 
 func toUserModelResponse(item domainchannel.UserModel) UserModelResponse {
-	return UserModelResponse{ID: item.ID, OwnerUserID: item.OwnerUserID, UpstreamID: item.UpstreamID, UpstreamName: item.UpstreamName, UpstreamCompatible: item.UpstreamCompatible, UpstreamModelID: item.UpstreamModelID, Name: item.Name, Protocol: item.Protocol, KindsJSON: item.KindsJSON, Status: item.Status, Priority: item.Priority, Weight: item.Weight, HeadersJSON: item.HeadersJSON, CreatedAt: item.CreatedAt.Format("2006-01-02T15:04:05.000Z07:00"), UpdatedAt: item.UpdatedAt.Format("2006-01-02T15:04:05.000Z07:00")}
+	return UserModelResponse{ID: item.ID, OwnerUserID: item.OwnerUserID, UpstreamID: item.UpstreamID, UpstreamName: item.UpstreamName, UpstreamCompatible: item.UpstreamCompatible, UpstreamModelID: item.UpstreamModelID, Name: item.Name, Protocol: item.Protocol, KindsJSON: item.KindsJSON, CapabilitiesJSON: item.CapabilitiesJSON, Status: item.Status, Priority: item.Priority, Weight: item.Weight, HeadersJSON: item.HeadersJSON, CreatedAt: item.CreatedAt.Format("2006-01-02T15:04:05.000Z07:00"), UpdatedAt: item.UpdatedAt.Format("2006-01-02T15:04:05.000Z07:00")}
 }
 
 func userModelID(c *gin.Context) (uint, bool) {
@@ -59,12 +59,12 @@ func (h *Handler) CreateUserModel(c *gin.Context) {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	item, err := h.service.CreateUserModel(c.Request.Context(), middleware.MustUserID(c), upstreamID, appchannel.CreateUserModelInput{UpstreamModelID: req.UpstreamModelID, Name: req.Name, Protocol: req.Protocol, KindsJSON: req.KindsJSON, Status: req.Status, Priority: req.Priority, Weight: req.Weight, HeadersJSON: req.HeadersJSON})
+	item, err := h.service.CreateUserModel(c.Request.Context(), middleware.MustUserID(c), upstreamID, appchannel.CreateUserModelInput{UpstreamModelID: req.UpstreamModelID, Name: req.Name, Protocol: req.Protocol, KindsJSON: req.KindsJSON, CapabilitiesJSON: req.CapabilitiesJSON, Status: req.Status, Priority: req.Priority, Weight: req.Weight, HeadersJSON: req.HeadersJSON})
 	if err != nil {
 		userModelError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, toUserModelResponse(*item))
+	c.JSON(http.StatusCreated, response.Envelope{ErrorMsg: "", Data: toUserModelResponse(*item)})
 }
 
 // BatchCreateUserModels 批量创建用户私有模型。
@@ -80,7 +80,7 @@ func (h *Handler) BatchCreateUserModels(c *gin.Context) {
 	}
 	inputs := make([]appchannel.CreateUserModelInput, len(req.Items))
 	for i, item := range req.Items {
-		inputs[i] = appchannel.CreateUserModelInput{UpstreamModelID: item.UpstreamModelID, Name: item.Name, Protocol: item.Protocol, KindsJSON: item.KindsJSON, Status: item.Status, Priority: item.Priority, Weight: item.Weight, HeadersJSON: item.HeadersJSON}
+		inputs[i] = appchannel.CreateUserModelInput{UpstreamModelID: item.UpstreamModelID, Name: item.Name, Protocol: item.Protocol, KindsJSON: item.KindsJSON, CapabilitiesJSON: item.CapabilitiesJSON, Status: item.Status, Priority: item.Priority, Weight: item.Weight, HeadersJSON: item.HeadersJSON}
 	}
 	created, failed, err := h.service.BatchCreateUserModels(c.Request.Context(), middleware.MustUserID(c), upstreamID, inputs)
 	if err != nil {
@@ -110,7 +110,15 @@ func (h *Handler) TestUserUpstream(c *gin.Context) {
 
 // ListUserModels 查询用户私有模型。
 func (h *Handler) ListUserModels(c *gin.Context) {
-	items, err := h.service.ListUserModels(c.Request.Context(), middleware.MustUserID(c))
+	var (
+		items []domainchannel.UserModel
+		err   error
+	)
+	if c.Query("view") == "management" {
+		items, err = h.service.ListManagedUserModels(c.Request.Context(), middleware.MustUserID(c))
+	} else {
+		items, err = h.service.ListUserModels(c.Request.Context(), middleware.MustUserID(c))
+	}
 	if err != nil {
 		userModelError(c, err)
 		return
@@ -133,7 +141,7 @@ func (h *Handler) UpdateUserModel(c *gin.Context) {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	item, err := h.service.UpdateUserModel(c.Request.Context(), middleware.MustUserID(c), modelID, appchannel.UpdateUserModelInput{Name: req.Name, Protocol: req.Protocol, KindsJSON: req.KindsJSON, Status: req.Status, Priority: req.Priority, Weight: req.Weight, HeadersJSON: req.HeadersJSON})
+	item, err := h.service.UpdateUserModel(c.Request.Context(), middleware.MustUserID(c), modelID, appchannel.UpdateUserModelInput{Name: req.Name, Protocol: req.Protocol, KindsJSON: req.KindsJSON, CapabilitiesJSON: req.CapabilitiesJSON, Status: req.Status, Priority: req.Priority, Weight: req.Weight, HeadersJSON: req.HeadersJSON})
 	if err != nil {
 		userModelError(c, err)
 		return
@@ -148,7 +156,7 @@ func (h *Handler) BatchUpdateUserModels(c *gin.Context) {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	patch := appchannel.UpdateUserModelInput{Name: req.Patch.Name, Protocol: req.Patch.Protocol, KindsJSON: req.Patch.KindsJSON, Status: req.Patch.Status, Priority: req.Patch.Priority, Weight: req.Patch.Weight, HeadersJSON: req.Patch.HeadersJSON}
+	patch := appchannel.UpdateUserModelInput{Name: req.Patch.Name, Protocol: req.Patch.Protocol, KindsJSON: req.Patch.KindsJSON, CapabilitiesJSON: req.Patch.CapabilitiesJSON, Status: req.Patch.Status, Priority: req.Patch.Priority, Weight: req.Patch.Weight, HeadersJSON: req.Patch.HeadersJSON}
 	success, failed, err := h.service.BatchUpdateUserModels(c.Request.Context(), middleware.MustUserID(c), req.IDs, patch)
 	if err != nil {
 		userModelError(c, err)

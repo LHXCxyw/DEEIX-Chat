@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canConnectGraphNodes, createUserPromptTemplate, gatherGraphGenerateInputs, graphEdgeMidpoint, graphEdgePath, graphNodePorts, graphPortCanvasPosition, isGraphPortCompatibleTarget, isPromptGraphNode, loadPromptTemplates, promptNodeTruncated } from "./canvas-graph.ts";
-import { editorSizeOptions } from "./canvas-image-options.ts";
+import { canConnectGraphNodes, createUserPromptTemplate, gatherGraphGenerateInputs, graphEdgeMidpoint, graphEdgePath, graphMediaCompatible, graphNodePorts, graphPortCanvasPosition, isGraphPortCompatibleTarget, isPromptGraphNode, loadPromptTemplates, MAX_MEDIA_REFERENCE_COUNT, promptNodeTruncated } from "./canvas-graph.ts";
+import { editorSizeOptions, modelCanvasMediaType, resolveCanvasMediaRoute, resolveCanvasVideoControls } from "./canvas-image-options.ts";
 import { activeElasticDecorationForElement, arrangeCanvasElements, canvasElementIDsCarriedByDecoration, canvasElementIDsCarriedByFrame, canvasElementIDsInRegion, elasticCanvasBounds, frameFitBounds, frameUnionBounds, isCanvasElementCenterInside, isCanvasElementInside, nextCanvasVersion, refitFrameDecorations, selectedNodeIDsForFilter, shouldDetachElasticBoundary, stableFrameIDForElement, trappedFocusIndex, viewportForCanvasKey } from "./canvas-interactions.ts";
 import { clampViewportScale, legacyNodeToGraphNodes, parseCanvasState, restoreEdges, restoreGraphNodes, stringifyCanvasState, toPersistedEdges, toPersistedGraphNodes, toPersistedNodes, zoomViewportAt } from "./canvas-persist.ts";
 import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, type GraphEdge, type GraphNode, PROMPT_MAX_LENGTH } from "./canvas-types.ts";
@@ -531,4 +531,119 @@ test("编辑器输出尺寸同步：非法尺寸返回空参数", () => {
   const model = editorTestModel(["openai_image_edits"]);
   assert.deepEqual(editorSizeOptions(model, 0, 100), {});
   assert.deepEqual(editorSizeOptions(null, 100, 100), {});
+});
+
+test("视频节点持久化往返保留 mediaType 与运行恢复字段", () => {
+  const videoGenerate = {
+    id: "gv1", kind: "generate" as const, mediaType: "video" as const,
+    x: 0, y: 0, createdAt: 1, model: "video-model", options: { duration: 5 },
+    resultCount: 1, operation: "generate" as const, maskReference: null,
+  };
+  const videoOutput = {
+    id: "ov1", kind: "output" as const, mediaType: "video" as const,
+    x: 400, y: 0, createdAt: 2, status: "done" as const,
+    fileID: "file-video-1", fileName: "video.mp4", mimeType: "video/mp4",
+    sizeBytes: 1024, durationSeconds: 5,
+  };
+  const roundTripped = parseCanvasState(stringifyCanvasState({
+    version: 4, projectName: "graph", activeCanvasID: "c1", conversationID: null,
+    selectedModelName: null, pointerMode: "pan", viewport: { x: 0, y: 0, scale: 1 }, imageOptions: {},
+    canvases: [{
+      id: "c1", name: "C1", viewport: { x: 0, y: 0, scale: 1 }, nodes: [],
+      graphNodes: toPersistedGraphNodes([videoGenerate, videoOutput]), edges: [],
+      decorations: [], bookmarks: [], createdAt: 1, updatedAt: 1,
+    }],
+  }));
+
+  // 运行中的任务：持久化了 conversationID/runID 后恢复为待恢复态而非 idle
+  const persistedGenerate = (roundTripped?.graphNodes ?? []).find((node) => node.id === "gv1");
+  assert.ok(persistedGenerate && persistedGenerate.kind === "generate");
+  assert.equal(persistedGenerate.mediaType, "video");
+  const running = restoreGraphNodes([{ ...persistedGenerate, conversationID: "conv-1", runID: "canvas-gv1" }]);
+  const runningGenerate = running.find((node) => node.kind === "generate");
+  assert.ok(runningGenerate && runningGenerate.kind === "generate");
+  assert.equal(runningGenerate.runStatus, "pending");
+  assert.equal(runningGenerate.conversationID, "conv-1");
+  assert.equal(runningGenerate.runID, "canvas-gv1");
+
+  const restoredOutput = restoreGraphNodes(roundTripped?.graphNodes ?? []).find((node) => node.id === "ov1");
+  assert.ok(restoredOutput && restoredOutput.kind === "output");
+  assert.equal(restoredOutput.mediaType, "video");
+  assert.equal(restoredOutput.mimeType, "video/mp4");
+  assert.equal(restoredOutput.durationSeconds, 5);
+});
+
+test("媒体类型连线规则：视频输出不可作参考图，图像生成不可写入视频输出节点", () => {
+  assert.equal(MAX_MEDIA_REFERENCE_COUNT, 7);
+  // 视频输出 -> 生成节点参考图端口：拒绝
+  assert.equal(graphMediaCompatible(
+    { kind: "output", mediaType: "video" },
+    { kind: "generate", mediaType: "video" },
+    "image",
+  ), false);
+  // 图像输出 -> 生成节点参考图端口：允许
+  assert.equal(graphMediaCompatible(
+    { kind: "output", mediaType: "image" },
+    { kind: "generate", mediaType: "image" },
+    "image",
+  ), true);
+  // 图像生成 -> 已定型为视频的输出节点：拒绝
+  assert.equal(graphMediaCompatible(
+    { kind: "generate", mediaType: "image" },
+    { kind: "output", mediaType: "video" },
+    "result",
+  ), false);
+  // 视频生成 -> 中立输出节点（未定型）：允许
+  assert.equal(graphMediaCompatible(
+    { kind: "generate", mediaType: "video" },
+    { kind: "output", mediaType: undefined },
+    "result",
+  ), true);
+});
+
+test("视频模型路由判定与参数控件解析", () => {
+  const videoModel = {
+    platformModelName: "video-model",
+    modelScope: "platform" as const,
+    userModelID: undefined,
+    upstreamID: undefined,
+    upstreamName: undefined,
+    upstreamCompatible: undefined,
+    icon: "",
+    vendor: "xai",
+    vendorName: "xAI",
+    vendorIcon: "",
+    displayGroupID: null,
+    displayGroupName: "",
+    displayGroupIcon: "",
+    kinds: ["video_gen"],
+    protocols: ["openai_video_generations"],
+    defaultOptions: {},
+    optionControls: [{ path: "duration", type: "number" as const, label: "Duration" }],
+    lockedOptionPaths: [],
+    nativeToolKeys: [],
+    nativeTools: [],
+    pricing: null,
+    videoExtension: null,
+  };
+  const imageModel = { ...videoModel, kinds: ["image_gen"], protocols: ["openai_image_generations"], optionControls: [] };
+
+  assert.equal(modelCanvasMediaType(videoModel), "video");
+  assert.equal(modelCanvasMediaType(imageModel), "image");
+
+  // 视频路由：模型与参考图数量合法时放行，超过 7 张拒绝
+  assert.deepEqual(resolveCanvasMediaRoute(videoModel, "video", 0), { route: "video_generation", blockedReason: null });
+  assert.deepEqual(resolveCanvasMediaRoute(videoModel, "video", 7), { route: "video_generation", blockedReason: null });
+  assert.equal(resolveCanvasMediaRoute(videoModel, "video", 8).blockedReason, "video_too_many_references");
+  // 图像模型不能走视频路由
+  assert.equal(resolveCanvasMediaRoute(imageModel, "video", 0).blockedReason, "video_unsupported");
+
+  // 协议基础控件 ∪ 管理端下发控件，过滤到视频白名单路径
+  const controls = resolveCanvasVideoControls(videoModel);
+  const paths = controls.map((control) => control.path);
+  assert.ok(paths.includes("duration"));
+  assert.ok(paths.includes("resolution"));
+  assert.ok(paths.includes("aspect_ratio"));
+  // 图像模型没有视频控件
+  assert.equal(resolveCanvasVideoControls(imageModel).length, 0);
 });

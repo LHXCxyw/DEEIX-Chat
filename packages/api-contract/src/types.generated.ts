@@ -1152,6 +1152,11 @@ export interface CreateModelRequest {
   cbPolicyMode?: "default" | "enforced";
   /** @min 0 */
   cbWindowMin?: number;
+  /**
+   * @maxItems 5
+   * @uniqueItems true
+   */
+  defaultTaskTypes?: string[];
   /** @maxLength 10000 */
   description?: string;
   displayGroupID?: number;
@@ -1317,11 +1322,15 @@ export interface CreateUserResponseDoc {
 export interface CreateUserUpstreamRequest {
   /** @minItems 1 */
   api_keys: UserUpstreamAPIKeyRequest[];
+  /** @maxLength 512 */
   base_url: string;
+  /** @maxLength 64 */
   compatible: string;
   connect_timeout_ms: number;
   headers: Record<string, string>;
+  /** @maxLength 128 */
   name: string;
+  preset_id: string;
   read_timeout_ms: number;
 }
 
@@ -2304,6 +2313,7 @@ export interface ModelResponse {
   cbWindowMin: number;
   contextWindow: number;
   createdAt: string;
+  defaultTaskTypes: string[];
   description: string;
   displayGroupID: number | null;
   displayGroupIcon: string;
@@ -3085,6 +3095,21 @@ export interface ReorderServersRequest {
   servers: ReorderServerOrderItem[];
 }
 
+export interface RequeryMediaVideoAttachmentResponse {
+  durationSeconds?: number;
+  fileID: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface RequeryMediaVideoRunResponse {
+  attachments?: RequeryMediaVideoAttachmentResponse[];
+  message?: string;
+  runID: string;
+  status: string;
+}
+
 export interface ResetUpstreamCircuitResponseDoc {
   data: CircuitResetResponse;
   errorMsg: string;
@@ -3675,6 +3700,11 @@ export interface UpdateModelRequest {
   cbPolicyMode?: "default" | "enforced";
   /** @min 0 */
   cbWindowMin?: number;
+  /**
+   * @maxItems 5
+   * @uniqueItems true
+   */
+  defaultTaskTypes?: string[];
   /** @maxLength 10000 */
   description?: string;
   displayGroupID?: number;
@@ -8245,6 +8275,25 @@ export namespace ConversationRuns {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = SuccessDoc;
+  }
+
+  /**
+   * @description 按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态
+   * @tags chat
+   * @name MediaRequeryCreate
+   * @summary 重查失败的视频生成任务
+   * @request POST:/conversation-runs/{run_id}/media/requery
+   * @secure
+   */
+  export namespace MediaRequeryCreate {
+    export type RequestParams = {
+      /** 运行 ID */
+      runId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = RequeryMediaVideoRunResponse;
   }
 
   /**

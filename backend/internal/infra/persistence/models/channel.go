@@ -6,10 +6,10 @@ import "time"
 type LLMUpstream struct {
 	BaseModel // 改用 BaseModel 支持软删除
 	
-	Name                 string `gorm:"size:128;not null;default:'';uniqueIndex:idx_llm_upstreams_owner_name;comment:上游名称"`
-	
+	Name                 string `gorm:"size:128;not null;default:'';uniqueIndex:idx_llm_upstreams_owner_name_live,priority:2,where:deleted_at IS NULL;comment:上游名称"`
+
 	// 用户归属字段（BYOK 支持）
-	OwnerUserID          *uint  `gorm:"index:idx_llm_upstreams_owner;comment:归属用户ID，NULL为平台渠道"`
+	OwnerUserID          *uint  `gorm:"index:idx_llm_upstreams_owner;uniqueIndex:idx_llm_upstreams_owner_name_live,priority:1;comment:归属用户ID，NULL为平台渠道"`
 	OwnershipType        string `gorm:"size:16;not null;default:'platform';index:idx_llm_upstreams_ownership;comment:归属类型: platform/user"`
 	IsSharedWithPlatform bool   `gorm:"not null;default:false;comment:用户是否同意纳入平台统计"`
 	BillingMode          string `gorm:"size:16;not null;default:'self';comment:计费模式: self/platform_pricing"`

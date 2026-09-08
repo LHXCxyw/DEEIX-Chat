@@ -1171,6 +1171,34 @@ export async function resumeMessageGenerationStream(
   return completed;
 }
 
+export type MediaVideoRequeryResult = {
+  status: "completed" | "pending" | "failed";
+  runID: string;
+  message?: string;
+  attachments?: {
+    fileID: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    durationSeconds?: number;
+  }[];
+};
+
+// 任务重查：对失败的视频生成运行按上游任务 ID 回查一次，completed 时返回回收的产物附件。
+export async function requeryMediaVideoRun(
+  accessToken: string,
+  runID: string,
+): Promise<MediaVideoRequeryResult> {
+  return authedRequest<MediaVideoRequeryResult>(
+    `/api/v1/conversation-runs/${pathParam(runID)}/media/requery`,
+    {
+      method: "POST",
+      accessToken,
+    },
+    true,
+  );
+}
+
 export async function setMessageFeedback(
   accessToken: string,
   messagePublicID: string,

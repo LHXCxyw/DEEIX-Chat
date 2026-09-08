@@ -25,6 +25,7 @@ const (
 	AdapterImageEditsJSON          = "image_edits_json"            // POST /v1/images/edits（JSON 体，images[].image_url）
 	AdapterXAIVideo               = "xai_video"                   // POST /v1/videos/generations + GET /v1/videos/{request_id}
 	AdapterXAIVideoExtensions     = "xai_video_extensions"        // POST /v1/videos/extensions + GET /v1/videos/{request_id}
+	AdapterOpenAIVideo            = "openai_video_generations"    // POST /v1/videos + GET /v1/videos/{id}（Sora 兼容）
 )
 
 var (
@@ -47,7 +48,7 @@ func NormalizeAdapter(raw string) string {
 func IsImplementedAdapter(raw string) bool {
 	switch NormalizeAdapter(raw) {
 	case AdapterOpenAIResponses, AdapterOpenRouterChat, AdapterOpenRouterResponses, AdapterOpenAIChatCompletions, AdapterOpenAIImageGenerations, AdapterOpenAIImageEdits, AdapterXAIResponses,
-		AdapterAnthropicMessages, AdapterGoogleGenerateContent, AdapterGoogleImageGeneration, AdapterGeminiInteractions, AdapterXAIImage, AdapterXAIImageEdits, AdapterImageEditsJSON, AdapterXAIVideo, AdapterXAIVideoExtensions:
+		AdapterAnthropicMessages, AdapterGoogleGenerateContent, AdapterGoogleImageGeneration, AdapterGeminiInteractions, AdapterXAIImage, AdapterXAIImageEdits, AdapterImageEditsJSON, AdapterXAIVideo, AdapterXAIVideoExtensions, AdapterOpenAIVideo:
 		return true
 	default:
 		return false
@@ -124,7 +125,7 @@ func IsImageEditAdapter(raw string) bool {
 // IsVideoGenerationAdapter 返回协议是否属于独立视频生成链路。
 func IsVideoGenerationAdapter(raw string) bool {
 	switch NormalizeAdapter(raw) {
-	case AdapterGeminiInteractions, AdapterXAIVideo, AdapterXAIVideoExtensions:
+	case AdapterGeminiInteractions, AdapterXAIVideo, AdapterXAIVideoExtensions, AdapterOpenAIVideo:
 		return true
 	default:
 		return false
@@ -140,7 +141,7 @@ func DefaultEndpointForAdapter(adapter string) string {
 		return EndpointImageGenerations
 	case AdapterOpenAIImageEdits, AdapterXAIImageEdits, AdapterImageEditsJSON:
 		return EndpointImageEdits
-	case AdapterXAIVideo:
+	case AdapterXAIVideo, AdapterOpenAIVideo:
 		return EndpointVideoGenerations
 	case AdapterXAIVideoExtensions:
 		return EndpointVideoExtensions

@@ -1,4 +1,5 @@
 import {
+  type CanvasMediaType,
   type GraphEdge,
   type GraphInputPort,
   type GraphNode,
@@ -101,6 +102,35 @@ const GRAPH_CONNECTION_RULES: Record<GraphNodeKind, { toKind: GraphNodeKind; toP
   output: [{ toKind: "generate", toPort: "image" }],
 };
 
+// 媒体类型兼容性：视频产物不能作为图像参考图回灌，图像生成也不能写入视频输出节点。
+// 未写入结果的输出节点（mediaType 未定）视为中立，可接任意媒体类型的生成节点。
+export type GraphMediaCarrier = { kind: GraphNodeKind; mediaType?: CanvasMediaType };
+
+export function graphMediaCompatible(
+  from: GraphMediaCarrier | undefined,
+  to: GraphMediaCarrier | undefined,
+  toPort: GraphInputPort,
+): boolean {
+  if (toPort === "prompt") {
+    return true;
+  }
+  if (toPort === "image") {
+    // 参考图入端口：来源必须是图像（参考图节点或图像输出），视频输出不可作参考
+    if (from?.kind === "output" && from.mediaType === "video") {
+      return false;
+    }
+    return true;
+  }
+  if (toPort === "result") {
+    // 结果入端口：目标输出节点已定型为另一媒体类型时不兼容
+    if (to?.kind === "output" && to.mediaType && from?.kind === "generate" && from.mediaType && to.mediaType !== from.mediaType) {
+      return false;
+    }
+    return true;
+  }
+  return true;
+}
+
 export function graphConnectionTargets(
   sourceKind: GraphNodeKind,
 ): { toKind: GraphNodeKind; toPort: GraphInputPort }[] {
@@ -127,6 +157,9 @@ export function canConnectGraphNodes(
   if (!compatible) {
     return { ok: false, reason: "incompatible" };
   }
+  if (!graphMediaCompatible(from, to, attempt.toPort)) {
+    return { ok: false, reason: "incompatible" };
+  }
   if (edges.some((edge) => edge.fromNodeID === attempt.fromNodeID && edge.toNodeID === attempt.toNodeID && edge.toPort === attempt.toPort)) {
     return { ok: false, reason: "duplicate" };
   }
@@ -146,6 +179,9 @@ export function isGraphPortCompatibleTarget(
     (rule) => rule.toKind === targetKind && rule.toPort === targetPort,
   );
 }
+
+// 生成节点输入汇聚的参考图上限：与后端 maxMediaVideoInputImages 保持一致
+export const MAX_MEDIA_REFERENCE_COUNT = 7;
 
 // ---------------------------------------------------------------------------
 // 图执行输入汇聚：按连线创建顺序拼接提示词，收集参考图与输出连线

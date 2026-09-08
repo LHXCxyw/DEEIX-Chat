@@ -190,6 +190,7 @@ type ModelView struct {
 	Pricing            *appbilling.PublicModelPricing
 	CreatedAt          string
 	UpdatedAt          string
+	DefaultTaskTypes   []string
 }
 
 // ModelVendorView 表示技术厂商目录展示数据。

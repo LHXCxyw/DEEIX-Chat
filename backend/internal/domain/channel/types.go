@@ -31,17 +31,17 @@ type RateLimitDefaults struct {
 
 // Upstream 表示上游配置。
 type Upstream struct {
-	ID                   uint
-	Name                 string
-	BaseURL              string
-	Compatible           string
-	
+	ID         uint
+	Name       string
+	BaseURL    string
+	Compatible string
+
 	// 用户归属字段（BYOK 支持）
 	OwnerUserID          *uint  // NULL=平台渠道, 非NULL=用户自有渠道
 	OwnershipType        string // "platform" | "user"
 	IsSharedWithPlatform bool   // 用户是否同意将用量纳入平台统计
 	BillingMode          string // "self"=不计费 | "platform_pricing"=按平台价格计费
-	
+
 	ProtocolDefaultsJSON string
 	Status               string
 	ConnectTimeoutMS     int
@@ -201,4 +201,15 @@ type LLMSetting struct {
 	Description string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// UserUpstreamPreset 是管理员维护的用户自用渠道预设，不包含任何密钥。
+type UserUpstreamPreset struct {
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	BaseURL              string `json:"base_url"`
+	Compatible           string `json:"compatible"`
+	ProtocolDefaultsJSON string `json:"protocol_defaults"`
+	Enabled              bool   `json:"enabled"`
+	SortOrder            int    `json:"sort_order"`
 }

@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ChevronDown,
+  Clapperboard,
   Clock3,
   Copy,
   Download,
@@ -15,6 +16,7 @@ import {
   Pencil,
   Play,
   Repeat2,
+  Search,
   Square,
   TextCursorInput,
   Trash2,
@@ -53,6 +55,7 @@ export type GraphNodeActionHandlers = {
   onRemoveNode: (nodeID: string) => void;
   onRunNode: (nodeID: string) => void;
   onCancelNode: (nodeID: string) => void;
+  onRequeryNode: (nodeID: string) => void;
   onPreviewNode: (node: OutputGraphNode) => void;
   onDownloadNode: (node: OutputGraphNode) => void;
   onEditNode: (node: OutputGraphNode) => void;
@@ -438,9 +441,16 @@ function GenerateGraphNodeView({
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  const mediaType = node.mediaType ?? "image";
+  const isVideo = mediaType === "video";
+  // 按节点媒体类型过滤可选模型：视频节点只列视频模型，图像节点只列图像模型
+  const candidateModels = React.useMemo(
+    () => imageModels.filter((model) => model.kinds.includes("video_gen") === isVideo),
+    [imageModels, isVideo],
+  );
   const model = React.useMemo(
-    () => imageModels.find((item) => item.platformModelName === node.model) ?? null,
-    [imageModels, node.model],
+    () => candidateModels.find((item) => item.platformModelName === node.model) ?? null,
+    [candidateModels, node.model],
   );
   const running = node.runStatus === "pending" || node.runStatus === "streaming";
 
@@ -448,12 +458,15 @@ function GenerateGraphNodeView({
     <GraphNodeShell
       nodeID={node.id}
       kind="generate"
-      title={t("nodeKindGenerate")}
-      icon={<ListOrdered className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.8} />}
+      title={isVideo ? t("nodeKindGenerateVideo") : t("nodeKindGenerate")}
+      icon={isVideo
+        ? <Clapperboard className="size-3.5 shrink-0 text-violet-500" strokeWidth={1.8} />
+        : <ListOrdered className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.8} />}
       width={size.width}
       height={size.height}
       selected={selected}
       compatible={compatible}
+      variant={isVideo ? "video" : undefined}
       onRemove={() => handlers.onRemoveNode(node.id)}
       removeLabel={t("nodeDelete")}
     >
@@ -481,13 +494,21 @@ function GenerateGraphNodeView({
         {/* 模型与参数 */}
         <div data-canvas-selectable className="shrink-0 space-y-1.5">
           <CanvasModelSelect
-            imageModels={imageModels}
+            imageModels={candidateModels}
             selectedModel={model}
-            onSelect={(modelName) => handlers.onUpdateNode(node.id, { model: modelName })}
+            onSelect={(modelName) => {
+              const nextModel = candidateModels.find((item) => item.platformModelName === modelName) ?? null;
+              // 节点媒体类型跟随所选模型（视频模型 -> 视频节点，图像模型 -> 图像节点）
+              handlers.onUpdateNode(node.id, {
+                model: modelName,
+                mediaType: nextModel?.kinds.includes("video_gen") ? "video" : "image",
+              });
+            }}
             className="w-full justify-between"
           />
           <CanvasImageParams
             model={model}
+            mediaType={mediaType}
             options={node.options}
             onOptionsChange={(options) => handlers.onUpdateNode(node.id, { options })}
             resultCount={node.resultCount}
@@ -513,18 +534,63 @@ function GenerateGraphNodeView({
             ) : (
               <div className="flex size-full flex-col items-center justify-center gap-2">
                 <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-muted/50 via-transparent to-muted/50" />
-                <span className="relative size-6 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+                <span className={cn(
+                  "relative size-6 animate-spin rounded-full border-2 border-primary/25",
+                  isVideo ? "border-t-violet-500" : "border-t-primary",
+                )} />
                 <p className="relative max-w-[85%] truncate text-[11px] text-muted-foreground">
                   {node.statusLabel || t("nodePreparing")}
                 </p>
+                {/* 视频任务的粒度进度（后端 progress 事件） */}
+                {isVideo && typeof node.progress === "number" ? (
+                  <div className="relative flex w-[70%] items-center gap-2">
+                    <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-violet-500 transition-[width] duration-500"
+                        style={{ width: `${Math.min(100, Math.max(0, node.progress))}%` }}
+                      />
+                    </div>
+                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                      {Math.min(100, Math.max(0, node.progress))}%
+                    </span>
+                  </div>
+                ) : null}
               </div>
             )
           ) : node.errorMessage ? (
             <div className="flex size-full flex-col items-center justify-center gap-1.5 overflow-y-auto p-2 text-center">
-              <AlertTriangle className="size-5 shrink-0 text-destructive/80" strokeWidth={1.6} />
-              <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
-                {node.errorMessage}
-              </p>
+              {/* 重查进行中（错误态节点带 statusLabel）：显示加载状态并隐藏重查按钮 */}
+              {node.statusLabel ? (
+                <div className="flex flex-col items-center gap-1.5">
+                  <span className={cn(
+                    "size-5 animate-spin rounded-full border-2 border-primary/25",
+                    isVideo ? "border-t-violet-500" : "border-t-primary",
+                  )} />
+                  <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
+                    {node.statusLabel}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <AlertTriangle className="size-5 shrink-0 text-destructive/80" strokeWidth={1.6} />
+                  <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
+                    {node.errorMessage}
+                  </p>
+                  <button
+                    type="button"
+                    data-canvas-selectable
+                    className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handlers.onRequeryNode(node.id);
+                    }}
+                  >
+                    <Search className="size-3" strokeWidth={1.8} />
+                    {t("nodeRequery")}
+                  </button>
+                </>
+              )}
               {node.errorDetail ? (
                 <div className="w-full">
                   <button
@@ -552,8 +618,17 @@ function GenerateGraphNodeView({
             </div>
           ) : (
             <div className="flex size-full items-center justify-center gap-1.5 text-muted-foreground/50">
-              <Images className="size-4" strokeWidth={1.6} />
-              <span className="text-[11px]">{t("generateNodeIdleHint")}</span>
+              {isVideo ? (
+                <>
+                  <Clapperboard className="size-4" strokeWidth={1.6} />
+                  <span className="text-[11px]">{t("generateNodeIdleHintVideo")}</span>
+                </>
+              ) : (
+                <>
+                  <Images className="size-4" strokeWidth={1.6} />
+                  <span className="text-[11px]">{t("generateNodeIdleHint")}</span>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -565,7 +640,7 @@ function GenerateGraphNodeView({
           disabled={!model}
           className={cn(
             "pointer-events-auto flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg text-xs font-semibold text-primary-foreground shadow-sm transition-all",
-            "bg-primary hover:bg-primary/90 active:scale-[0.98]",
+            isVideo ? "bg-violet-600 hover:bg-violet-600/90 active:scale-[0.98]" : "bg-primary hover:bg-primary/90 active:scale-[0.98]",
             "disabled:pointer-events-none disabled:opacity-50",
           )}
           onPointerDown={(event) => event.stopPropagation()}
@@ -586,7 +661,7 @@ function GenerateGraphNodeView({
           ) : (
             <>
               <Play className="size-3.5" strokeWidth={2} />
-              {t("generateNodeRun")}
+              {isVideo ? t("generateNodeRunVideo") : t("generateNodeRun")}
             </>
           )}
         </button>
@@ -612,6 +687,7 @@ function OutputGraphNodeView({
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
   const [imageLoaded, setImageLoaded] = React.useState(false);
+  const isVideo = (node.mediaType ?? (node.mimeType?.startsWith("video/") ? "video" : "image")) === "video";
   const displaySource = node.status === "done" ? node.objectURL : undefined;
 
   React.useEffect(() => {
@@ -634,12 +710,15 @@ function OutputGraphNodeView({
     <GraphNodeShell
       nodeID={node.id}
       kind="output"
-      title={t("nodeKindOutput")}
-      icon={<Images className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.8} />}
+      title={isVideo ? t("nodeKindOutputVideo") : t("nodeKindOutput")}
+      icon={isVideo
+        ? <Clapperboard className="size-3.5 shrink-0 text-violet-500" strokeWidth={1.8} />
+        : <Images className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.8} />}
       width={size.width}
       height={size.height}
       selected={selected}
       compatible={compatible}
+      variant={isVideo ? "video" : undefined}
       onRemove={() => handlers.onRemoveNode(node.id)}
       removeLabel={t("nodeDelete")}
     >
@@ -652,6 +731,28 @@ function OutputGraphNodeView({
                 {node.errorMessage || t("generateFailed")}
               </p>
             </div>
+          ) : node.status === "done" && isVideo && displaySource ? (
+            <>
+              {/* 视频产物：原生播放器，桌面与移动端均可触控播放 */}
+              {/* biome-ignore lint/a11y/useMediaCaption: 生成视频无字幕源，节点内嵌播放器为非关键媒体展示 */}
+              <video
+                src={displaySource}
+                controls
+                preload="metadata"
+                playsInline
+                className="size-full bg-black/80 object-contain"
+                data-canvas-selectable
+              />
+              {/* 悬停操作工具条 */}
+              <div className="pointer-events-none absolute top-1.5 left-1.5 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/node:opacity-100">
+                <OutputActionButton label={t("nodeDownload")} onClick={() => handlers.onDownloadNode(node)}>
+                  <Download className="size-3" strokeWidth={1.8} />
+                </OutputActionButton>
+                <OutputActionButton label={t("nodeCopyPrompt")} onClick={() => void copyPrompt()}>
+                  <Copy className="size-3" strokeWidth={1.8} />
+                </OutputActionButton>
+              </div>
+            </>
           ) : node.status === "done" && displaySource ? (
             <>
               {!imageLoaded ? (
@@ -727,6 +828,12 @@ function OutputGraphNodeView({
               {node.model}
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
+              {isVideo && node.durationSeconds !== undefined && node.durationSeconds > 0 ? (
+                <span className="inline-flex items-center gap-0.5 tabular-nums">
+                  <Clock3 className="size-2.5" aria-hidden="true" />
+                  {node.durationSeconds}s
+                </span>
+              ) : null}
               {node.durationMs !== undefined ? (
                 <span className="inline-flex items-center gap-0.5 tabular-nums">
                   <Clock3 className="size-2.5" aria-hidden="true" />

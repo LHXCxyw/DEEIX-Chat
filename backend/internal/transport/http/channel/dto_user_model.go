@@ -2,25 +2,27 @@ package channel
 
 // CreateUserModelRequest 用户创建私有模型请求。
 type CreateUserModelRequest struct {
-	UpstreamModelID string `json:"upstreamModelId" binding:"required,max=256"`
-	Name            string `json:"name" binding:"required,min=1,max=128"`
-	Protocol        string `json:"protocol" binding:"required,max=64"`
-	KindsJSON       string `json:"kinds" binding:"omitempty,max=1000"`
-	Status          string `json:"status" binding:"omitempty,oneof=active disabled"`
-	Priority        int    `json:"priority" binding:"gte=0"`
-	Weight          int    `json:"weight" binding:"gte=0"`
-	HeadersJSON     string `json:"headers" binding:"omitempty,max=10000"`
+	UpstreamModelID  string `json:"upstreamModelId" binding:"required,max=256"`
+	Name             string `json:"name" binding:"required,min=1,max=128"`
+	Protocol         string `json:"protocol" binding:"omitempty,max=64"`
+	KindsJSON        string `json:"kinds" binding:"omitempty,max=1000"`
+	CapabilitiesJSON string `json:"capabilities" binding:"omitempty,max=20000"`
+	Status           string `json:"status" binding:"omitempty,oneof=active disabled"`
+	Priority         int    `json:"priority" binding:"gte=0"`
+	Weight           int    `json:"weight" binding:"gte=0"`
+	HeadersJSON      string `json:"headers" binding:"omitempty,max=10000"`
 }
 
 // UpdateUserModelRequest 用户更新私有模型请求。
 type UpdateUserModelRequest struct {
-	Name        *string `json:"name,omitempty" binding:"omitempty,max=128"`
-	Protocol    *string `json:"protocol,omitempty" binding:"omitempty,max=64"`
-	KindsJSON   *string `json:"kinds,omitempty" binding:"omitempty,max=1000"`
-	Status      *string `json:"status,omitempty" binding:"omitempty,oneof=active disabled"`
-	Priority    *int    `json:"priority,omitempty" binding:"omitempty,gte=0"`
-	Weight      *int    `json:"weight,omitempty" binding:"omitempty,gte=0"`
-	HeadersJSON *string `json:"headers,omitempty" binding:"omitempty,max=10000"`
+	Name             *string `json:"name,omitempty" binding:"omitempty,max=128"`
+	Protocol         *string `json:"protocol,omitempty" binding:"omitempty,max=64"`
+	KindsJSON        *string `json:"kinds,omitempty" binding:"omitempty,max=1000"`
+	CapabilitiesJSON *string `json:"capabilities,omitempty" binding:"omitempty,max=20000"`
+	Status           *string `json:"status,omitempty" binding:"omitempty,oneof=active disabled"`
+	Priority         *int    `json:"priority,omitempty" binding:"omitempty,gte=0"`
+	Weight           *int    `json:"weight,omitempty" binding:"omitempty,gte=0"`
+	HeadersJSON      *string `json:"headers,omitempty" binding:"omitempty,max=10000"`
 }
 
 // BatchCreateUserModelsRequest 用户批量导入私有模型请求。
@@ -65,6 +67,7 @@ type UserModelResponse struct {
 	Name               string `json:"name"`
 	Protocol           string `json:"protocol"`
 	KindsJSON          string `json:"kinds"`
+	CapabilitiesJSON   string `json:"capabilities"`
 	Status             string `json:"status"`
 	Priority           int    `json:"priority"`
 	Weight             int    `json:"weight"`

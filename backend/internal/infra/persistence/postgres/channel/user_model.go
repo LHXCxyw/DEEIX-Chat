@@ -9,22 +9,36 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func toUserModelDomain(item model.LLMUserModel) domainchannel.UserModel {
-	return domainchannel.UserModel{ID: item.ID, OwnerUserID: item.OwnerUserID, UpstreamID: item.UpstreamID, UpstreamName: item.Upstream.Name, UpstreamCompatible: item.Upstream.Compatible, UpstreamModelID: item.UpstreamModelID, Name: item.Name, Protocol: item.Protocol, KindsJSON: item.KindsJSON, Status: item.Status, Priority: item.Priority, Weight: item.Weight, HeadersJSON: item.HeadersJSON, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
+	return domainchannel.UserModel{ID: item.ID, OwnerUserID: item.OwnerUserID, UpstreamID: item.UpstreamID, UpstreamName: item.Upstream.Name, UpstreamCompatible: item.Upstream.Compatible, UpstreamModelID: item.UpstreamModelID, Name: item.Name, Protocol: item.Protocol, KindsJSON: item.KindsJSON, CapabilitiesJSON: item.CapabilitiesJSON, Status: item.Status, Priority: item.Priority, Weight: item.Weight, HeadersJSON: item.HeadersJSON, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
 }
 
 func toUserModelModel(item *domainchannel.UserModel) model.LLMUserModel {
-	return model.LLMUserModel{BaseModel: model.BaseModel{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, OwnerUserID: item.OwnerUserID, UpstreamID: item.UpstreamID, UpstreamModelID: item.UpstreamModelID, Name: item.Name, Protocol: item.Protocol, KindsJSON: item.KindsJSON, Status: item.Status, Priority: item.Priority, Weight: item.Weight, HeadersJSON: item.HeadersJSON}
+	return model.LLMUserModel{BaseModel: model.BaseModel{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, OwnerUserID: item.OwnerUserID, UpstreamID: item.UpstreamID, UpstreamModelID: item.UpstreamModelID, Name: item.Name, Protocol: item.Protocol, KindsJSON: item.KindsJSON, CapabilitiesJSON: item.CapabilitiesJSON, Status: item.Status, Priority: item.Priority, Weight: item.Weight, HeadersJSON: item.HeadersJSON}
 }
 
-// ListUserModels 查询用户私有模型。
+// ListUserModels 查询用户可路由的私有模型。
 func (r *Repo) ListUserModels(ctx context.Context, userID uint) ([]domainchannel.UserModel, error) {
+	return r.listUserModels(ctx, userID, true)
+}
+
+// ListManagedUserModels 查询用户可管理的全部私有模型，包括停用模型和停用渠道下的模型。
+func (r *Repo) ListManagedUserModels(ctx context.Context, userID uint) ([]domainchannel.UserModel, error) {
+	return r.listUserModels(ctx, userID, false)
+}
+
+func (r *Repo) listUserModels(ctx context.Context, userID uint, routableOnly bool) ([]domainchannel.UserModel, error) {
 	var items []model.LLMUserModel
-	if err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Joins("JOIN llm_upstreams u ON u.id = llm_user_models.upstream_id").
-		Where("llm_user_models.owner_user_id = ? AND llm_user_models.status = ? AND u.owner_user_id = ? AND u.ownership_type = ? AND u.status = ?", userID, "active", userID, "user", "active").
+		Where("llm_user_models.owner_user_id = ? AND u.owner_user_id = ? AND u.ownership_type = ?", userID, userID, "user")
+	if routableOnly {
+		query = query.Where("llm_user_models.status = ? AND u.status = ?", "active", "active")
+	}
+	if err := query.
 		Order("llm_user_models.priority ASC, llm_user_models.created_at DESC").
 		Preload("Upstream").Find(&items).Error; err != nil {
 		return nil, dberror.Translate(err)
@@ -56,25 +70,27 @@ func (r *Repo) CreateUserModel(ctx context.Context, item *domainchannel.UserMode
 		return repository.ErrInvalidInput
 	}
 	entity := toUserModelModel(item)
-	var existing model.LLMUserModel
-	lookup := r.db.WithContext(ctx).
-		Where("owner_user_id = ? AND upstream_id = ? AND name = ?", item.OwnerUserID, item.UpstreamID, item.Name).
-		First(&existing)
-	if lookup.Error == nil {
-		entity = existing
-		if err := r.db.WithContext(ctx).Preload("Upstream", "owner_user_id = ? AND ownership_type = ?", item.OwnerUserID, "user").First(&entity, existing.ID).Error; err != nil {
-			return dberror.Translate(err)
-		}
-		*item = toUserModelDomain(entity)
-		return nil
-	}
-	if !errors.Is(lookup.Error, gorm.ErrRecordNotFound) {
-		return dberror.Translate(lookup.Error)
-	}
-	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
+	if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "owner_user_id"}, {Name: "upstream_id"}, {Name: "upstream_model_id"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Name: "deleted_at"}, Value: nil},
+		}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"protocol":     item.Protocol,
+			"kinds_json":   item.KindsJSON,
+			"status":       "active",
+			"priority":     item.Priority,
+			"weight":       item.Weight,
+			"headers_json": item.HeadersJSON,
+			"updated_at":   item.UpdatedAt,
+		}),
+	}).Create(&entity).Error; err != nil {
 		return dberror.Translate(err)
 	}
-	if err := r.db.WithContext(ctx).Preload("Upstream", "owner_user_id = ? AND ownership_type = ?", item.OwnerUserID, "user").First(&entity, entity.ID).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Preload("Upstream", "owner_user_id = ? AND ownership_type = ?", item.OwnerUserID, "user").
+		Where("owner_user_id = ? AND upstream_id = ? AND upstream_model_id = ?", item.OwnerUserID, item.UpstreamID, item.UpstreamModelID).
+		First(&entity).Error; err != nil {
 		return dberror.Translate(err)
 	}
 	*item = toUserModelDomain(entity)
@@ -86,8 +102,18 @@ func (r *Repo) UpdateUserModel(ctx context.Context, item *domainchannel.UserMode
 	if item == nil || item.ID == 0 {
 		return repository.ErrInvalidInput
 	}
-	entity := toUserModelModel(item)
-	result := r.db.WithContext(ctx).Model(&model.LLMUserModel{}).Where("id = ? AND owner_user_id = ?", item.ID, item.OwnerUserID).Updates(&entity)
+	updates := map[string]any{
+		"name":              item.Name,
+		"protocol":          item.Protocol,
+		"kinds_json":        item.KindsJSON,
+		"capabilities_json": item.CapabilitiesJSON,
+		"status":            item.Status,
+		"priority":          item.Priority,
+		"weight":            item.Weight,
+		"headers_json":      item.HeadersJSON,
+		"updated_at":        item.UpdatedAt,
+	}
+	result := r.db.WithContext(ctx).Model(&model.LLMUserModel{}).Where("id = ? AND owner_user_id = ?", item.ID, item.OwnerUserID).Updates(updates)
 	if result.Error != nil {
 		return dberror.Translate(result.Error)
 	}

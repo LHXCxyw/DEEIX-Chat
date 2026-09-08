@@ -63,7 +63,7 @@ const XAI_IMAGE_RESOLUTIONS = ["1k", "2k"];
 const XAI_VIDEO_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"];
 const XAI_VIDEO_DURATIONS = Array.from({ length: 15 }, (_, index) => String(index + 1));
 const XAI_VIDEO_EXTENSION_DURATIONS = Array.from({ length: 9 }, (_, index) => String(index + 2));
-const XAI_VIDEO_RESOLUTIONS = ["480p", "720p", "1080p"];
+const XAI_VIDEO_RESOLUTIONS = ["420p", "480p", "512p", "720p", "768p", "1080p", "2k"];
 
 const XAI_IMAGE_OPTION_CONTROLS = [
   {

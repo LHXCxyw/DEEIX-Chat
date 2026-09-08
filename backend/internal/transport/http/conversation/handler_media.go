@@ -48,6 +48,8 @@ func (h *Handler) StreamVideoExtension(c *gin.Context) {
 type mediaVideoTransportRequest struct {
 	Prompt                string
 	Model                 string
+	ModelScope            string
+	UserModelID           uint
 	Options               map[string]any
 	ClientRunID           string
 	FileIDs               []string
@@ -133,6 +135,8 @@ func (h *Handler) streamMediaVideo(c *gin.Context, taskType appconversation.Medi
 				TaskType:              taskType,
 				Prompt:                req.Prompt,
 				PlatformModelName:     req.Model,
+				ModelScope:            req.ModelScope,
+				UserModelID:           req.UserModelID,
 				Options:               req.Options,
 				ClientRunID:           req.ClientRunID,
 				FileIDs:               req.FileIDs,

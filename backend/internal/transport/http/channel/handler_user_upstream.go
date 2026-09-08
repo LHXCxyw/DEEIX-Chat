@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	appchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,7 @@ import (
 func (h *Handler) ListUserUpstreams(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID := middleware.MustUserID(c)
-	
+
 	upstreams, err := h.service.ListUserUpstreams(ctx, userID)
 	if err != nil {
 		if errors.Is(err, appchannel.ErrUserUpstreamDisabled) {
@@ -35,7 +36,7 @@ func (h *Handler) ListUserUpstreams(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "list user upstreams failed")
 		return
 	}
-	
+
 	response.Success(c, UserUpstreamListResponse{
 		Items: toUserUpstreamResponses(upstreams),
 	})
@@ -52,19 +53,21 @@ func (h *Handler) ListUserUpstreams(c *gin.Context) {
 // @Success 201 {object} UserUpstreamResponse
 // @Failure 400 {object} response.Envelope "参数错误"
 // @Failure 403 {object} response.Envelope "功能未启用或超过配额"
+// @Failure 409 {object} response.Envelope "同名渠道已存在"
 // @Failure 500 {object} response.Envelope
 // @Router /user/upstreams [post]
 func (h *Handler) CreateUserUpstream(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID := middleware.MustUserID(c)
-	
+
 	var req CreateUserUpstreamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	
+
 	input := appchannel.CreateUserUpstreamInput{
+		PresetID:         req.PresetID,
 		Name:             req.Name,
 		BaseURL:          req.BaseURL,
 		Compatible:       req.Compatible,
@@ -73,7 +76,7 @@ func (h *Handler) CreateUserUpstream(c *gin.Context) {
 		ReadTimeoutMS:    req.ReadTimeoutMS,
 		Headers:          req.Headers,
 	}
-	
+
 	upstream, err := h.service.CreateUserUpstream(ctx, userID, input)
 	if err != nil {
 		switch {
@@ -83,14 +86,17 @@ func (h *Handler) CreateUserUpstream(c *gin.Context) {
 			response.Error(c, http.StatusForbidden, "user upstream quota exceeded")
 		case errors.Is(err, appchannel.ErrInvalidUpstreamName),
 			errors.Is(err, appchannel.ErrInvalidBaseURL),
-			errors.Is(err, appchannel.ErrAPIKeysRequired):
+			errors.Is(err, appchannel.ErrAPIKeysRequired),
+			errors.Is(err, repository.ErrInvalidInput):
 			response.Error(c, http.StatusBadRequest, err.Error())
+		case errors.Is(err, repository.ErrDuplicate):
+			response.Error(c, http.StatusConflict, "user upstream name already exists")
 		default:
 			response.Error(c, http.StatusInternalServerError, "create user upstream failed")
 		}
 		return
 	}
-	
+
 	c.JSON(http.StatusCreated, toUserUpstreamResponse(*upstream))
 }
 
@@ -114,7 +120,7 @@ func (h *Handler) GetUserUpstream(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "invalid upstream id")
 		return
 	}
-	
+
 	// 使用仓储层方法获取（带越权校验）
 	upstream, err := h.service.GetUserUpstreamByID(ctx, userID, uint(upstreamID))
 	if err != nil {
@@ -125,7 +131,7 @@ func (h *Handler) GetUserUpstream(c *gin.Context) {
 		response.Error(c, http.StatusNotFound, "user upstream not found")
 		return
 	}
-	
+
 	response.Success(c, toUserUpstreamResponse(*upstream))
 }
 
@@ -152,13 +158,13 @@ func (h *Handler) UpdateUserUpstream(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "invalid upstream id")
 		return
 	}
-	
+
 	var req UpdateUserUpstreamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	
+
 	input := appchannel.UpdateUserUpstreamInput{
 		Name:             req.Name,
 		BaseURL:          req.BaseURL,
@@ -171,17 +177,19 @@ func (h *Handler) UpdateUserUpstream(c *gin.Context) {
 		converted := convertAPIKeyInputs(*req.APIKeys)
 		input.APIKeys = &converted
 	}
-	
+
 	if err := h.service.UpdateUserUpstream(ctx, userID, uint(upstreamID), input); err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUserUpstreamDisabled):
 			response.Error(c, http.StatusForbidden, "user upstream feature is disabled")
+		case errors.Is(err, repository.ErrDuplicate):
+			response.Error(c, http.StatusConflict, "user upstream name already exists")
 		default:
 			response.Error(c, http.StatusInternalServerError, "update user upstream failed")
 		}
 		return
 	}
-	
+
 	response.Success(c, gin.H{"message": "updated"})
 }
 
@@ -207,7 +215,7 @@ func (h *Handler) DeleteUserUpstream(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "invalid upstream id")
 		return
 	}
-	
+
 	if err := h.service.DeleteUserUpstream(ctx, userID, uint(upstreamID)); err != nil {
 		switch {
 		case errors.Is(err, appchannel.ErrUserUpstreamDisabled):
@@ -217,7 +225,7 @@ func (h *Handler) DeleteUserUpstream(c *gin.Context) {
 		}
 		return
 	}
-	
+
 	response.Success(c, gin.H{"message": "deleted"})
 }
 

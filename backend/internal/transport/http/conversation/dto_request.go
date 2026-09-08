@@ -183,9 +183,11 @@ type MediaImageRequest struct {
 type MediaVideoRequest struct {
 	Prompt                string         `json:"prompt" binding:"required"`
 	Model                 string         `json:"model,omitempty" binding:"omitempty,max=128"`
+	ModelScope            string         `json:"modelScope,omitempty" binding:"omitempty,oneof=platform user"`
+	UserModelID           uint           `json:"userModelID,omitempty"`
 	Options               map[string]any `json:"options,omitempty"`
 	ClientRunID           string         `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
-	FileIDs               []string       `json:"fileIDs,omitempty" binding:"max=1"`
+	FileIDs               []string       `json:"fileIDs,omitempty" binding:"max=7"`
 	ParentMessagePublicID string         `json:"parentMessagePublicID,omitempty" binding:"omitempty,max=32"`
 	SourceMessagePublicID string         `json:"sourceMessagePublicID,omitempty" binding:"omitempty,max=32"`
 	BranchReason          string         `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit"`

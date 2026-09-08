@@ -75,6 +75,12 @@ export type AdminLLMCompatible =
   | "custom";
 export type AdminLLMCbLogic = "or" | "and";
 export type AdminLLMModelCbPolicyMode = "default" | "enforced";
+export type AdminLLMDefaultTaskType =
+  | "chat"
+  | "image_generation"
+  | "image_edit"
+  | "video_generation"
+  | "video_extension";
 
 // ---------------------------------------------------------------------------
 // Upstream views
@@ -94,12 +100,13 @@ export type AdminLLMUpstreamAPIKey = UpstreamAPIKeyResponse;
 
 export type AdminLLMModelDTO = Omit<
   ModelResponse,
-  "accessScope" | "cbPolicyMode" | "status" | "vendor"
+  "accessScope" | "cbPolicyMode" | "defaultTaskTypes" | "status" | "vendor"
 > & {
   vendor: AdminLLMModelVendor;
   accessScope: AdminLLMModelAccessScope;
   status: AdminLLMStatus;
   cbPolicyMode: AdminLLMModelCbPolicyMode;
+  defaultTaskTypes: AdminLLMDefaultTaskType[];
   contextWindow: number;
 };
 
@@ -184,6 +191,18 @@ export type AdminLLMSetting = {
   updatedAt: string;
 };
 
+export type AdminUserUpstreamPreset = {
+  id: string;
+  name: string;
+  base_url: string;
+  compatible: AdminLLMCompatible;
+  protocol_defaults: string;
+  enabled: boolean;
+  sort_order: number;
+};
+
+export type ReplaceAdminUserUpstreamPresetsRequest = AdminUserUpstreamPreset[];
+
 export type AdminLLMModelVendorDTO = ModelVendorResponse;
 export type AdminLLMModelVendorDeleteConflictDetails = ModelVendorDeleteConflictDetails;
 export type AdminLLMModelDisplayGroupDTO = ModelDisplayGroupResponse;
@@ -214,22 +233,24 @@ export type UpdateAdminLLMUpstreamRequest = Omit<
 
 export type CreateAdminLLMModelRequest = Omit<
   CreateModelRequest,
-  "accessScope" | "cbPolicyMode" | "status" | "vendor"
+  "accessScope" | "cbPolicyMode" | "defaultTaskTypes" | "status" | "vendor"
 > & {
   vendor?: AdminLLMModelVendor;
   accessScope?: AdminLLMModelAccessScope;
   status?: AdminLLMStatus;
   cbPolicyMode?: AdminLLMModelCbPolicyMode;
+  defaultTaskTypes?: AdminLLMDefaultTaskType[];
 };
 
 export type UpdateAdminLLMModelRequest = Omit<
   UpdateModelRequest,
-  "accessScope" | "cbPolicyMode" | "status" | "vendor"
+  "accessScope" | "cbPolicyMode" | "defaultTaskTypes" | "status" | "vendor"
 > & {
   vendor?: AdminLLMModelVendor;
   accessScope?: AdminLLMModelAccessScope;
   status?: AdminLLMStatus;
   cbPolicyMode?: AdminLLMModelCbPolicyMode;
+  defaultTaskTypes?: AdminLLMDefaultTaskType[];
 };
 
 export type ReorderAdminLLMModelsRequest = ReorderModelsRequest;

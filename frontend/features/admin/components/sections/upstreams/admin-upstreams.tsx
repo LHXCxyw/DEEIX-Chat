@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, ToggleLeft, Trash2 } from "lucide-react";
+import { Plus, Settings2, ToggleLeft, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import * as React from "react";
@@ -31,6 +31,11 @@ import {
   DeleteUpstreamDialog,
 } from "./upstreams-dialog";
 import { UpstreamsTable } from "./upstreams-table";
+
+const UserUpstreamPresetsSheet = dynamic(
+  () => import("./user-upstream-presets-sheet").then((module) => module.UserUpstreamPresetsSheet),
+  { ssr: false },
+);
 
 const UpstreamSheet = dynamic(() => import("./upstreams-sheet").then((module) => module.UpstreamSheet), {
   ssr: false,
@@ -79,6 +84,7 @@ export function AdminUpstreamsPage() {
   const circuitBreaker = useAdminCircuitBreaker();
   const [syncOnOpenUpstreamID, setSyncOnOpenUpstreamID] = React.useState<number | null>(null);
   const [statusConfirmOpen, setStatusConfirmOpen] = React.useState(false);
+  const [presetsOpen, setPresetsOpen] = React.useState(false);
 
   return (
     <div className="space-y-3 pb-10">
@@ -177,6 +183,16 @@ export function AdminUpstreamsPage() {
         <Button
           type="button"
           size="sm"
+          variant="outline"
+          className="h-7 gap-1 text-xs"
+          onClick={() => setPresetsOpen(true)}
+        >
+          <Settings2 className="size-3.5 stroke-1" />
+          {t("actions.managePresets")}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
           className="h-7 gap-1 text-xs"
           onClick={upstreams.handleOpenCreate}
           disabled={upstreams.loading}
@@ -214,6 +230,8 @@ export function AdminUpstreamsPage() {
         onPageSizeChange={upstreams.setPageSize}
         loading={upstreams.loading}
       />
+
+      <UserUpstreamPresetsSheet open={presetsOpen} onOpenChange={setPresetsOpen} />
 
       {upstreams.sheetState.open ? (
         <UpstreamSheet

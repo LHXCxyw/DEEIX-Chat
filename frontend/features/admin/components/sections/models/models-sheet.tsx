@@ -67,6 +67,7 @@ import { getAdminOpenRouterOfficialPricing } from "@/features/admin/api/billing"
 import type { AdminOfficialPricingCatalogItemDTO } from "@/features/admin/api/billing.types";
 import type {
   AdminLLMAdapter,
+  AdminLLMDefaultTaskType,
   AdminLLMModelAccessScope,
   AdminLLMModelCbPolicyMode,
   AdminLLMModelDisplayGroupDTO,
@@ -151,6 +152,7 @@ type FormState = {
   cbFailureThreshold: string;
   cbDurationMin: string;
   cbWindowMin: string;
+  defaultTaskTypes: AdminLLMDefaultTaskType[];
 };
 
 type OpenRouterCatalogState = {
@@ -166,6 +168,25 @@ type VendorOption = {
 
 const UNKNOWN_VENDOR = "unknown";
 const FOLLOW_VENDOR_GROUP = "vendor";
+const DEFAULT_TASK_TYPE_OPTIONS: AdminLLMDefaultTaskType[] = [
+  "chat",
+  "image_generation",
+  "image_edit",
+  "video_generation",
+  "video_extension",
+];
+
+const DEFAULT_TASK_KIND: Record<AdminLLMDefaultTaskType, string> = {
+  chat: "chat",
+  image_generation: "image_gen",
+  image_edit: "image_edit",
+  video_generation: "video_gen",
+  video_extension: "video_extension",
+};
+
+function supportedDefaultTaskTypes(kinds: string[]): AdminLLMDefaultTaskType[] {
+  return DEFAULT_TASK_TYPE_OPTIONS.filter((taskType) => kinds.includes(DEFAULT_TASK_KIND[taskType]));
+}
 
 function normalizeModelIdentityPart(value: string | null | undefined): string {
   return value?.normalize("NFKC").trim().toLowerCase() ?? "";
@@ -226,6 +247,7 @@ function buildInitialState(target: AdminLLMModelDTO | null): FormState {
       cbFailureThreshold: "0",
       cbDurationMin: "0",
       cbWindowMin: "0",
+      defaultTaskTypes: [],
     };
   }
   let kinds: string[] = [];
@@ -245,6 +267,7 @@ function buildInitialState(target: AdminLLMModelDTO | null): FormState {
     cbFailureThreshold: String(target.cbFailureThreshold ?? 0),
     cbDurationMin: String(target.cbDurationMin ?? 0),
     cbWindowMin: String(target.cbWindowMin ?? 0),
+    defaultTaskTypes: target.defaultTaskTypes ?? [],
   };
 }
 
@@ -409,12 +432,17 @@ export function ModelSheet({ open, mode, target, models, vendors, displayGroups,
   }
 
   function toggleKind(kind: string) {
-    setForm((prev) => ({
-      ...prev,
-      kinds: prev.kinds.includes(kind)
+    setForm((prev) => {
+      const kinds = prev.kinds.includes(kind)
         ? prev.kinds.filter((k) => k !== kind)
-        : [...prev.kinds, kind],
-    }));
+        : [...prev.kinds, kind];
+      const supported = new Set(supportedDefaultTaskTypes(kinds));
+      return {
+        ...prev,
+        kinds,
+        defaultTaskTypes: prev.defaultTaskTypes.filter((taskType) => supported.has(taskType)),
+      };
+    });
   }
 
   const loadUpstreams = useCallback(async () => {
@@ -909,6 +937,7 @@ export function ModelSheet({ open, mode, target, models, vendors, displayGroups,
           cbFailureThreshold,
           cbDurationMin,
           cbWindowMin,
+          defaultTaskTypes: form.defaultTaskTypes,
         });
         if (manualPermissionGroupIDs.length > 0) {
           await saveModelPermissionGroups(token, data.model.id);
@@ -958,6 +987,7 @@ export function ModelSheet({ open, mode, target, models, vendors, displayGroups,
         cbFailureThreshold,
         cbDurationMin,
         cbWindowMin,
+        defaultTaskTypes: form.defaultTaskTypes,
       };
       await updateAdminLLMModel(token, target.id, payload);
       await saveModelPermissionGroups(token, target.id);
@@ -1152,6 +1182,28 @@ export function ModelSheet({ open, mode, target, models, vendors, displayGroups,
                   </PopoverContent>
                 </Popover>
               </div>
+
+              {mode === "edit" ? (
+                <div className="min-w-0 space-y-1">
+                  <Label className="text-xs font-normal text-muted-foreground">{t("sheet.defaultTasks")}</Label>
+                  <div className="space-y-1 rounded-md border border-border/60 p-2">
+                    {supportedDefaultTaskTypes(form.kinds).map((taskType) => (
+                      <label key={taskType} className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={form.defaultTaskTypes.includes(taskType)}
+                          disabled={pending}
+                          className="size-3.5"
+                          onCheckedChange={(checked) => setField("defaultTaskTypes", checked === true
+                            ? Array.from(new Set([...form.defaultTaskTypes, taskType]))
+                            : form.defaultTaskTypes.filter((value) => value !== taskType))}
+                        />
+                        <span>{t(`defaultTasks.${taskType}`)}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[11px] leading-4 text-muted-foreground">{t("sheet.defaultTasksDescription")}</p>
+                </div>
+              ) : null}
 
               <div className="min-w-0 space-y-1">
                 <Label className="text-xs font-normal text-muted-foreground" htmlFor="model-icon">{t("sheet.icon")}</Label>

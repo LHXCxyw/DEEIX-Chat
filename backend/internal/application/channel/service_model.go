@@ -61,6 +61,11 @@ func (s *Service) ListModels(ctx context.Context, page int, pageSize int, input 
 	if err := s.normalizeModelAvailability(ctx, views); err != nil {
 		return nil, 0, err
 	}
+	defaultRoutes, _, err := s.loadDefaultTaskRoutes(ctx, s.repo)
+	if err != nil && !errors.Is(err, repository.ErrLLMSettingNotFound) {
+		return nil, 0, err
+	}
+	applyDefaultTaskTypes(views, defaultRoutes)
 	return views, total, nil
 }
 
@@ -434,10 +439,31 @@ func (s *Service) CreateModel(ctx context.Context, input CreateModelInput) (*Mod
 		CbDurationMin:      normalizeNonNegative(input.CbDurationMin),
 		CbWindowMin:        normalizeNonNegative(input.CbWindowMin),
 	}
+	defaultTaskTypes, err := normalizeDefaultTaskTypes(input.DefaultTaskTypes)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateDefaultTaskTypesForModel(item.Status, item.KindsJSON, defaultTaskTypes); err != nil {
+		return nil, err
+	}
 	if err = s.reserveModelIconReference(ctx, item.Icon); err != nil {
 		return nil, err
 	}
-	if err := s.repo.CreateModel(ctx, item); err != nil {
+	if err := s.repo.WithinTransaction(ctx, func(txRepo repository.ChannelRepository) error {
+		if err := txRepo.CreateModel(ctx, item); err != nil {
+			return err
+		}
+		routes, setting, err := s.loadDefaultTaskRoutes(ctx, txRepo)
+		if errors.Is(err, repository.ErrLLMSettingNotFound) {
+			setting = &domainchannel.LLMSetting{Key: DefaultTaskRoutesSettingKey, Description: "按任务类型配置默认平台模型"}
+			routes = map[string]string{}
+		} else if err != nil {
+			return err
+		}
+		updateDefaultTaskRoutesForModel(routes, "", item.PlatformModelName, defaultTaskTypes)
+		setting.Value = marshalDefaultTaskRoutes(routes)
+		return txRepo.UpsertLLMSetting(ctx, setting)
+	}); err != nil {
 		if errors.Is(err, repository.ErrDuplicate) {
 			return nil, ErrDuplicatePlatformModelName
 		}
@@ -573,7 +599,26 @@ func (s *Service) UpdateModel(ctx context.Context, modelID uint, input UpdateMod
 		update.Icon = &icon
 	}
 
-	if update.IsZero() {
+	defaultTaskTypes := input.DefaultTaskTypes
+	if defaultTaskTypes != nil {
+		normalized, normalizeErr := normalizeDefaultTaskTypes(*defaultTaskTypes)
+		if normalizeErr != nil {
+			return nil, normalizeErr
+		}
+		defaultTaskTypes = &normalized
+		finalStatus := current.Status
+		if update.Status != nil {
+			finalStatus = *update.Status
+		}
+		finalKindsJSON := current.KindsJSON
+		if update.KindsJSON != nil {
+			finalKindsJSON = *update.KindsJSON
+		}
+		if validateErr := validateDefaultTaskTypesForModel(finalStatus, finalKindsJSON, normalized); validateErr != nil {
+			return nil, validateErr
+		}
+	}
+	if update.IsZero() && defaultTaskTypes == nil {
 		return s.getModelViewByID(ctx, modelID)
 	}
 	if update.Icon != nil {
@@ -582,7 +627,44 @@ func (s *Service) UpdateModel(ctx context.Context, modelID uint, input UpdateMod
 		}
 	}
 
-	if err := s.repo.UpdateModel(ctx, modelID, update); err != nil {
+	if err := s.repo.WithinTransaction(ctx, func(txRepo repository.ChannelRepository) error {
+		if !update.IsZero() {
+			if err := txRepo.UpdateModel(ctx, modelID, update); err != nil {
+				return err
+			}
+		}
+		routes, setting, err := s.loadDefaultTaskRoutes(ctx, txRepo)
+		if errors.Is(err, repository.ErrLLMSettingNotFound) {
+			setting = &domainchannel.LLMSetting{Key: DefaultTaskRoutesSettingKey, Description: "按任务类型配置默认平台模型"}
+			routes = map[string]string{}
+		} else if err != nil {
+			return err
+		}
+		selected := defaultTaskTypes
+		if selected == nil {
+			preserved := make([]string, 0)
+			for _, taskType := range defaultTaskTypeOrder {
+				if routes[taskType] == current.PlatformModelName {
+					preserved = append(preserved, taskType)
+				}
+			}
+			selected = &preserved
+		}
+		finalStatus := current.Status
+		if update.Status != nil {
+			finalStatus = *update.Status
+		}
+		finalKindsJSON := current.KindsJSON
+		if update.KindsJSON != nil {
+			finalKindsJSON = *update.KindsJSON
+		}
+		if err := validateDefaultTaskTypesForModel(finalStatus, finalKindsJSON, *selected); err != nil {
+			return err
+		}
+		updateDefaultTaskRoutesForModel(routes, current.PlatformModelName, nextPlatformModelName, *selected)
+		setting.Value = marshalDefaultTaskRoutes(routes)
+		return txRepo.UpsertLLMSetting(ctx, setting)
+	}); err != nil {
 		switch {
 		case errors.Is(err, repository.ErrModelVendorNotFound):
 			return nil, ErrModelVendorNotFound
@@ -635,6 +717,13 @@ func (s *Service) getModelViewByID(ctx context.Context, modelID uint) (*ModelVie
 		return nil, err
 	}
 	view = views[0]
+	defaultRoutes, _, err := s.loadDefaultTaskRoutes(ctx, s.repo)
+	if err != nil && !errors.Is(err, repository.ErrLLMSettingNotFound) {
+		return nil, err
+	}
+	views = []ModelView{view}
+	applyDefaultTaskTypes(views, defaultRoutes)
+	view = views[0]
 	return &view, nil
 }
 
@@ -667,7 +756,34 @@ func (s *Service) ReorderModels(ctx context.Context, modelIDs []uint) error {
 
 // DeleteModel 硬删除平台模型目录项及其所有路由绑定。
 func (s *Service) DeleteModel(ctx context.Context, modelID uint) error {
-	if err := s.repo.DeleteModelCascade(ctx, modelID); err != nil {
+	current, err := s.repo.GetModelByID(ctx, modelID)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.WithinTransaction(ctx, func(txRepo repository.ChannelRepository) error {
+		if err := txRepo.DeleteModelCascade(ctx, modelID); err != nil {
+			return err
+		}
+		routes, setting, err := s.loadDefaultTaskRoutes(ctx, txRepo)
+		if errors.Is(err, repository.ErrLLMSettingNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		changed := false
+		for taskType, modelName := range routes {
+			if modelName == current.PlatformModelName {
+				delete(routes, taskType)
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		setting.Value = marshalDefaultTaskRoutes(routes)
+		return txRepo.UpsertLLMSetting(ctx, setting)
+	}); err != nil {
 		return err
 	}
 	s.InvalidateModelCatalog()
@@ -997,7 +1113,13 @@ func (s *Service) UpdateLLMSetting(ctx context.Context, key string, value string
 		return nil, err
 	}
 	normalizedValue := strings.TrimSpace(value)
-	if err := validateOptionalJSON(normalizedValue); err != nil {
+	if key == DefaultTaskRoutesSettingKey {
+		routes, parseErr := parseDefaultTaskRoutes(normalizedValue)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		normalizedValue = marshalDefaultTaskRoutes(routes)
+	} else if err := validateOptionalJSON(normalizedValue); err != nil {
 		return nil, ErrInvalidJSONConfig
 	}
 	isBreakerDefaults := key == channelconfig.BreakerDefaultsKey

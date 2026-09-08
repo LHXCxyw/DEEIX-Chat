@@ -769,6 +769,42 @@ func TestIsRouteAllowedForTaskAllowsImplementedProtocolsForChatAndSeparatesMedia
 	}
 }
 
+func TestParseDefaultTaskRoutesStrict(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{name: "valid", raw: `{"chat":"gpt-5","image_generation":"gpt-image-1"}`},
+		{name: "empty object", raw: `{}`},
+		{name: "unknown task", raw: `{"audio":"whisper"}`, wantErr: true},
+		{name: "duplicate task", raw: `{"chat":"first","chat":"second"}`, wantErr: true},
+		{name: "empty model", raw: `{"chat":"  "}`, wantErr: true},
+		{name: "non string model", raw: `{"chat":1}`, wantErr: true},
+		{name: "non object", raw: `[]`, wantErr: true},
+		{name: "trailing value", raw: `{} {}`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseDefaultTaskRoutes(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseDefaultTaskRoutes() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestUpdateDefaultTaskRoutesForModelReassignsAndRenames(t *testing.T) {
+	routes := map[string]string{
+		TaskTypeChat:            "old-model",
+		TaskTypeImageGeneration: "other-model",
+	}
+	updateDefaultTaskRoutesForModel(routes, "old-model", "new-model", []string{TaskTypeChat, TaskTypeImageGeneration})
+	if routes[TaskTypeChat] != "new-model" || routes[TaskTypeImageGeneration] != "new-model" {
+		t.Fatalf("unexpected routes: %#v", routes)
+	}
+}
+
 func TestDefaultRouteModelMatchesTaskFiltersByKind(t *testing.T) {
 	if !ModelSupportsTask(`["chat"]`, TaskTypeChat) {
 		t.Fatal("expected chat default route to accept chat model")

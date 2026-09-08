@@ -1,4 +1,4 @@
-﻿package channel
+package channel
 
 import (
 	"context"
@@ -15,7 +15,7 @@ func (s *Service) ListUserUpstreams(ctx context.Context, userID uint) ([]domainc
 	if !cfg.UserUpstreamEnabled {
 		return nil, ErrUserUpstreamDisabled
 	}
-	
+
 	return s.repo.ListUserUpstreams(ctx, userID)
 }
 
@@ -32,12 +32,12 @@ func (s *Service) GetUserUpstreamByID(ctx context.Context, userID, upstreamID ui
 // CreateUserUpstream 用户创建自有渠道
 func (s *Service) CreateUserUpstream(ctx context.Context, userID uint, input CreateUserUpstreamInput) (*domainchannel.Upstream, error) {
 	cfg := s.cfg.Snapshot()
-	
+
 	// 1. 全局开关校验
 	if !cfg.UserUpstreamEnabled {
 		return nil, ErrUserUpstreamDisabled
 	}
-	
+
 	// 2. 配额校验
 	if cfg.UserUpstreamQuotaLimit > 0 {
 		count, err := s.repo.CountUserUpstreams(ctx, userID)
@@ -48,12 +48,29 @@ func (s *Service) CreateUserUpstream(ctx context.Context, userID uint, input Cre
 			return nil, ErrUserUpstreamQuotaExceeded
 		}
 	}
-	
-	// 3. 参数校验
+
+	// 3. 预设快照（仅复制非敏感连接配置）
+	preset, err := s.resolveUserUpstreamPreset(ctx, input.PresetID)
+	if err != nil {
+		return nil, err
+	}
+	if preset != nil {
+		if input.Name == "" {
+			input.Name = preset.Name
+		}
+		if input.BaseURL == "" {
+			input.BaseURL = preset.BaseURL
+		}
+		if input.Compatible == "" {
+			input.Compatible = preset.Compatible
+		}
+	}
+
+	// 4. 参数校验
 	if err := s.validateUserUpstreamInput(input); err != nil {
 		return nil, err
 	}
-	
+
 	// 4. API Key 加密
 	apiKeysConfig := domainchannel.APIKeysConfig{
 		Strategy: "random",
@@ -71,28 +88,34 @@ func (s *Service) CreateUserUpstream(ctx context.Context, userID uint, input Cre
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 5. 构建领域对象
 	headersJSON, _ := json.Marshal(input.Headers)
 	upstream := &domainchannel.Upstream{
 		Name:                 input.Name,
 		OwnerUserID:          &userID,
 		OwnershipType:        "user",
-		IsSharedWithPlatform: true,  // 默认同意纳入统计
+		IsSharedWithPlatform: true,   // 默认同意纳入统计
 		BillingMode:          "self", // 默认不计费
 		BaseURL:              input.BaseURL,
 		Compatible:           input.Compatible,
-		Status:               determineInitialStatus(cfg.UserUpstreamRequireApproval),
-		ConnectTimeoutMS:     input.ConnectTimeoutMS,
-		ReadTimeoutMS:        input.ReadTimeoutMS,
-		StreamIdleTimeoutMS:  60000,
-		APIKeysEnc:           encryptedKeys,
-		HeadersJSON:          string(headersJSON),
-		CbFailureThreshold:   0,  // 用户渠道默认不启用熔断
-		CreatedAt:            time.Now(),
-		UpdatedAt:            time.Now(),
+		ProtocolDefaultsJSON: func() string {
+			if preset != nil {
+				return preset.ProtocolDefaultsJSON
+			}
+			return "{}"
+		}(),
+		Status:              determineInitialStatus(cfg.UserUpstreamRequireApproval),
+		ConnectTimeoutMS:    input.ConnectTimeoutMS,
+		ReadTimeoutMS:       input.ReadTimeoutMS,
+		StreamIdleTimeoutMS: 60000,
+		APIKeysEnc:          encryptedKeys,
+		HeadersJSON:         string(headersJSON),
+		CbFailureThreshold:  0, // 用户渠道默认不启用熔断
+		CreatedAt:           time.Now(),
+		UpdatedAt:           time.Now(),
 	}
-	
+
 	// 设置默认超时值
 	if upstream.ConnectTimeoutMS == 0 {
 		upstream.ConnectTimeoutMS = 10000
@@ -100,12 +123,12 @@ func (s *Service) CreateUserUpstream(ctx context.Context, userID uint, input Cre
 	if upstream.ReadTimeoutMS == 0 {
 		upstream.ReadTimeoutMS = 120000
 	}
-	
+
 	// 6. 持久化
 	if err := s.repo.CreateUserUpstream(ctx, upstream); err != nil {
 		return nil, err
 	}
-	
+
 	return upstream, nil
 }
 
@@ -115,13 +138,13 @@ func (s *Service) UpdateUserUpstream(ctx context.Context, userID, upstreamID uin
 	if !cfg.UserUpstreamEnabled {
 		return ErrUserUpstreamDisabled
 	}
-	
+
 	// 1. 查询并校验归属
 	existing, err := s.repo.GetUserUpstreamByID(ctx, userID, upstreamID)
 	if err != nil {
 		return err
 	}
-	
+
 	// 2. 应用更新
 	if input.Name != nil {
 		existing.Name = *input.Name
@@ -161,9 +184,9 @@ func (s *Service) UpdateUserUpstream(ctx context.Context, userID, upstreamID uin
 	if input.Status != nil {
 		existing.Status = *input.Status
 	}
-	
+
 	existing.UpdatedAt = time.Now()
-	
+
 	// 3. 持久化
 	return s.repo.UpdateUserUpstream(ctx, existing)
 }
@@ -174,7 +197,7 @@ func (s *Service) DeleteUserUpstream(ctx context.Context, userID, upstreamID uin
 	if !cfg.UserUpstreamEnabled {
 		return ErrUserUpstreamDisabled
 	}
-	
+
 	// 越权校验（仓储层已包含）
 	return s.repo.DeleteUserUpstream(ctx, userID, upstreamID)
 }

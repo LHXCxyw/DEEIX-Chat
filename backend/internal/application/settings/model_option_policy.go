@@ -21,6 +21,7 @@ var validModelOptionProtocolKeys = map[string]struct{}{
 	"xai_image_edits":             {},
 	"xai_video":                   {},
 	"xai_video_extensions":        {},
+	"openai_video_generations":    {},
 	"gemini_generate_content":     {},
 	"google_image_generation":     {},
 	"gemini_interactions":         {},

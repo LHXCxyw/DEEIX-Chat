@@ -43,7 +43,7 @@ export function CanvasWorkspace() {
   const [containerSize, setContainerSize] = React.useState({ width: 0, height: 0 });
   const canvasViewportRef = React.useRef<Viewport>({ x: 0, y: 0, scale: 1 });
 
-  const { imageModels, modelsLoading, modelsErrorMsg } = useCanvasModels();
+  const { mediaModels, imageModels, modelsLoading, modelsErrorMsg } = useCanvasModels();
 
   // 资产侧边栏折叠状态持久化（SSR 安全：挂载后再读取本地存储）
   React.useEffect(() => {
@@ -262,7 +262,8 @@ export function CanvasWorkspace() {
   );
 
   // 移动端对话输入条发送任务：节点生成在当前视口中心附近（保持无限画布的可视上下文），
-  // 提示词在生成节点左侧，参考图节点纵向排在提示词下方，全部自动连线后立即开始生成
+  // 提示词在生成节点左侧，参考图节点纵向排在提示词下方，全部自动连线后立即开始生成。
+  // 节点媒体类型跟随所选模型（视频模型 -> 视频生成节点）
   const handleChatTask = React.useCallback(async ({ prompt, referenceFiles, model }: ChatTaskInput) => {
     const promptSize = { width: 288, height: 224 };
     const generateSize = { width: 336, height: 512 };
@@ -271,7 +272,7 @@ export function CanvasWorkspace() {
     const generateX = Math.round(base.x - generateSize.width / 2);
     const generateY = Math.round(base.y - generateSize.height / 2);
     const leftX = Math.round(generateX - promptSize.width - 64);
-    const generateID = canvas.addGraphNode("generate", { x: generateX, y: generateY });
+    const generateID = canvas.addGraphNode("generate", { x: generateX, y: generateY }, model.kinds.includes("video_gen") ? "video" : "image");
     canvas.updateGraphNode(generateID, { model: model.platformModelName });
     if (prompt) {
       const promptID = canvas.addGraphNode("prompt", { x: leftX, y: generateY });
@@ -371,8 +372,8 @@ export function CanvasWorkspace() {
   }, [attachImageFile, previewNode]);
 
   const handleAddNode = React.useCallback(
-    (kind: GraphNodeKind) => {
-      canvas.addGraphNode(kind);
+    (kind: GraphNodeKind, mediaType?: "image" | "video") => {
+      canvas.addGraphNode(kind, undefined, mediaType);
     },
     [canvas],
   );
@@ -497,7 +498,7 @@ export function CanvasWorkspace() {
         selectedNodeIDs={canvas.selectedNodeIDs}
         selectedDecorationIDs={canvas.selectedDecorationIDs}
         selectedEdgeIDs={canvas.selectedEdgeIDs}
-        imageModels={imageModels}
+        imageModels={mediaModels}
         interactionLocked={previewNode !== null || editingNode !== null}
         containerSize={containerSize}
         onSelectedNodeIDsChange={canvas.setSelectedNodeIDs}
@@ -516,6 +517,7 @@ export function CanvasWorkspace() {
         onRemoveNode={canvas.removeNode}
         onRunNode={(nodeID) => void canvas.runGenerateNode(nodeID)}
         onCancelNode={canvas.cancelNode}
+        onRequeryNode={(nodeID) => void canvas.requeryGenerateNode(nodeID)}
         onConnectNodes={canvas.connectGraphNodes}
         onRemoveEdge={canvas.removeEdge}
         onPreviewNode={setPreviewNode}
@@ -623,7 +625,7 @@ export function CanvasWorkspace() {
         {/* 移动端对话输入条：保留无限画布交互，任务结果作为节点出现在画布上 */}
         <div className="lg:hidden">
           <CanvasChatComposer
-            imageModels={imageModels}
+            imageModels={mediaModels}
             restoredModelName={canvas.restoredModelName}
             generatingCount={canvas.generatingCount}
             onAddTask={(input) => void handleChatTask(input)}

@@ -132,6 +132,19 @@ function isCanvasOverlayTarget(target: EventTarget | null): boolean {
   return target.closest(`[${CANVAS_UI_ATTRIBUTE}]`) !== null;
 }
 
+// 滚轮落在可滚动的编辑区（长提示词文本框、错误详情等）上时让出缩放，
+// 交给原生滚动；内容未溢出的元素仍保持画布缩放体验。
+function isEditableScrollTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof globalThis.Element)) {
+    return false;
+  }
+  const editable = target.closest("textarea, input, pre, [data-canvas-selectable]");
+  if (!(editable instanceof HTMLElement)) {
+    return false;
+  }
+  return editable.scrollHeight > editable.clientHeight + 1 || editable.scrollWidth > editable.clientWidth + 1;
+}
+
 export function CanvasViewport({
   nodes,
   edges,
@@ -160,6 +173,7 @@ export function CanvasViewport({
   onRemoveNode,
   onRunNode,
   onCancelNode,
+  onRequeryNode,
   onConnectNodes,
   onRemoveEdge,
   onPreviewNode,
@@ -197,6 +211,7 @@ export function CanvasViewport({
   onRemoveNode: (nodeID: string) => void;
   onRunNode: (nodeID: string) => void;
   onCancelNode: (nodeID: string) => void;
+  onRequeryNode: (nodeID: string) => void;
   onConnectNodes: (attempt: { fromNodeID: string; fromPort: "out"; toNodeID: string; toPort: "prompt" | "image" | "result" }) => boolean;
   onRemoveEdge: (edgeID: string) => void;
   onPreviewNode: (node: OutputGraphNode) => void;
@@ -423,7 +438,7 @@ export function CanvasViewport({
       return;
     }
     const handleWheel = (event: WheelEvent) => {
-      if (interactionLockedRef.current || isCanvasOverlayTarget(event.target)) {
+      if (interactionLockedRef.current || isCanvasOverlayTarget(event.target) || isEditableScrollTarget(event.target)) {
         return;
       }
       event.preventDefault();
@@ -1149,13 +1164,14 @@ export function CanvasViewport({
     onRemoveNode,
     onRunNode,
     onCancelNode,
+    onRequeryNode,
     onPreviewNode,
     onDownloadNode,
     onEditNode,
     onEditReferenceNode,
     onUseAsReference,
     uploadReferenceFile,
-  }), [onCancelNode, onDownloadNode, onEditNode, onEditReferenceNode, onEnsureNodePreview, onPreviewNode, onRemoveNode, onRunNode, onUpdateNode, onUseAsReference, uploadReferenceFile]);
+  }), [onCancelNode, onDownloadNode, onEditNode, onEditReferenceNode, onEnsureNodePreview, onPreviewNode, onRemoveNode, onRequeryNode, onRunNode, onUpdateNode, onUseAsReference, uploadReferenceFile]);
 
   return (
     <div

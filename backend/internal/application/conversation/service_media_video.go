@@ -26,7 +26,8 @@ import (
 	"go.uber.org/zap"
 )
 
-const maxMediaVideoInputImages = 1
+// maxMediaVideoInputImages 限制视频生成的参考图数量（R2V 模式上限 7 张）。
+const maxMediaVideoInputImages = 7
 
 // MediaVideoTaskType 区分普通视频生成与基于源视频的扩展。
 type MediaVideoTaskType string
@@ -44,6 +45,8 @@ type MediaVideoInput struct {
 	TaskType              MediaVideoTaskType
 	Prompt                string
 	PlatformModelName     string
+	ModelScope            string
+	UserModelID           uint
 	Options               map[string]any
 	ClientRunID           string
 	FileIDs               []string
@@ -90,10 +93,11 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	}
 
 	platformModelName := strings.TrimSpace(input.PlatformModelName)
-	if platformModelName == "" {
+	useDefaultRoute := platformModelName == "" && input.UserModelID == 0 && !strings.EqualFold(strings.TrimSpace(input.ModelScope), "user")
+	if !useDefaultRoute && platformModelName == "" {
 		platformModelName = strings.TrimSpace(conversation.Model)
 	}
-	if platformModelName == "" {
+	if !useDefaultRoute && platformModelName == "" {
 		return nil, ErrModelRouteNotConfigured
 	}
 	videoEndpoint := llm.EndpointVideoGenerations
@@ -174,14 +178,31 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		return nil, err
 	}
 
-	route, err := s.routeResolver.ResolveRoute(ctx, channel.ResolveRouteInput{
-		PlatformModelName: platformModelName,
-		TaskType:          routeTaskType,
-		Scope:             channel.RouteScopeUser,
-		UserID:            input.UserID,
-		ConversationID:    input.ConversationID,
-		RequestID:         strings.TrimSpace(input.RequestID),
-	})
+	var route *channel.ResolvedRoute
+	if useDefaultRoute {
+		resolver, ok := s.routeResolver.(defaultRouteResolver)
+		if !ok {
+			return nil, ErrModelRouteNotConfigured
+		}
+		route, err = resolver.ResolveDefaultRoute(ctx, channel.ResolveRouteInput{
+			TaskType:       routeTaskType,
+			Scope:          channel.RouteScopeUser,
+			UserID:         input.UserID,
+			ConversationID: input.ConversationID,
+			RequestID:      strings.TrimSpace(input.RequestID),
+		})
+	} else {
+		route, err = s.routeResolver.ResolveRoute(ctx, channel.ResolveRouteInput{
+			PlatformModelName: platformModelName,
+			TaskType:          routeTaskType,
+			ModelScope:        input.ModelScope,
+			UserModelID:       input.UserModelID,
+			Scope:             channel.RouteScopeUser,
+			UserID:            input.UserID,
+			ConversationID:    input.ConversationID,
+			RequestID:         strings.TrimSpace(input.RequestID),
+		})
+	}
 	if err != nil {
 		return nil, mapRouteResolutionError(err)
 	}
@@ -326,9 +347,12 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		llm.SanitizeXAIVideoExtensionOptions(filteredOptions)
 	} else if llm.NormalizeAdapter(route.Protocol) == llm.AdapterXAIVideo {
 		llm.SanitizeXAIVideoOptions(filteredOptions)
+	} else if llm.NormalizeAdapter(route.Protocol) == llm.AdapterOpenAIVideo {
+		llm.SanitizeOpenAIVideoOptions(filteredOptions)
 	}
 	filteredOptions = withDefaultMediaVideoDuration(filteredOptions, route.Protocol)
 	durationSeconds := mediaDurationSecondsFromOptions(filteredOptions)
+	s.logVideoDurationOptionDelta(ctx, run, input.Options, filteredOptions, durationSeconds, *route)
 	buildFailureResult := func(failure error, usage llm.Usage) *SendMessageResult {
 		result := buildFailedMediaBillingResult(failedMediaBillingResultInput{
 			UserMessage:      userMessage,
@@ -355,6 +379,15 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		}},
 		Options:              filteredOptions,
 		VideoExtensionSource: videoExtensionSource,
+		OnProgress: func(percent int) {
+			emitMediaEvent(input.OnEvent, "progress", fmt.Sprintf("generating video %d%%", percent), "video")
+		},
+		// 上游任务提交成功即记录任务编号：后续失败可按此回查上游结果（任务重查）。
+		OnTaskStarted: func(upstreamTaskID string) {
+			if run != nil {
+				run.UpstreamTaskID = strings.TrimSpace(upstreamTaskID)
+			}
+		},
 	}
 	if len(videoInputParts) > 0 {
 		parts := make([]llm.ContentPart, 0, 1+len(videoInputParts))
@@ -598,6 +631,17 @@ func (s *Service) resolveMediaVideoInputs(ctx context.Context, input MediaVideoI
 		if normalizeAttachmentKind(attachment.Kind, attachment.MimeType) != "image" {
 			return nil, nil, nil, ErrMediaVideoInputInvalid
 		}
+		// 优先传签名 URL 让上游自行拉取，避免多图 base64 内联导致请求体超过网关限制；
+		// 未配置公网 API 地址时回退为读取字节内联传输。
+		if signedURL := s.uploadSvc.BuildSignedFileContentURL(input.UserID, attachment.FileID); signedURL != "" {
+			parts = append(parts, llm.ContentPart{
+				Kind:     llm.ContentPartImage,
+				MimeType: attachment.MimeType,
+				URL:      signedURL,
+				FileName: mediaImageEditInputFileName(attachment.FileName, attachment.MimeType),
+			})
+			continue
+		}
 		part, readErr := s.readMediaImageEditFile(ctx, input.UserID, attachment.FileID)
 		if readErr != nil {
 			return nil, nil, nil, readErr
@@ -670,6 +714,11 @@ func (s *Service) readGeneratedVideo(ctx context.Context, video llm.GeneratedVid
 		return validated, detectedMIME, nil
 	}
 	url := strings.TrimSpace(video.URL)
+	fallbackURL := strings.TrimSpace(video.FallbackURL)
+	if url == "" {
+		url = fallbackURL
+		fallbackURL = ""
+	}
 	if url == "" {
 		return nil, mimeType, ErrUpstreamEmptyResponse
 	}
@@ -681,6 +730,8 @@ func (s *Service) readGeneratedVideo(ctx context.Context, video llm.GeneratedVid
 	if limit <= 0 {
 		limit = 20 * 1024 * 1024
 	}
+	// 仅当主 URL 缺失时才落到内容端点；下载失败不重试——
+	// 同一产物的两条 URL 大概率同源同状态，重试只会多等一次慢速请求。
 	data, downloadedMIME, err := s.mediaDownloader.DownloadVideo(ctx, url, trustedProviderEndpoint, apiKey, limit)
 	if err != nil {
 		if isMediaArtifactResponseTooLarge(err) {

@@ -12,7 +12,6 @@ import (
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/pagination"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/filecontent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -459,20 +458,5 @@ func (h *Handler) GetFileContent(c *gin.Context) {
 		return
 	}
 
-	result, err := h.uploads.OpenFileContent(c.Request.Context(), userID, fileID)
-	if err != nil {
-		switch {
-		case errors.Is(err, appconversation.ErrInvalidFileReference):
-			response.ErrorFrom(c, http.StatusBadRequest, errInvalidFileID)
-			return
-		case errors.Is(err, appconversation.ErrFileNotFound):
-			response.ErrorFrom(c, http.StatusNotFound, appconversation.ErrFileNotFound)
-			return
-		default:
-			response.InternalError(c)
-			return
-		}
-	}
-
-	_ = filecontent.Write(c, result, false)
+	h.serveFileContent(c, userID, fileID)
 }

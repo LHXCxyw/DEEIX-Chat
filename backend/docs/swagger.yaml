@@ -2775,6 +2775,12 @@ definitions:
       cbWindowMin:
         minimum: 0
         type: integer
+      defaultTaskTypes:
+        items:
+          type: string
+        maxItems: 5
+        type: array
+        uniqueItems: true
       description:
         maxLength: 10000
         type: string
@@ -3024,8 +3030,10 @@ definitions:
         minItems: 1
         type: array
       base_url:
+        maxLength: 512
         type: string
       compatible:
+        maxLength: 64
         type: string
       connect_timeout_ms:
         type: integer
@@ -3034,6 +3042,9 @@ definitions:
           type: string
         type: object
       name:
+        maxLength: 128
+        type: string
+      preset_id:
         type: string
       read_timeout_ms:
         type: integer
@@ -3044,6 +3055,7 @@ definitions:
     - connect_timeout_ms
     - headers
     - name
+    - preset_id
     - read_timeout_ms
     type: object
   DeleteAccountRequest:
@@ -5276,6 +5288,10 @@ definitions:
         type: integer
       createdAt:
         type: string
+      defaultTaskTypes:
+        items:
+          type: string
+        type: array
       description:
         type: string
       displayGroupID:
@@ -5324,6 +5340,7 @@ definitions:
     - cbWindowMin
     - contextWindow
     - createdAt
+    - defaultTaskTypes
     - description
     - displayGroupID
     - displayGroupIcon
@@ -7011,6 +7028,40 @@ definitions:
     required:
     - servers
     type: object
+  RequeryMediaVideoAttachmentResponse:
+    properties:
+      durationSeconds:
+        type: integer
+      fileID:
+        type: string
+      fileName:
+        type: string
+      mimeType:
+        type: string
+      sizeBytes:
+        type: integer
+    required:
+    - fileID
+    - fileName
+    - mimeType
+    - sizeBytes
+    type: object
+  RequeryMediaVideoRunResponse:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/RequeryMediaVideoAttachmentResponse'
+        type: array
+      message:
+        type: string
+      runID:
+        type: string
+      status:
+        type: string
+    required:
+    - runID
+    - status
+    type: object
   ResetUpstreamCircuitResponseDoc:
     properties:
       data:
@@ -8278,6 +8329,12 @@ definitions:
       cbWindowMin:
         minimum: 0
         type: integer
+      defaultTaskTypes:
+        items:
+          type: string
+        maxItems: 5
+        type: array
+        uniqueItems: true
       description:
         maxLength: 10000
         type: string
@@ -16386,6 +16443,33 @@ paths:
       security:
       - BearerAuth: []
       summary: 取消流式生成
+      tags:
+      - chat
+  /conversation-runs/{run_id}/media/requery:
+    post:
+      description: 按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态
+      parameters:
+      - description: 运行 ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RequeryMediaVideoRunResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 重查失败的视频生成任务
       tags:
       - chat
   /conversation-runs/{run_id}/stream:

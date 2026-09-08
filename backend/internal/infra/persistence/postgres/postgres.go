@@ -215,9 +215,25 @@ func applyLLMBaselineIndexes(db *gorm.DB) error {
 			OR (("ownership_type" IS NULL OR "ownership_type" = '') AND "owner_user_id" IS NULL)`,
 		`DROP INDEX IF EXISTS idx_llm_user_models_owner_name`,
 		`DROP INDEX IF EXISTS idx_llm_user_models_owner_upstream_name`,
-		`CREATE UNIQUE INDEX idx_llm_user_models_owner_upstream_name
-			ON "llm_user_models" ("owner_user_id", "upstream_id", "name")
+		`DROP INDEX IF EXISTS idx_llm_user_models_owner_upstream_model`,
+		`WITH duplicates AS (
+			SELECT "id", ROW_NUMBER() OVER (
+				PARTITION BY "owner_user_id", "upstream_id", "upstream_model_id"
+				ORDER BY "updated_at" DESC, "id" DESC
+			) AS row_number
+			FROM "llm_user_models"
+			WHERE "deleted_at" IS NULL
+		)
+		UPDATE "llm_user_models" AS models
+		SET "deleted_at" = NOW()
+		FROM duplicates
+		WHERE models."id" = duplicates."id" AND duplicates.row_number > 1`,
+		`CREATE UNIQUE INDEX idx_llm_user_models_owner_upstream_model
+			ON "llm_user_models" ("owner_user_id", "upstream_id", "upstream_model_id")
 			WHERE "deleted_at" IS NULL`,
+		`ALTER TABLE "llm_user_models"
+		ADD COLUMN IF NOT EXISTS "capabilities_json" text NOT NULL DEFAULT ''`,
+		`COMMENT ON COLUMN "llm_user_models"."capabilities_json" IS '模型能力JSON(覆盖平台模型 capabilities_json)'`,
 		`ALTER TABLE "llm_platform_models"
 		ADD COLUMN IF NOT EXISTS "system_prompt" text NOT NULL DEFAULT ''`,
 		`COMMENT ON COLUMN "llm_platform_models"."system_prompt" IS '模型级系统提示词'`,
@@ -409,6 +425,11 @@ func applyConversationBaselineIndexes(db *gorm.DB) error {
 		ON "chat_messages" ("edited_at")`,
 		`ALTER TABLE "chat_runs"
 		ADD COLUMN IF NOT EXISTS "task_type" varchar(32) NOT NULL DEFAULT 'chat'`,
+		`ALTER TABLE "chat_runs"
+		ADD COLUMN IF NOT EXISTS "upstream_task_id" varchar(128) NOT NULL DEFAULT ''`,
+		`COMMENT ON COLUMN "chat_runs"."upstream_task_id" IS '上游异步任务ID'`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_runs_upstream_task_id
+		ON "chat_runs" ("upstream_task_id")`,
 		`COMMENT ON COLUMN "chat_runs"."task_type" IS '任务类型'`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_runs_task_type
 		ON "chat_runs" ("task_type")`,

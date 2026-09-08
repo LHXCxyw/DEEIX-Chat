@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -20,29 +21,40 @@ func (s *Service) userModelsRepo() (repository.UserModelRepository, error) {
 
 // CreateUserModelInput 用户创建私有模型输入。
 type CreateUserModelInput struct {
-	UpstreamModelID string
-	Name            string
-	Protocol        string
-	KindsJSON       string
-	Status          string
-	Priority        int
-	Weight          int
-	HeadersJSON     string
+	UpstreamModelID  string
+	Name             string
+	Protocol         string
+	KindsJSON        string
+	CapabilitiesJSON string
+	Status           string
+	Priority         int
+	Weight           int
+	HeadersJSON      string
 }
 
 // UpdateUserModelInput 用户更新私有模型输入。
 type UpdateUserModelInput struct {
-	Name        *string
-	Protocol    *string
-	KindsJSON   *string
-	Status      *string
-	Priority    *int
-	Weight      *int
-	HeadersJSON *string
+	Name             *string
+	Protocol         *string
+	KindsJSON        *string
+	CapabilitiesJSON *string
+	Status           *string
+	Priority         *int
+	Weight           *int
+	HeadersJSON      *string
 }
 
-// ListUserModels 查询用户私有模型。
+// ListUserModels 查询用户可路由的私有模型。
 func (s *Service) ListUserModels(ctx context.Context, userID uint) ([]domainchannel.UserModel, error) {
+	return s.listUserModels(ctx, userID, false)
+}
+
+// ListManagedUserModels 查询用户可管理的私有模型，包括停用项和停用渠道下的模型。
+func (s *Service) ListManagedUserModels(ctx context.Context, userID uint) ([]domainchannel.UserModel, error) {
+	return s.listUserModels(ctx, userID, true)
+}
+
+func (s *Service) listUserModels(ctx context.Context, userID uint, management bool) ([]domainchannel.UserModel, error) {
 	if !s.cfg.Snapshot().UserUpstreamEnabled {
 		return []domainchannel.UserModel{}, nil
 	}
@@ -50,11 +62,10 @@ func (s *Service) ListUserModels(ctx context.Context, userID uint) ([]domainchan
 	if err != nil {
 		return nil, err
 	}
-	items, err := repo.ListUserModels(ctx, userID)
-	if err != nil {
-		return nil, err
+	if management {
+		return repo.ListManagedUserModels(ctx, userID)
 	}
-	return items, nil
+	return repo.ListUserModels(ctx, userID)
 }
 
 // ListUserRemoteModels 查询用户渠道的远端模型，渠道归属由服务层严格校验。
@@ -82,15 +93,37 @@ func (s *Service) CreateUserModel(ctx context.Context, userID, upstreamID uint, 
 	if repoErr != nil {
 		return nil, repoErr
 	}
-	if _, err := s.repo.GetUserUpstreamByID(ctx, userID, upstreamID); err != nil {
+	upstream, err := s.repo.GetUserUpstreamByID(ctx, userID, upstreamID)
+	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(input.UpstreamModelID) == "" || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Protocol) == "" {
+	if strings.TrimSpace(input.UpstreamModelID) == "" || strings.TrimSpace(input.Name) == "" {
 		return nil, repository.ErrInvalidInput
 	}
-	item := &domainchannel.UserModel{OwnerUserID: userID, UpstreamID: upstreamID, UpstreamModelID: strings.TrimSpace(input.UpstreamModelID), Name: strings.TrimSpace(input.Name), Protocol: strings.TrimSpace(input.Protocol), KindsJSON: input.KindsJSON, Status: input.Status, Priority: input.Priority, Weight: input.Weight, HeadersJSON: input.HeadersJSON, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	item := &domainchannel.UserModel{OwnerUserID: userID, UpstreamID: upstreamID, UpstreamModelID: strings.TrimSpace(input.UpstreamModelID), Name: strings.TrimSpace(input.Name), Protocol: strings.TrimSpace(input.Protocol), KindsJSON: input.KindsJSON, CapabilitiesJSON: strings.TrimSpace(input.CapabilitiesJSON), Status: input.Status, Priority: input.Priority, Weight: input.Weight, HeadersJSON: input.HeadersJSON, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	template, templateErr := s.repo.GetModelByName(ctx, item.UpstreamModelID)
+	if templateErr != nil && !errors.Is(templateErr, repository.ErrNotFound) {
+		return nil, templateErr
+	}
+	if templateErr == nil && template != nil {
+		item.KindsJSON = template.KindsJSON
+		if item.CapabilitiesJSON == "" {
+			item.CapabilitiesJSON = template.CapabilitiesJSON
+		}
+		sources, sourceErr := s.repo.ListModelUpstreamSourcesForUpdate(ctx, template.PlatformModelName)
+		if sourceErr != nil {
+			return nil, sourceErr
+		}
+		if protocol := inheritedPlatformRouteProtocol(sources, item.KindsJSON); protocol != "" {
+			item.Protocol = protocol
+		}
+	}
 	if item.KindsJSON == "" {
 		item.KindsJSON = `["chat"]`
+	}
+	item.Protocol, err = resolveRouteProtocol(item.Protocol, upstream.Compatible, upstream.ProtocolDefaultsJSON, item.KindsJSON)
+	if err != nil {
+		return nil, err
 	}
 	if item.Status == "" {
 		item.Status = "active"
@@ -103,6 +136,9 @@ func (s *Service) CreateUserModel(ctx context.Context, userID, upstreamID uint, 
 	}
 	if item.HeadersJSON == "" {
 		item.HeadersJSON = `{}`
+	}
+	if !validUserModelCapabilitiesJSON(item.CapabilitiesJSON) {
+		return nil, repository.ErrInvalidInput
 	}
 	if !json.Valid([]byte(item.KindsJSON)) || !json.Valid([]byte(item.HeadersJSON)) {
 		return nil, repository.ErrInvalidInput
@@ -144,7 +180,13 @@ func (s *Service) UpdateUserModel(ctx context.Context, userID, modelID uint, inp
 	if input.HeadersJSON != nil {
 		item.HeadersJSON = *input.HeadersJSON
 	}
+	if input.CapabilitiesJSON != nil {
+		item.CapabilitiesJSON = strings.TrimSpace(*input.CapabilitiesJSON)
+	}
 	if item.Name == "" || item.Protocol == "" || !json.Valid([]byte(item.KindsJSON)) || !json.Valid([]byte(item.HeadersJSON)) {
+		return nil, repository.ErrInvalidInput
+	}
+	if !validUserModelCapabilitiesJSON(item.CapabilitiesJSON) {
 		return nil, repository.ErrInvalidInput
 	}
 	item.UpdatedAt = time.Now()
@@ -280,4 +322,25 @@ func (s *Service) DeleteUserModel(ctx context.Context, userID, modelID uint) err
 	return repo.DeleteUserModel(ctx, userID, modelID)
 }
 
-func isUserModelNotFound(err error) bool { return err == repository.ErrNotFound }
+func inheritedPlatformRouteProtocol(sources []repository.ChannelModelSourceRow, kindsJSON string) string {
+	for _, source := range sources {
+		protocol := strings.TrimSpace(source.Protocol)
+		if protocol != "" {
+			if _, err := resolveRouteProtocol(protocol, source.UpstreamCompatible, source.UpstreamProtocolDefaultsJSON, kindsJSON); err == nil {
+				return protocol
+			}
+		}
+	}
+	return ""
+}
+
+func validUserModelCapabilitiesJSON(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return true
+	}
+	var payload map[string]json.RawMessage
+	return json.Unmarshal([]byte(raw), &payload) == nil && payload != nil
+}
+
+func isUserModelNotFound(err error) bool { return errors.Is(err, repository.ErrNotFound) }

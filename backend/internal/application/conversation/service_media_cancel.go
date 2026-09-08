@@ -9,15 +9,18 @@ import (
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/textutil"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/background"
+	"go.uber.org/zap"
 )
 
 const (
-	defaultXAIVideoDurationSeconds   int64 = 6
-	mediaCancellationFinalizeTimeout       = 5 * time.Second
+	defaultXAIVideoDurationSeconds    int64 = 6
+	defaultOpenAIVideoDurationSeconds int64 = 5
+	mediaCancellationFinalizeTimeout        = 5 * time.Second
 )
 
 type canceledMediaGenerationInput struct {
@@ -223,18 +226,145 @@ func mediaDurationSecondsFromOptions(options map[string]any) int64 {
 	return 0
 }
 
+// logVideoDurationOptionDelta 在用户显式请求的时长未能原样生效时记录诊断日志。
+// 同时解析参数策略与模型能力配置，直接判定覆盖来源：
+// 模型能力 lockedOptionPaths 锁定、能力 defaultOptions 默认值、白名单未放行 duration、
+// sanitize 范围拦截或别名键归一。日志只包含参数键与配置判定结果，不含提示词等用户内容。
+func (s *Service) logVideoDurationOptionDelta(
+	ctx context.Context,
+	run *model.Run,
+	userOptions map[string]any,
+	effectiveOptions map[string]any,
+	effectiveDuration int64,
+	route channel.ResolvedRoute,
+) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	requestedDuration := mediaDurationSecondsFromOptions(userOptions)
+	if requestedDuration <= 0 || requestedDuration == effectiveDuration {
+		return
+	}
+	cfg := config.Config{}
+	if s.cfg != nil {
+		cfg = s.cfg.Snapshot()
+	}
+	fields := []zap.Field{
+		zap.String("error_code", "media.duration_option_overridden"),
+		zap.Int64("requested_duration_seconds", requestedDuration),
+		zap.Int64("effective_duration_seconds", effectiveDuration),
+		zap.Strings("requested_duration_keys", durationOptionKeys(userOptions)),
+		zap.Strings("effective_duration_keys", durationOptionKeys(effectiveOptions)),
+		zap.String("option_policy_mode", strings.TrimSpace(cfg.ModelOptionPolicyMode)),
+		zap.String("override_source", classifyDurationOverrideSource(userOptions, effectiveDuration, route, cfg)),
+	}
+	if run != nil {
+		fields = append(fields,
+			zap.String("request_id", strings.TrimSpace(run.RequestID)),
+			zap.String("run_id", strings.TrimSpace(run.RunID)),
+			zap.Uint("conversation_id", run.ConversationID),
+			zap.Uint("user_id", run.UserID),
+			zap.Uint("upstream_id", run.UpstreamID),
+			zap.Uint("upstream_model_id", run.UpstreamModelID),
+			zap.String("provider_protocol", strings.TrimSpace(run.ProviderProtocol)),
+			zap.String("platform_model_name", strings.TrimSpace(run.PlatformModelName)),
+		)
+	}
+	s.logger.Warn("video_duration_option_overridden", fields...)
+}
+
+// classifyDurationOverrideSource 判定用户时长参数被覆盖的具体环节。
+func classifyDurationOverrideSource(
+	userOptions map[string]any,
+	effectiveDuration int64,
+	route channel.ResolvedRoute,
+	cfg config.Config,
+) string {
+	protocol := strings.TrimSpace(route.Protocol)
+	capabilitiesJSON := strings.TrimSpace(route.ModelCapabilitiesJSON)
+	// 1. 模型能力锁定路径：默认值强制回写，优先级最高。
+	if capabilitiesJSON != "" {
+		for _, path := range modelCapabilityLockedOptionPaths(capabilitiesJSON) {
+			if strings.EqualFold(strings.Join(path, "."), "duration") {
+				return "model_capabilities.locked_option_paths"
+			}
+		}
+	}
+	// 2. 白名单未放行 duration：参数在过滤阶段被整体丢弃（仅当兜底与管理员白名单都未包含时）。
+	if mode := strings.TrimSpace(cfg.ModelOptionPolicyMode); mode == "" || mode == modelOptionPolicyAllowlist {
+		allowed := false
+		for _, path := range mediaOptionBaselinePathsFor(modelOptionPolicyProtocolKey(protocol)) {
+			if strings.EqualFold(strings.Join(path, "."), "duration") {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			for _, path := range modelOptionPathsForProtocol(cfg.ModelOptionAllowedPaths, protocol) {
+				if strings.EqualFold(strings.Join(path, "."), "duration") {
+					allowed = true
+					break
+				}
+			}
+		}
+		if !allowed {
+			return "option_policy.allowed_paths_missing_duration"
+		}
+	}
+	// 3. sanitize 范围拦截：请求值超出协议合法区间（openai/xai 视频 1-15 秒）。
+	if requested := mediaDurationSecondsFromOptions(userOptions); requested < 1 || requested > 15 {
+		return "sanitize.duration_out_of_range"
+	}
+	// 4. 其余情况：能力默认值合并或别名归一所致。
+	if capabilitiesJSON != "" && modelCapabilityDefaultOptions(capabilitiesJSON)["duration"] != nil {
+		return "model_capabilities.default_options"
+	}
+	return "option_policy.other"
+}
+
+// durationOptionKeys 收集 options 中与时长相关的键（含嵌套别名路径），供诊断定位参数来源。
+func durationOptionKeys(options map[string]any) []string {
+	if len(options) == 0 {
+		return nil
+	}
+	paths := [][]string{
+		{"durationSeconds"},
+		{"duration_seconds"},
+		{"duration"},
+		{"seconds"},
+		{"videoConfig", "durationSeconds"},
+		{"video_config", "duration_seconds"},
+		{"generationConfig", "videoConfig", "durationSeconds"},
+		{"generation_config", "video_config", "duration_seconds"},
+	}
+	keys := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if _, ok := readModelOptionPath(options, path); ok {
+			keys = append(keys, strings.Join(path, "."))
+		}
+	}
+	return keys
+}
+
 // withDefaultMediaVideoDuration 仅向明确支持 duration 参数的视频协议补齐产品缺省值。
 // 其他协议仍以其返回的真实媒体时长为准，避免发送未声明的厂商参数。
 func withDefaultMediaVideoDuration(options map[string]any, protocol string) map[string]any {
 	adapter := llm.NormalizeAdapter(protocol)
-	if mediaDurationSecondsFromOptions(options) > 0 || (adapter != llm.AdapterXAIVideo && adapter != llm.AdapterXAIVideoExtensions) {
+	defaultDuration := int64(0)
+	switch adapter {
+	case llm.AdapterXAIVideo, llm.AdapterXAIVideoExtensions:
+		defaultDuration = defaultXAIVideoDurationSeconds
+	case llm.AdapterOpenAIVideo:
+		defaultDuration = defaultOpenAIVideoDurationSeconds
+	}
+	if mediaDurationSecondsFromOptions(options) > 0 || defaultDuration == 0 {
 		return options
 	}
 	next := make(map[string]any, len(options)+1)
 	for key, value := range options {
 		next[key] = value
 	}
-	next["duration"] = defaultXAIVideoDurationSeconds
+	next["duration"] = defaultDuration
 	return next
 }
 

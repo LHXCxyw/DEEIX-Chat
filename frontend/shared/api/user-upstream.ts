@@ -16,7 +16,18 @@ export interface UserUpstreamDTO {
 }
 
 /** 创建用户自有渠道请求体 */
+export interface UserUpstreamPresetDTO {
+  id: string;
+  name: string;
+  base_url: string;
+  compatible: string;
+  protocol_defaults: string;
+  enabled: boolean;
+  sort_order: number;
+}
+
 export interface CreateUserUpstreamPayload {
+  preset_id?: string;
   name: string;
   base_url: string;
   compatible: string;
@@ -46,6 +57,7 @@ export interface UserModelDTO {
   name: string;
   protocol: string;
   kinds: string;
+  capabilities: string;
   status: string;
   priority: number;
   weight: number;
@@ -59,6 +71,7 @@ export interface CreateUserModelPayload {
   name: string;
   protocol: string;
   kinds?: string;
+  capabilities?: string;
   status?: string;
   priority?: number;
   weight?: number;
@@ -159,6 +172,14 @@ export async function listUserModels(accessToken: string): Promise<UserModelDTO[
   return data?.items ?? [];
 }
 
+export async function listManagedUserModels(accessToken: string): Promise<UserModelDTO[]> {
+  const data = await authedRequest<{ items: UserModelDTO[] }>("/api/v1/user/models?view=management", {
+    method: "GET",
+    accessToken,
+  });
+  return data?.items ?? [];
+}
+
 export async function createUserModel(accessToken: string, upstreamID: number, payload: CreateUserModelPayload): Promise<UserModelDTO> {
   return authedRequest<UserModelDTO>(`/api/v1/user/upstreams/${pathParam(String(upstreamID))}/models`, {
     method: "POST",
@@ -180,6 +201,14 @@ export async function deleteUserModel(accessToken: string, id: number): Promise<
     method: "DELETE",
     accessToken,
   });
+}
+
+export async function listUserUpstreamPresets(accessToken: string): Promise<UserUpstreamPresetDTO[]> {
+  const data = await authedRequest<UserUpstreamPresetDTO[]>("/api/v1/user/upstream-presets", {
+    method: "GET",
+    accessToken,
+  });
+  return data ?? [];
 }
 
 export async function listUserUpstreams(accessToken: string): Promise<UserUpstreamDTO[]> {

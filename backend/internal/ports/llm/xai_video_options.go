@@ -59,13 +59,9 @@ func isXAIVideoAspectRatio(value string) bool {
 	}
 }
 
+// isXAIVideoResolution 与 OpenAI 视频协议一致：固定档位外放行常见自定义分辨率格式
 func isXAIVideoResolution(value string) bool {
-	switch value {
-	case "480p", "720p", "1080p":
-		return true
-	default:
-		return false
-	}
+	return isOpenAIVideoResolution(value)
 }
 
 func stringOption(options map[string]any, key string) string {

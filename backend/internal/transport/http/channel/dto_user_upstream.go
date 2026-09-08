@@ -15,13 +15,34 @@ type UserUpstreamAPIKeyRequest struct {
 
 // CreateUserUpstreamRequest 创建用户自有渠道请求。
 type CreateUserUpstreamRequest struct {
-	Name             string                      `json:"name" binding:"required"`
-	BaseURL          string                      `json:"base_url" binding:"required"`
-	Compatible       string                      `json:"compatible" binding:"required"`
+	PresetID         string                      `json:"preset_id"`
+	Name             string                      `json:"name" binding:"omitempty,max=128"`
+	BaseURL          string                      `json:"base_url" binding:"omitempty,max=512"`
+	Compatible       string                      `json:"compatible" binding:"omitempty,max=64"`
 	APIKeys          []UserUpstreamAPIKeyRequest `json:"api_keys" binding:"required,min=1"`
 	ConnectTimeoutMS int                         `json:"connect_timeout_ms"`
 	ReadTimeoutMS    int                         `json:"read_timeout_ms"`
 	Headers          map[string]string           `json:"headers"`
+}
+
+type UserUpstreamPresetRequest struct {
+	ID               string `json:"id" binding:"required,max=64"`
+	Name             string `json:"name" binding:"required,max=128"`
+	BaseURL          string `json:"base_url" binding:"required,max=512"`
+	Compatible       string `json:"compatible" binding:"required,max=64"`
+	ProtocolDefaults string `json:"protocol_defaults" binding:"omitempty,max=20000"`
+	Enabled          *bool  `json:"enabled"`
+	SortOrder        int    `json:"sort_order"`
+}
+
+type UserUpstreamPresetResponse struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	BaseURL          string `json:"base_url"`
+	Compatible       string `json:"compatible"`
+	ProtocolDefaults string `json:"protocol_defaults"`
+	Enabled          bool   `json:"enabled"`
+	SortOrder        int    `json:"sort_order"`
 }
 
 // UpdateUserUpstreamRequest 更新用户自有渠道请求，未传字段保持原值。

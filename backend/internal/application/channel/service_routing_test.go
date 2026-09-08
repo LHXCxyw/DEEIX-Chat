@@ -382,6 +382,29 @@ func TestRemoveCandidateUsesUpstreamModelIDInsteadOfPlatformModelName(t *testing
 	}
 }
 
+func TestValidUserModelCapabilitiesJSONRequiresTopLevelObject(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{name: "empty inherits defaults", raw: "", want: true},
+		{name: "object", raw: `{"contextWindow":128000}`, want: true},
+		{name: "empty object", raw: `{}`, want: true},
+		{name: "array", raw: `[]`, want: false},
+		{name: "null", raw: `null`, want: false},
+		{name: "scalar", raw: `true`, want: false},
+		{name: "invalid", raw: `{`, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := validUserModelCapabilitiesJSON(test.raw); got != test.want {
+				t.Fatalf("validUserModelCapabilitiesJSON(%q) = %v, want %v", test.raw, got, test.want)
+			}
+		})
+	}
+}
+
 func TestUserModelRouteProtocolDerivesOpenAIImageEditsOnlyForEditTask(t *testing.T) {
 	kinds := `["image_gen","image_edit"]`
 	if got := userModelRouteProtocol(TaskTypeImageEdit, kinds, protocolOpenAIImageGenerations); got != protocolOpenAIImageEdits {

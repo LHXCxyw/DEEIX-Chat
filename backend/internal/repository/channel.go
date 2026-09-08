@@ -458,6 +458,7 @@ type ModelIconAssetRepository interface {
 // UserModelRepository 定义用户私有模型持久化能力。
 type UserModelRepository interface {
 	ListUserModels(ctx context.Context, userID uint) ([]domainchannel.UserModel, error)
+	ListManagedUserModels(ctx context.Context, userID uint) ([]domainchannel.UserModel, error)
 	GetUserModelByID(ctx context.Context, userID, modelID uint) (*domainchannel.UserModel, error)
 	CreateUserModel(ctx context.Context, item *domainchannel.UserModel) error
 	UpdateUserModel(ctx context.Context, item *domainchannel.UserModel) error

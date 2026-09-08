@@ -134,6 +134,9 @@ var sendMessageErrorStatuses = []sendMessageErrorStatus{
 	{err: appconversation.ErrMediaRouteProtocolMismatch, status: http.StatusServiceUnavailable},
 	{err: appconversation.ErrInvalidMediaGenerationTask, status: http.StatusBadRequest},
 	{err: appconversation.ErrDuplicateMessageGenerationRun, status: http.StatusConflict},
+	// 媒体任务重查等复用消息发送错误映射的路径也会回收产物上传，MIME 拦截需要独立于内部错误呈现。
+	{err: appconversation.ErrMIMEBlocked, status: http.StatusBadRequest},
+	{err: appconversation.ErrDangerousMIMEType, status: http.StatusBadRequest},
 	{err: billing.ErrUsageConcurrencyLimitExceeded, status: http.StatusTooManyRequests},
 	{err: billing.ErrUsageReservationConflict, status: http.StatusConflict},
 	{err: billing.ErrUsageBalanceInsufficient, status: http.StatusPaymentRequired},

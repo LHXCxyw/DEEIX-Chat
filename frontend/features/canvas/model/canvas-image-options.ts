@@ -1,13 +1,16 @@
+import type { CanvasMediaType } from "@/features/canvas/model/canvas-types";
 import type { ChatModelOption, ModelOptionControl } from "@/features/chat/types/chat-runtime";
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 
-// 画布请求路由：media 图像生成 / media 图像编辑 / chat 路由图像模型
-export type CanvasRoute = "image_generation" | "image_edit" | "chat";
+// 画布请求路由：media 图像生成 / media 图像编辑 / chat 路由图像模型 / media 视频生成
+export type CanvasRoute = "image_generation" | "image_edit" | "chat" | "video_generation";
 
 export type CanvasRouteBlockReason =
   | "edit_reference_required"
   | "image_unsupported"
-  | "edit_unsupported";
+  | "edit_unsupported"
+  | "video_unsupported"
+  | "video_too_many_references";
 
 export type CanvasRouteDecision =
   | { route: CanvasRoute; blockedReason: null }
@@ -106,6 +109,43 @@ const CHAT_ROUTE_IMAGE_CONTROLS: ModelOptionControl[] = [
   { path: "aspect_ratio", type: "select", options: ASPECT_RATIO_VALUES },
   { path: "image_size", type: "select", options: IMAGE_SIZE_VALUES },
 ];
+
+// 各视频协议对应的可视化参数控件（与后端 SanitizeOpenAIVideoOptions / SanitizeXAIVideoOptions 对齐，
+// resolution 除预设外支持在参数面板输入自定义值，后端放行 NNNp / Nk / 宽x高 格式）
+const VIDEO_ASPECT_RATIO_VALUES = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"];
+const VIDEO_RESOLUTION_VALUES = ["420p", "480p", "512p", "720p", "768p", "1080p", "2k"];
+const PROTOCOL_VIDEO_CONTROLS: Record<string, ModelOptionControl[]> = {
+  xai_video: [
+    { path: "aspect_ratio", type: "select", options: VIDEO_ASPECT_RATIO_VALUES },
+    { path: "duration", type: "number" },
+    { path: "resolution", type: "select", options: VIDEO_RESOLUTION_VALUES },
+  ],
+  openai_video_generations: [
+    { path: "aspect_ratio", type: "select", options: VIDEO_ASPECT_RATIO_VALUES },
+    { path: "duration", type: "number" },
+    { path: "resolution", type: "select", options: VIDEO_RESOLUTION_VALUES },
+  ],
+  gemini_interactions: [
+    { path: "generation_config.video_config.duration_seconds", type: "number" },
+  ],
+};
+
+const VIDEO_OPTION_PATHS = new Set([
+  "aspect_ratio",
+  "duration",
+  "resolution",
+  "seconds",
+  "size",
+  "generation_config.video_config.duration_seconds",
+  "generationConfig.videoConfig.durationSeconds",
+]);
+
+// 视频协议白名单：与后端 IsRouteAllowedForTask(video_generation) 的 isProtocolAllowedForKind 保持一致
+const VIDEO_GENERATION_PROTOCOLS = new Set([
+  "xai_video",
+  "openai_video_generations",
+  "gemini_interactions",
+]);
 
 const IMAGE_OPTION_PATHS = new Set([
   "aspect_ratio",
@@ -238,6 +278,57 @@ export function resolveCanvasRoute(
   return { route: null, blockedReason: "image_unsupported" };
 }
 
+// 视频模型判定：kinds 含 video_gen 且协议在视频白名单内（与后端路由约束一致）
+export function modelSupportsVideoRoute(model: ChatModelOption | null): boolean {
+  return Boolean(model?.kinds.includes("video_gen")) && modelHasProtocolIn(model, VIDEO_GENERATION_PROTOCOLS);
+}
+
+// 模型的画布媒体类型：视频模型归为 video，其余按图像处理
+export function modelCanvasMediaType(model: ChatModelOption | null): CanvasMediaType {
+  return modelSupportsVideoRoute(model) ? "video" : "image";
+}
+
+// 按节点媒体类型解析生成路由；视频仅支持 generate 操作（参考图上限 7 张）
+export function resolveCanvasMediaRoute(
+  model: ChatModelOption | null,
+  mediaType: CanvasMediaType,
+  referenceCount: number,
+): CanvasRouteDecision {
+  if (mediaType === "video") {
+    if (!modelSupportsVideoRoute(model)) {
+      return { route: null, blockedReason: "video_unsupported" };
+    }
+    if (referenceCount > 7) {
+      return { route: null, blockedReason: "video_too_many_references" };
+    }
+    return { route: "video_generation", blockedReason: null };
+  }
+  return resolveCanvasRoute(model, referenceCount > 0);
+}
+
+// 汇总当前视频模型可配置的参数控件（协议基础控件 + 管理端下发控件）
+export function resolveCanvasVideoControls(model: ChatModelOption | null): ModelOptionControl[] {
+  if (!model) {
+    return [];
+  }
+  const controlsByPath = new Map<string, ModelOptionControl>();
+  const addControl = (control: ModelOptionControl) => {
+    const path = optionPathSegments(control.path).join(".");
+    if (path && VIDEO_OPTION_PATHS.has(path)) {
+      controlsByPath.set(path, { ...control, path });
+    }
+  };
+  for (const protocol of model.protocols) {
+    for (const control of PROTOCOL_VIDEO_CONTROLS[protocol.trim().toLowerCase()] ?? []) {
+      addControl(control);
+    }
+  }
+  for (const control of model.optionControls) {
+    addControl(control);
+  }
+  return [...controlsByPath.values()];
+}
+
 function optionPathSegments(path: string): string[] {
   return path
     .split(".")
@@ -272,6 +363,16 @@ export function resolveCanvasImageControls(model: ChatModelOption | null): Model
     addControl(control);
   }
   return [...controlsByPath.values()];
+}
+
+// 按媒体类型取参数控件
+export function resolveCanvasMediaControls(
+  model: ChatModelOption | null,
+  mediaType: CanvasMediaType,
+): ModelOptionControl[] {
+  return mediaType === "video"
+    ? resolveCanvasVideoControls(model)
+    : resolveCanvasImageControls(model);
 }
 
 export function getOptionAtPath(options: ConversationOptions, path: string[]): unknown {

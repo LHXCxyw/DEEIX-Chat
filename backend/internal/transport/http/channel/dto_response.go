@@ -89,33 +89,34 @@ func toUpstreamAPIKeyResponses(items []appchannel.UpstreamAPIKeyView) []Upstream
 
 // ModelResponse 模型响应 DTO。
 type ModelResponse struct {
-	ID                 uint   `json:"id"`
-	PlatformModelName  string `json:"platformModelName"`
-	Vendor             string `json:"vendor"`
-	VendorName         string `json:"vendorName"`
-	VendorIcon         string `json:"vendorIcon"`
-	DisplayGroupID     *uint  `json:"displayGroupID" extensions:"x-nullable,!x-omitempty"`
-	DisplayGroupName   string `json:"displayGroupName"`
-	DisplayGroupIcon   string `json:"displayGroupIcon"`
-	KindsJSON          string `json:"kindsJSON"`
-	Icon               string `json:"icon"`
-	CapabilitiesJSON   string `json:"capabilitiesJSON"`
-	ContextWindow      int    `json:"contextWindow"`
-	SystemPrompt       string `json:"systemPrompt"`
-	AccessScope        string `json:"accessScope"`
-	Status             string `json:"status"`
-	Description        string `json:"description"`
-	CbPolicyMode       string `json:"cbPolicyMode"`
-	CbFailureThreshold int    `json:"cbFailureThreshold"`
-	CbDurationMin      int    `json:"cbDurationMin"`
-	CbWindowMin        int    `json:"cbWindowMin"`
-	SortOrder          int    `json:"sortOrder"`
-	SourceCount        int64  `json:"sourceCount"`
-	ActiveSourceCount  int64  `json:"activeSourceCount"`
-	ProtocolsJSON      string `json:"protocolsJSON"`
-	UpstreamNamesJSON  string `json:"upstreamNamesJSON"`
-	CreatedAt          string `json:"createdAt"`
-	UpdatedAt          string `json:"updatedAt"`
+	ID                 uint     `json:"id"`
+	PlatformModelName  string   `json:"platformModelName"`
+	Vendor             string   `json:"vendor"`
+	VendorName         string   `json:"vendorName"`
+	VendorIcon         string   `json:"vendorIcon"`
+	DisplayGroupID     *uint    `json:"displayGroupID" extensions:"x-nullable,!x-omitempty"`
+	DisplayGroupName   string   `json:"displayGroupName"`
+	DisplayGroupIcon   string   `json:"displayGroupIcon"`
+	KindsJSON          string   `json:"kindsJSON"`
+	Icon               string   `json:"icon"`
+	CapabilitiesJSON   string   `json:"capabilitiesJSON"`
+	ContextWindow      int      `json:"contextWindow"`
+	SystemPrompt       string   `json:"systemPrompt"`
+	AccessScope        string   `json:"accessScope"`
+	Status             string   `json:"status"`
+	Description        string   `json:"description"`
+	CbPolicyMode       string   `json:"cbPolicyMode"`
+	CbFailureThreshold int      `json:"cbFailureThreshold"`
+	CbDurationMin      int      `json:"cbDurationMin"`
+	CbWindowMin        int      `json:"cbWindowMin"`
+	SortOrder          int      `json:"sortOrder"`
+	SourceCount        int64    `json:"sourceCount"`
+	ActiveSourceCount  int64    `json:"activeSourceCount"`
+	ProtocolsJSON      string   `json:"protocolsJSON"`
+	UpstreamNamesJSON  string   `json:"upstreamNamesJSON"`
+	CreatedAt          string   `json:"createdAt"`
+	UpdatedAt          string   `json:"updatedAt"`
+	DefaultTaskTypes   []string `json:"defaultTaskTypes"`
 }
 
 func toModelResponse(v appchannel.ModelView) ModelResponse {
@@ -147,6 +148,7 @@ func toModelResponse(v appchannel.ModelView) ModelResponse {
 		UpstreamNamesJSON:  v.UpstreamNamesJSON,
 		CreatedAt:          v.CreatedAt,
 		UpdatedAt:          v.UpdatedAt,
+		DefaultTaskTypes:   v.DefaultTaskTypes,
 	}
 }
 

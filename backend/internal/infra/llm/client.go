@@ -26,7 +26,7 @@ import (
 // 超时默认值。
 const (
 	defaultConnectTimeoutMS    = 10000  // TCP 建连超时 10s
-	defaultReadTimeoutMS       = 120000 // 非流式/首字节超时 120s（含 LLM 推理）
+	defaultReadTimeoutMS       = 180000 // 非流式/首字节超时 180s（含 LLM 推理）
 	defaultStreamIdleTimeoutMS = 60000  // 流式 chunk 间隔超时 60s
 	maxUpstreamBodyBytes       = 64 * 1024 * 1024
 	// maxStreamToolCallIndex 防止异常稀疏的上游索引触发无界切片扩容。
@@ -518,12 +518,13 @@ func NewClient(outboundPolicy security.OutboundPolicy) *Client {
 		portllm.AdapterOpenAIChatCompletions:  &openAIChatCompletionsAdapter{client: client},
 		portllm.AdapterOpenAIImageGenerations: &openAIImageGenerationsAdapter{client: client},
 		portllm.AdapterOpenAIImageEdits:       &openAIImageEditsAdapter{client: client},
-		portllm.AdapterImageEditsJSON:          &imageEditsJSONAdapter{client: client},
+		portllm.AdapterImageEditsJSON:         &imageEditsJSONAdapter{client: client},
 		portllm.AdapterXAIResponses:           &xAIResponsesAdapter{client: client},
 		portllm.AdapterXAIImage:               &xAIImageAdapter{client: client},
 		portllm.AdapterXAIImageEdits:          &xAIImageEditsAdapter{client: client},
 		portllm.AdapterXAIVideo:               &xAIVideoAdapter{client: client},
 		portllm.AdapterXAIVideoExtensions:     &xAIVideoExtensionsAdapter{client: client},
+		portllm.AdapterOpenAIVideo:            &openAIVideoAdapter{client: client},
 		portllm.AdapterAnthropicMessages:      &anthropicMessagesAdapter{client: client},
 		portllm.AdapterGoogleGenerateContent:  &geminiGenerateContentAdapter{client: client},
 		portllm.AdapterGoogleImageGeneration:  &geminiImageGenerationAdapter{client: client},
@@ -597,6 +598,76 @@ func (c *Client) Generate(ctx context.Context, route portllm.RouteConfig, input 
 		return nil, err
 	}
 	return adapter.Generate(ctx, route, input)
+}
+
+// RetrieveVideoTask 回查一次异步媒体任务（如视频生成）的上游状态，不重新提交任务。
+// 仅支持具备异步任务 ID 的协议（openai_video_generations / xai_video / xai_video_extensions）。
+func (c *Client) RetrieveVideoTask(ctx context.Context, route portllm.RouteConfig, taskID string) (*portllm.VideoTaskRetrieval, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, fmt.Errorf("empty upstream task id")
+	}
+	adapterName := portllm.NormalizeAdapter(route.Protocol)
+	var requestURL string
+	switch adapterName {
+	case portllm.AdapterOpenAIVideo:
+		requestURL = buildOpenAIVideoResultURL(route.BaseURL, taskID)
+	case portllm.AdapterXAIVideo, portllm.AdapterXAIVideoExtensions:
+		requestURL = buildXAIVideoResultURL(route.BaseURL, taskID)
+	default:
+		return nil, fmt.Errorf("%w: %s does not support async task requery", portllm.ErrUnsupportedAdapter, adapterName)
+	}
+	if requestURL == "" {
+		return nil, fmt.Errorf("invalid upstream task url")
+	}
+
+	requestCtx, cancel := context.WithTimeout(ctx, resolveReadTimeout(route.ReadTimeoutMS))
+	defer cancel()
+	req, err := newXAIMediaRequest(requestCtx, http.MethodGet, requestURL, nil, route)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.doRouteRequest(route, req)
+	if err != nil {
+		return nil, err
+	}
+	body, readErr := readUpstreamBody(resp.Body)
+	_ = resp.Body.Close()
+	debug := upstreamDebugSnapshot(req, nil, resp, body)
+	if readErr != nil {
+		return nil, readErr
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return nil, parseUpstreamError(resp.StatusCode, body, debug)
+	}
+
+	switch adapterName {
+	case portllm.AdapterOpenAIVideo:
+		output, pending, _, err := parseOpenAIVideoResult(body, taskID, 0, buildOpenAIVideoContentURL(route.BaseURL, taskID))
+		if err != nil {
+			// 上游明确上报 failed 时 parse 返回错误，这里转成 failed 状态而不是传输错误
+			if isOpenAIVideoTaskFailedError(err) {
+				return &portllm.VideoTaskRetrieval{Status: "failed", Message: err.Error()}, nil
+			}
+			return nil, err
+		}
+		if pending {
+			return &portllm.VideoTaskRetrieval{Status: "pending"}, nil
+		}
+		return &portllm.VideoTaskRetrieval{Status: "completed", Output: output}, nil
+	default: // xai
+		output, pending, err := parseXAIVideoResult(body, taskID, 0)
+		if err != nil {
+			if strings.HasPrefix(err.Error(), "xAI video generation failed:") {
+				return &portllm.VideoTaskRetrieval{Status: "failed", Message: err.Error()}, nil
+			}
+			return nil, err
+		}
+		if pending {
+			return &portllm.VideoTaskRetrieval{Status: "pending"}, nil
+		}
+		return &portllm.VideoTaskRetrieval{Status: "completed", Output: output}, nil
+	}
 }
 
 // GenerateStream 调用上游适配器并实时回传增量文本。

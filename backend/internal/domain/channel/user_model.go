@@ -13,6 +13,7 @@ type UserModel struct {
 	Name               string
 	Protocol           string
 	KindsJSON          string
+	CapabilitiesJSON   string
 	Status             string
 	Priority           int
 	Weight             int

@@ -2,6 +2,7 @@ package channel
 
 // CreateUserUpstreamInput 用户创建自有渠道输入
 type CreateUserUpstreamInput struct {
+	PresetID         string
 	Name             string
 	BaseURL          string
 	Compatible       string

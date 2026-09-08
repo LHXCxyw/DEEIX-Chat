@@ -18,6 +18,7 @@ import type {
   AdminLLMUpstreamModelData,
   AdminLLMUpstreamModelDTO,
   AdminLLMUpstreamView,
+  AdminUserUpstreamPreset,
   BindAdminLLMModelUpstreamSourceRequest,
   CreateAdminLLMModelDisplayGroupRequest,
   CreateAdminLLMModelRequest,
@@ -27,6 +28,7 @@ import type {
   ImportAdminLLMUpstreamModelsRequest,
   ListAdminLLMRemoteModelsData,
   ReorderAdminLLMModelsRequest,
+  ReplaceAdminUserUpstreamPresetsRequest,
   ResetAdminLLMCircuitData,
   SetAdminLLMModelProtocolsRequest,
   SetAdminLLMModelsDisplayGroupRequest,
@@ -160,6 +162,32 @@ export async function resetAdminLLMUpstreamCircuit(
   return authedRequest<ResetAdminLLMCircuitData>(
     `/api/v1/admin/llm/upstreams/${upstreamID}/circuit/reset`,
     { method: "POST", accessToken },
+    true,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// User upstream presets
+// ---------------------------------------------------------------------------
+
+export async function listAdminUserUpstreamPresets(
+  accessToken: string,
+): Promise<AdminUserUpstreamPreset[]> {
+  const data = await authedRequest<AdminUserUpstreamPreset[]>(
+    "/api/v1/admin/llm/user-upstream-presets",
+    { accessToken },
+    true,
+  );
+  return data ?? [];
+}
+
+export async function replaceAdminUserUpstreamPresets(
+  accessToken: string,
+  payload: ReplaceAdminUserUpstreamPresetsRequest,
+): Promise<void> {
+  return authedRequest<void>(
+    "/api/v1/admin/llm/user-upstream-presets",
+    { method: "PUT", accessToken, body: payload },
     true,
   );
 }

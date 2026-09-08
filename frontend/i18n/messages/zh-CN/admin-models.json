@@ -44,6 +44,13 @@
     "video_gen": "视频生成",
     "video_extension": "视频扩展"
   },
+  "defaultTasks": {
+    "chat": "对话与内部文本任务",
+    "image_generation": "图像生成",
+    "image_edit": "图像编辑",
+    "video_generation": "视频生成",
+    "video_extension": "视频扩展"
+  },
   "table": {
     "searchPlaceholder": "搜索模型、厂商、分组或描述",
     "allStatus": "全部",
@@ -374,6 +381,8 @@
     "noMatchedVendors": "没有匹配的厂商",
     "kind": "类别",
     "selectKind": "选择类别",
+    "defaultTasks": "默认任务路由",
+    "defaultTasksDescription": "请求未指定模型时，系统优先使用此模型处理所选任务；每类任务只能有一个默认模型。",
     "otherInfo": "其他信息",
     "accessScope": "可用范围",
     "permissionGroups": "权限组",

@@ -155,6 +155,10 @@ type ConversationTraceRepository interface {
 	CreateConversationRun(ctx context.Context, item *domainconversation.Run) error
 	// UpdateConversationRun 更新已占用的运行快照，且不允许转移运行归属。
 	UpdateConversationRun(ctx context.Context, item *domainconversation.Run) error
+	// GetConversationRunByRunID 按运行 ID 读取当前用户的运行记录；不存在返回 ErrNotFound。
+	GetConversationRunByRunID(ctx context.Context, userID uint, runID string) (*domainconversation.Run, error)
+	// FindAssistantMessageIDByRunID 定位当前用户某次运行中的 assistant 消息；不存在返回 0。
+	FindAssistantMessageIDByRunID(ctx context.Context, userID uint, runID string) (uint, error)
 	UpsertConversationMessageTrace(ctx context.Context, item *domainconversation.MessageTrace) error
 	ListConversationMessageTracesByMessageIDs(ctx context.Context, messageIDs []uint) ([]domainconversation.MessageTrace, error)
 	UpsertConversationMessageTraceEvent(ctx context.Context, item *domainconversation.MessageTraceEventRow) error

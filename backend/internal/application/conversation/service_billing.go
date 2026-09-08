@@ -400,7 +400,7 @@ func (s *Service) buildSendMessageUsageLedger(ctx context.Context, input SendMes
 	if latencyMS <= 0 {
 		latencyMS = result.AssistantMessage.LatencyMS
 	}
-	
+
 	ledger, err := s.billingSvc.BuildUsageLedger(ctx, appbilling.UsagePricingInput{
 		Authorization:       authorization,
 		UserID:              input.UserID,
@@ -435,11 +435,11 @@ func (s *Service) buildSendMessageUsageLedger(ctx context.Context, input SendMes
 		RawUsageJSON:        result.RawUsageJSON,
 		BillingAt:           result.StartedAt,
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 用户自有渠道（BYOK）归属标记，供计费与统计使用
 	if result.IsUserOwnedUpstream {
 		ledger.IsUserOwnedUpstream = true

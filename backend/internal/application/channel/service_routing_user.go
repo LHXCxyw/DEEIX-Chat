@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
@@ -29,7 +30,10 @@ func (s *Service) getUserModelRoute(ctx context.Context, input ResolveRouteInput
 		RouteID: userModel.ID, UpstreamModelID: userModel.ID, UpstreamID: upstream.ID,
 		UpstreamName: upstream.Name, UpstreamOwnerUserID: upstream.OwnerUserID,
 		UpstreamOwnershipType: "user", UpstreamBillingMode: "self", PlatformModelName: userModel.Name,
-		ModelKindsJSON: userModel.KindsJSON, ModelCapabilitiesJSON: userModel.KindsJSON,
+		ModelKindsJSON: userModel.KindsJSON,
+		// 用户模型能力：优先取用户在渠道里配置的 capabilities（如 defaultOptions/lockedOptionPaths），
+		// 未配置时为空，参数策略回退到协议默认白名单；不可再用 KindsJSON 冒充能力 JSON。
+		ModelCapabilitiesJSON: strings.TrimSpace(userModel.CapabilitiesJSON),
 		Protocol: userModelRouteProtocol(input.TaskType, userModel.KindsJSON, userModel.Protocol), BaseURL: upstream.BaseURL, APIKeysEnc: upstream.APIKeysEnc,
 		ConnectTimeoutMS: upstream.ConnectTimeoutMS, ReadTimeoutMS: upstream.ReadTimeoutMS,
 		StreamIdleTimeoutMS: upstream.StreamIdleTimeoutMS, HeadersJSON: upstream.HeadersJSON,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Cable, CloudDownload, Search, Tags, ToggleLeft, Trash2 } from "lucide-react";
+import { Activity, Cable, CloudDownload, Search, SlidersHorizontal, Tags, ToggleLeft, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -53,7 +54,7 @@ import {
   batchDeleteUserModels,
   batchUpdateUserModels,
   createUserModel,
-  listUserModels,
+  listManagedUserModels,
   listUserRemoteModels,
   testUserModel,
   type UserModelDTO,
@@ -68,9 +69,10 @@ type UserRowDraft = UserModelDTO & {
   isDirty: boolean;
   nameDraft: string;
   kindsDisplay: string;
+  capabilitiesDraft: string;
 };
 
-type RowPatch = Partial<Pick<UserRowDraft, "nameDraft" | "protocol" | "kindsDisplay" | "status" | "priority" | "weight">>;
+type RowPatch = Partial<Pick<UserRowDraft, "nameDraft" | "protocol" | "kindsDisplay" | "capabilitiesDraft" | "status" | "priority" | "weight">>;
 
 type StatusFilter = "" | "active" | "disabled";
 type SortValue = "upstream_asc" | "upstream_desc" | "name_asc" | "name_desc" | "status_asc" | "protocol_asc";
@@ -96,7 +98,7 @@ function displayToKindsJson(display: string): string {
 }
 
 function toRowDraft(item: UserModelDTO): UserRowDraft {
-  return { ...item, isDirty: false, nameDraft: item.name, kindsDisplay: kindsJsonToDisplay(item.kinds) };
+  return { ...item, isDirty: false, nameDraft: item.name, kindsDisplay: kindsJsonToDisplay(item.kinds), capabilitiesDraft: item.capabilities ?? "" };
 }
 
 function resolveErrorText(error: unknown, fallback: string): string {
@@ -207,6 +209,33 @@ const ModelRow = React.memo(function ModelRow({
           onChange={(event) => onUpdate(row.id, { weight: Number(event.target.value) || 0 })}
         />
       </TableCell>
+      <TableCell className="w-[56px] py-1.5 text-center">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="参数能力配置"
+              className={row.capabilitiesDraft.trim() ? "text-primary" : "text-muted-foreground"}
+            >
+              <SlidersHorizontal className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 p-3">
+            <p className="text-xs font-medium">参数能力配置（capabilities JSON）</p>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+              覆盖平台模型的参数策略能力，支持 defaultOptions 与 lockedOptionPaths。留空时沿用平台默认白名单。
+            </p>
+            <textarea
+              className="mt-2 h-40 w-full resize-y rounded-md border border-border bg-background p-2 font-mono text-[11px] leading-relaxed outline-none focus:ring-1 focus:ring-ring"
+              placeholder={'{"defaultOptions":{"duration":5},"lockedOptionPaths":[]}'}
+              value={row.capabilitiesDraft}
+              onChange={(event) => onUpdate(row.id, { capabilitiesDraft: event.target.value })}
+            />
+          </PopoverContent>
+        </Popover>
+      </TableCell>
       <TableCell className="w-[48px] py-1.5 text-right" stickyEnd>
         <div className="flex h-7 items-center justify-end">
           <Tooltip>
@@ -284,7 +313,7 @@ export function UserModelsDialog({
     setLoading(true);
     try {
       const accessToken = await resolveAccessToken();
-      const all = await listUserModels(accessToken);
+      const all = await listManagedUserModels(accessToken);
       setRows(all.filter((item) => item.upstreamId === upstreamID).map(toRowDraft));
       setSelected(new Set());
     } catch (error) {
@@ -381,6 +410,16 @@ export function UserModelsDialog({
       toast.error("模型名不能为空");
       return;
     }
+    for (const row of dirtyRows) {
+      if (row.capabilitiesDraft.trim()) {
+        try {
+          JSON.parse(row.capabilitiesDraft);
+        } catch {
+          toast.error(`模型 ${row.nameDraft.trim()} 的参数能力配置不是合法 JSON`);
+          return;
+        }
+      }
+    }
     setSaving(true);
     try {
       const accessToken = await resolveAccessToken();
@@ -389,6 +428,7 @@ export function UserModelsDialog({
           name: row.nameDraft.trim(),
           protocol: row.protocol,
           kinds: displayToKindsJson(row.kindsDisplay),
+          capabilities: row.capabilitiesDraft.trim(),
           status: row.status,
           priority: row.priority,
           weight: row.weight,
@@ -713,20 +753,21 @@ export function UserModelsDialog({
                   <TableHead>上游模型名</TableHead>
                   <TableHead className="min-w-[200px]">显示名</TableHead>
                   <TableHead className="w-[200px]">接口协议</TableHead>
-                  <TableHead className="w-[140px]">能力</TableHead>
+                  <TableHead className="w-[140px]">类型</TableHead>
                   <TableHead className="w-[80px]">优先级</TableHead>
                   <TableHead className="w-[80px]">权重</TableHead>
+                  <TableHead className="w-[56px] text-center">参数</TableHead>
                   <TableHead className="w-[48px]" stickyEnd />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading && rows.length === 0 ? <TableLoadingRow colSpan={9} /> : null}
+                {loading && rows.length === 0 ? <TableLoadingRow colSpan={10} /> : null}
                 {!loading && visibleRows.length === 0 ? (
-                  <TableEmptyRow colSpan={9}>
+                  <TableEmptyRow colSpan={10}>
                     {rows.length === 0 ? "还没有配置任何模型，点击同步导入" : "没有匹配的模型"}
                   </TableEmptyRow>
                 ) : null}
-                {visibleRows.length > 0 ? <VirtualTablePaddingRow colSpan={9} height={virtualRows.paddingTop} /> : null}
+                {visibleRows.length > 0 ? <VirtualTablePaddingRow colSpan={10} height={virtualRows.paddingTop} /> : null}
                 {virtualRows.rows.map(({ item: row }) => (
                   <ModelRow
                     key={row.id}
@@ -738,7 +779,7 @@ export function UserModelsDialog({
                     onTest={(target) => void handleTest(target)}
                   />
                 ))}
-                {visibleRows.length > 0 ? <VirtualTablePaddingRow colSpan={9} height={virtualRows.paddingBottom} /> : null}
+                {visibleRows.length > 0 ? <VirtualTablePaddingRow colSpan={10} height={virtualRows.paddingBottom} /> : null}
               </TableBody>
             </Table>
           </div>
@@ -789,13 +830,13 @@ export function UserModelsDialog({
             </div>
 
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>已选 {selectedRemote.length} / 可选 {filteredRemote.filter((name) => !importedIDs.has(name)).length}</span>
+              <span>已选 {selectedRemote.length} / 可选 {filteredRemote.length}</span>
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={remoteLoading}
                 onClick={() => {
-                  const selectable = filteredRemote.filter((name) => !importedIDs.has(name));
+                  const selectable = filteredRemote;
                   setSelectedRemote((prev) => (prev.length === selectable.length ? [] : selectable));
                 }}
               >
@@ -819,13 +860,11 @@ export function UserModelsDialog({
                     <label
                       key={name}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
-                        imported ? "text-muted-foreground" : "cursor-pointer hover:bg-muted",
+                        "flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted",
                       )}
                     >
                       <Checkbox
                         checked={selectedRemote.includes(name)}
-                        disabled={imported}
                         onCheckedChange={(next) =>
                           setSelectedRemote((prev) =>
                             next === true ? [...prev, name] : prev.filter((item) => item !== name),
@@ -833,7 +872,7 @@ export function UserModelsDialog({
                         }
                       />
                       <span className="min-w-0 flex-1 truncate font-mono text-xs">{name}</span>
-                      {imported ? <span className="shrink-0 text-xs">已导入</span> : null}
+                      {imported ? <span className="shrink-0 text-xs text-muted-foreground">重新同步</span> : null}
                     </label>
                   );
                 })}

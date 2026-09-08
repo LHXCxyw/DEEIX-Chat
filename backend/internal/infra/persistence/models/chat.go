@@ -293,6 +293,7 @@ type ConversationRun struct {
 	ModelVendor              string     `gorm:"size:64;not null;default:'';comment:平台模型厂商快照"`
 	ModelIcon                string     `gorm:"size:2048;not null;default:'';index:idx_chat_runs_asset_model_icon,where:model_icon LIKE 'asset:%';comment:平台模型图标快照"`
 	UpstreamModelName        string     `gorm:"size:256;not null;default:'';comment:上游真实模型名称"`
+	UpstreamTaskID           string     `gorm:"size:128;not null;default:'';index:idx_chat_runs_upstream_task_id;comment:上游异步任务ID"`
 	InputTokens              int64      `gorm:"not null;default:0;comment:输入Token"`
 	OutputTokens             int64      `gorm:"not null;default:0;comment:输出Token"`
 	CacheReadTokens          int64      `gorm:"not null;default:0;comment:缓存读取Token"`

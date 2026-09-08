@@ -107,10 +107,11 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		return nil, ErrMediaImageEditInputRequired
 	}
 	platformModelName := strings.TrimSpace(input.PlatformModelName)
-	if platformModelName == "" {
+	useDefaultRoute := platformModelName == "" && input.UserModelID == 0 && !strings.EqualFold(strings.TrimSpace(input.ModelScope), "user")
+	if !useDefaultRoute && platformModelName == "" {
 		platformModelName = strings.TrimSpace(conversation.Model)
 	}
-	if platformModelName == "" {
+	if !useDefaultRoute && platformModelName == "" {
 		return nil, ErrModelRouteNotConfigured
 	}
 	taskRouteType := channel.TaskTypeImageGeneration
@@ -194,16 +195,31 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		return nil, err
 	}
 
-	route, err := s.routeResolver.ResolveRoute(ctx, channel.ResolveRouteInput{
-		PlatformModelName: platformModelName,
-		ModelScope:        input.ModelScope,
-		UserModelID:       input.UserModelID,
-		TaskType:          taskRouteType,
-		Scope:             channel.RouteScopeUser,
-		UserID:            input.UserID,
-		ConversationID:    input.ConversationID,
-		RequestID:         strings.TrimSpace(input.RequestID),
-	})
+	var route *channel.ResolvedRoute
+	if useDefaultRoute {
+		resolver, ok := s.routeResolver.(defaultRouteResolver)
+		if !ok {
+			return nil, ErrModelRouteNotConfigured
+		}
+		route, err = resolver.ResolveDefaultRoute(ctx, channel.ResolveRouteInput{
+			TaskType:       taskRouteType,
+			Scope:          channel.RouteScopeUser,
+			UserID:         input.UserID,
+			ConversationID: input.ConversationID,
+			RequestID:      strings.TrimSpace(input.RequestID),
+		})
+	} else {
+		route, err = s.routeResolver.ResolveRoute(ctx, channel.ResolveRouteInput{
+			PlatformModelName: platformModelName,
+			ModelScope:        input.ModelScope,
+			UserModelID:       input.UserModelID,
+			TaskType:          taskRouteType,
+			Scope:             channel.RouteScopeUser,
+			UserID:            input.UserID,
+			ConversationID:    input.ConversationID,
+			RequestID:         strings.TrimSpace(input.RequestID),
+		})
+	}
 	if err != nil {
 		return nil, mapRouteResolutionError(err)
 	}

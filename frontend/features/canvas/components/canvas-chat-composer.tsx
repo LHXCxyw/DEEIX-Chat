@@ -39,6 +39,8 @@ export function CanvasChatComposer({
       ?? imageModels.find((item) => item.platformModelName === restoredModelName);
     return byName ?? imageModels[0] ?? null;
   }, [imageModels, restoredModelName, selectedModelName]);
+  // 视频模型必须携带提示词（上游 prompt 必填）
+  const isVideoModel = selectedModel?.kinds.includes("video_gen") ?? false;
 
   // 初始模型到位后回填默认选择
   React.useEffect(() => {
@@ -77,7 +79,7 @@ export function CanvasChatComposer({
     });
   }, []);
 
-  const canSend = Boolean(prompt.trim() || pendingFiles.length > 0) && Boolean(selectedModel);
+  const canSend = Boolean(prompt.trim() || (pendingFiles.length > 0 && !isVideoModel)) && Boolean(selectedModel);
 
   const send = React.useCallback(() => {
     if (!canSend || !selectedModel) {
@@ -150,7 +152,7 @@ export function CanvasChatComposer({
               send();
             }
           }}
-          placeholder={t("promptPlaceholder")}
+          placeholder={isVideoModel ? t("videoPromptPlaceholder") : t("promptPlaceholder")}
           rows={1}
           className="max-h-32 min-h-9 flex-1 resize-none rounded-xl border border-border/70 bg-background/80 px-3 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/30"
         />

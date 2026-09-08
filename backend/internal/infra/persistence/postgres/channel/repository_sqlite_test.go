@@ -1934,6 +1934,112 @@ func TestGetBreakerDefaultsRejectsInvalidStoredJSON(t *testing.T) {
 	}
 }
 
+func TestUserModelManagementAndRoutingLists(t *testing.T) {
+	db := openChannelSQLiteTestDB(t)
+	ctx := context.Background()
+	userID := uint(41)
+	activeOwner := userID
+	otherOwner := uint(42)
+	upstreams := []model.LLMUpstream{
+		{Name: "active-user", OwnerUserID: &activeOwner, OwnershipType: "user", Status: "active"},
+		{Name: "inactive-user", OwnerUserID: &activeOwner, OwnershipType: "user", Status: "inactive"},
+		{Name: "other-user", OwnerUserID: &otherOwner, OwnershipType: "user", Status: "active"},
+	}
+	if err := db.Create(&upstreams).Error; err != nil {
+		t.Fatalf("create upstreams: %v", err)
+	}
+	items := []model.LLMUserModel{
+		{OwnerUserID: userID, UpstreamID: upstreams[0].ID, UpstreamModelID: "active", Name: "active", Protocol: "openai_responses", KindsJSON: `["chat"]`, Status: "active"},
+		{OwnerUserID: userID, UpstreamID: upstreams[0].ID, UpstreamModelID: "disabled", Name: "disabled", Protocol: "openai_responses", KindsJSON: `["chat"]`, Status: "disabled"},
+		{OwnerUserID: userID, UpstreamID: upstreams[1].ID, UpstreamModelID: "inactive-channel", Name: "inactive-channel", Protocol: "openai_responses", KindsJSON: `["chat"]`, Status: "active"},
+		{OwnerUserID: otherOwner, UpstreamID: upstreams[2].ID, UpstreamModelID: "other", Name: "other", Protocol: "openai_responses", KindsJSON: `["chat"]`, Status: "active"},
+	}
+	if err := db.Create(&items).Error; err != nil {
+		t.Fatalf("create user models: %v", err)
+	}
+
+	repo := NewRepo(db)
+	routable, err := repo.ListUserModels(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListUserModels() error = %v", err)
+	}
+	if len(routable) != 1 || routable[0].UpstreamModelID != "active" {
+		t.Fatalf("routable models = %#v, want only active model on active upstream", routable)
+	}
+	managed, err := repo.ListManagedUserModels(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListManagedUserModels() error = %v", err)
+	}
+	if len(managed) != 3 {
+		t.Fatalf("managed model count = %d, want 3", len(managed))
+	}
+}
+
+func TestCreateUserModelUpsertsByUpstreamModelAndPreservesOverrides(t *testing.T) {
+	db := openChannelSQLiteTestDB(t)
+	ctx := context.Background()
+	userID := uint(51)
+	upstream := model.LLMUpstream{Name: "user", OwnerUserID: &userID, OwnershipType: "user", Status: "active"}
+	if err := db.Create(&upstream).Error; err != nil {
+		t.Fatalf("create upstream: %v", err)
+	}
+	existing := model.LLMUserModel{
+		OwnerUserID: userID, UpstreamID: upstream.ID, UpstreamModelID: "remote-model", Name: "custom display",
+		Protocol: "openai_chat_completions", KindsJSON: `["chat"]`, CapabilitiesJSON: `{"contextWindow":123}`,
+		Status: "disabled", Priority: 9, Weight: 8, HeadersJSON: `{"X-Old":"true"}`,
+	}
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("create existing model: %v", err)
+	}
+
+	item := domainchannel.UserModel{
+		OwnerUserID: userID, UpstreamID: upstream.ID, UpstreamModelID: "remote-model", Name: "remote-model",
+		Protocol: "openai_responses", KindsJSON: `["chat","audio"]`, CapabilitiesJSON: `{"contextWindow":999}`,
+		Status: "active", Priority: 0, Weight: 0, HeadersJSON: `{}`, UpdatedAt: time.Now(),
+	}
+	if err := NewRepo(db).CreateUserModel(ctx, &item); err != nil {
+		t.Fatalf("CreateUserModel() error = %v", err)
+	}
+	if item.ID != existing.ID || item.Status != "active" {
+		t.Fatalf("upserted identity/status = %#v", item)
+	}
+	if item.Name != "custom display" || item.CapabilitiesJSON != `{"contextWindow":123}` {
+		t.Fatalf("user overrides were replaced: %#v", item)
+	}
+	if item.Protocol != "openai_responses" || item.KindsJSON != `["chat","audio"]` || item.Priority != 0 || item.Weight != 0 {
+		t.Fatalf("sync fields were not updated including zero values: %#v", item)
+	}
+}
+
+func TestUpdateUserModelPersistsZeroValues(t *testing.T) {
+	db := openChannelSQLiteTestDB(t)
+	ctx := context.Background()
+	userID := uint(61)
+	upstream := model.LLMUpstream{Name: "user", OwnerUserID: &userID, OwnershipType: "user", Status: "active"}
+	if err := db.Create(&upstream).Error; err != nil {
+		t.Fatalf("create upstream: %v", err)
+	}
+	entity := model.LLMUserModel{OwnerUserID: userID, UpstreamID: upstream.ID, UpstreamModelID: "remote", Name: "display", Protocol: "openai_responses", KindsJSON: `["chat"]`, Status: "active", Priority: 7, Weight: 6, HeadersJSON: `{}`}
+	if err := db.Create(&entity).Error; err != nil {
+		t.Fatalf("create model: %v", err)
+	}
+	item := toUserModelDomain(entity)
+	item.Priority = 0
+	item.Weight = 0
+	item.CapabilitiesJSON = ""
+	item.UpdatedAt = time.Now()
+	if err := NewRepo(db).UpdateUserModel(ctx, &item); err != nil {
+		t.Fatalf("UpdateUserModel() error = %v", err)
+	}
+	var got model.LLMUserModel
+	if err := db.First(&got, entity.ID).Error; err != nil {
+		t.Fatalf("reload model: %v", err)
+	}
+	if got.Priority != 0 || got.Weight != 0 {
+		t.Fatalf("zero values were not persisted: priority=%d weight=%d", got.Priority, got.Weight)
+	}
+}
+
 func openChannelSQLiteTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -1952,6 +2058,7 @@ func openChannelSQLiteTestDB(t *testing.T) *gorm.DB {
 
 	if err := db.AutoMigrate(
 		&model.LLMUpstream{},
+		&model.LLMUserModel{},
 		&model.LLMUpstreamModel{},
 		&model.LLMModelVendor{},
 		&model.LLMModelDisplayGroup{},

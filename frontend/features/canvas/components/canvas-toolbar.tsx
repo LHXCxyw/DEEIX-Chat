@@ -5,6 +5,7 @@ import {
   Bookmark,
   BoxSelect,
   CircleHelp,
+  Clapperboard,
   FileDown,
   FileUp,
   Frame,
@@ -128,7 +129,7 @@ export function CanvasToolbar({
   onUndo: () => void;
   onRedo: () => void;
   selectedCount: number;
-  onAddNode: (kind: GraphNodeKind) => void;
+  onAddNode: (kind: GraphNodeKind, mediaType?: "image" | "video") => void;
   onAddFrame: () => void;
   onAddSection: () => void;
   onAddNote: () => void;
@@ -157,13 +158,22 @@ export function CanvasToolbar({
     ["Wheel / Pinch", t("shortcutZoom")],
   ];
 
-  // 节点添加按钮：提示词 / 参考图 / 生成 / 输出（附桌面端短文本描述）
-  const nodeActions: [GraphNodeKind, string, string, React.ComponentType<{ className?: string }>][] = [
+  // 节点添加按钮：提示词 / 参考图 / 生成 / 视频生成 / 输出（附桌面端短文本描述）
+  const nodeActions: [GraphNodeKind | "generate-video", string, string, React.ComponentType<{ className?: string }>][] = [
     ["prompt", t("addPromptNode"), t("toolbarNodePrompt"), TextCursorInput],
     ["image", t("addImageNode"), t("toolbarNodeImage"), ImageIcon],
     ["generate", t("addGenerateNode"), t("toolbarNodeGenerate"), Play],
+    ["generate-video", t("addGenerateVideoNode"), t("toolbarNodeGenerateVideo"), Clapperboard],
     ["output", t("addOutputNode"), t("toolbarNodeOutput"), Images],
   ];
+
+  const addNodeAction = (action: GraphNodeKind | "generate-video") => {
+    if (action === "generate-video") {
+      onAddNode("generate", "video");
+      return;
+    }
+    onAddNode(action);
+  };
 
   const handleClear = React.useCallback(() => {
     if (nodeCount === 0 && generatingCount === 0) {
@@ -181,7 +191,7 @@ export function CanvasToolbar({
   const renderNodeActions = (size: "sm" | "full") =>
     nodeActions.map(([kind, label, description, Icon]) =>
       size === "sm" ? (
-        <ToolbarButton key={kind} label={label} description={description} onClick={() => onAddNode(kind)}>
+        <ToolbarButton key={kind} label={label} description={description} onClick={() => addNodeAction(kind)}>
           <Icon className="size-4" />
         </ToolbarButton>
       ) : (
@@ -190,7 +200,7 @@ export function CanvasToolbar({
           type="button"
           className="flex min-h-10 touch-manipulation items-center gap-2 rounded-xl px-3 text-left text-xs text-foreground transition-colors hover:bg-accent"
           onClick={() => {
-            onAddNode(kind);
+            addNodeAction(kind);
             setMobileToolsOpen(false);
           }}
         >

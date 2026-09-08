@@ -10079,6 +10079,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/conversation-runs/{run_id}/media/requery": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态",
+                "tags": [
+                    "chat"
+                ],
+                "summary": "重查失败的视频生成任务",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "运行 ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/RequeryMediaVideoRunResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/conversation-runs/{run_id}/stream": {
             "get": {
                 "security": [
@@ -18903,6 +18946,14 @@ const docTemplate = `{
                     "type": "integer",
                     "minimum": 0
                 },
+                "defaultTaskTypes": {
+                    "type": "array",
+                    "maxItems": 5,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "description": {
                     "type": "string",
                     "maxLength": 10000
@@ -19244,6 +19295,7 @@ const docTemplate = `{
                 "connect_timeout_ms",
                 "headers",
                 "name",
+                "preset_id",
                 "read_timeout_ms"
             ],
             "properties": {
@@ -19255,10 +19307,12 @@ const docTemplate = `{
                     }
                 },
                 "base_url": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 512
                 },
                 "compatible": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 64
                 },
                 "connect_timeout_ms": {
                     "type": "integer"
@@ -19270,6 +19324,10 @@ const docTemplate = `{
                     }
                 },
                 "name": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "preset_id": {
                     "type": "string"
                 },
                 "read_timeout_ms": {
@@ -22460,6 +22518,7 @@ const docTemplate = `{
                 "cbWindowMin",
                 "contextWindow",
                 "createdAt",
+                "defaultTaskTypes",
                 "description",
                 "displayGroupID",
                 "displayGroupIcon",
@@ -22506,6 +22565,12 @@ const docTemplate = `{
                 },
                 "createdAt": {
                     "type": "string"
+                },
+                "defaultTaskTypes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "description": {
                     "type": "string"
@@ -24934,6 +24999,56 @@ const docTemplate = `{
                 }
             }
         },
+        "RequeryMediaVideoAttachmentResponse": {
+            "type": "object",
+            "required": [
+                "fileID",
+                "fileName",
+                "mimeType",
+                "sizeBytes"
+            ],
+            "properties": {
+                "durationSeconds": {
+                    "type": "integer"
+                },
+                "fileID": {
+                    "type": "string"
+                },
+                "fileName": {
+                    "type": "string"
+                },
+                "mimeType": {
+                    "type": "string"
+                },
+                "sizeBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "RequeryMediaVideoRunResponse": {
+            "type": "object",
+            "required": [
+                "runID",
+                "status"
+            ],
+            "properties": {
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/RequeryMediaVideoAttachmentResponse"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "runID": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "ResetUpstreamCircuitResponseDoc": {
             "type": "object",
             "required": [
@@ -26738,6 +26853,14 @@ const docTemplate = `{
                 "cbWindowMin": {
                     "type": "integer",
                     "minimum": 0
+                },
+                "defaultTaskTypes": {
+                    "type": "array",
+                    "maxItems": 5,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "description": {
                     "type": "string",

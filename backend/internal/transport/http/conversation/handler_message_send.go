@@ -384,6 +384,47 @@ func (h *Handler) CancelMessageGeneration(c *gin.Context) {
 	response.Success(c, CancelMessageGenerationResponse{Canceled: canceled})
 }
 
+// RequeryMediaVideoRun godoc
+// @Summary 重查失败的视频生成任务
+// @Description 按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态
+// @Tags chat
+// @Security BearerAuth
+// @Param run_id path string true "运行 ID"
+// @Success 200 {object} RequeryMediaVideoRunResponse
+// @Failure 400 {object} response.Envelope
+// @Failure 404 {object} ErrorDoc
+// @Router /conversation-runs/{run_id}/media/requery [post]
+func (h *Handler) RequeryMediaVideoRun(c *gin.Context) {
+	runID, err := stringParam(c, "run_id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRunID)
+		return
+	}
+	result, err := h.service.RequeryMediaVideoRun(c.Request.Context(), middleware.MustUserID(c), runID)
+	if err != nil {
+		response.ErrorDescribed(c, describeSendMessageError(err))
+		return
+	}
+	payload := RequeryMediaVideoRunResponse{
+		Status: string(result.Status),
+		RunID:  result.RunID,
+	}
+	if result.Message != "" {
+		msg := result.Message
+		payload.Message = &msg
+	}
+	for _, item := range result.Attachments {
+		payload.Attachments = append(payload.Attachments, RequeryMediaVideoAttachmentResponse{
+			FileID:          item.FileID,
+			FileName:        item.FileName,
+			MimeType:        item.MimeType,
+			SizeBytes:       item.SizeBytes,
+			DurationSeconds: item.DurationSeconds,
+		})
+	}
+	response.Success(c, payload)
+}
+
 // StreamActiveMessageGenerations godoc
 // @Summary Stream active conversation generations
 // @Description Sends an authoritative snapshot followed by live user-scoped run state events; the snapshot is re-sent periodically for client-side reconciliation

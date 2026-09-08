@@ -20,6 +20,7 @@ var (
 	errInvalidFile                             = apperr.New("request.invalid_file", "invalid file")
 	errInvalidFileReference                    = apperr.New("file.invalid_reference", "invalid file reference")
 	errInvalidFileStream                       = apperr.New("file.invalid_stream", "invalid file stream")
+	errInvalidFileSignature                    = apperr.New("file.invalid_signature", "invalid or expired file signature")
 	errInvalidMessageID                        = apperr.New("message.invalid_id", "invalid message id")
 	errInvalidRunID                            = apperr.New("run.invalid_id", "invalid run id")
 	errInvalidRunIDs                           = apperr.New("request.invalid_run_ids", "invalid run ids")

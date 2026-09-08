@@ -402,6 +402,9 @@ type Run struct {
 	ModelVendor              string
 	ModelIcon                string
 	UpstreamModelName        string
+	// UpstreamTaskID 是异步媒体任务在上游的任务编号（如 Sora 兼容视频的 video.id），
+	// 供失败后的任务重查定位上游结果；同步协议为空。
+	UpstreamTaskID           string
 	InputTokens              int64
 	OutputTokens             int64
 	CacheReadTokens          int64

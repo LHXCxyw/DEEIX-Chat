@@ -2,6 +2,7 @@ package llm
 
 import (
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -24,6 +25,44 @@ func TestIntegerOption(t *testing.T) {
 			got, ok := IntegerOption(map[string]any{"value": test.value}, "value")
 			if got != test.want || ok != test.wantOK {
 				t.Fatalf("IntegerOption() = (%d, %v), want (%d, %v)", got, ok, test.want, test.wantOK)
+			}
+		})
+	}
+}
+
+func TestSanitizeXAIVideoOptions(t *testing.T) {
+	tests := []struct {
+		name  string
+		input map[string]any
+		want  map[string]any
+	}{
+		{name: "empty", input: map[string]any{}, want: map[string]any{}},
+		{
+			name:  "canonical params kept",
+			input: map[string]any{"aspect_ratio": "16:9", "duration": 6, "resolution": "720p"},
+			want:  map[string]any{"aspect_ratio": "16:9", "duration": 6, "resolution": "720p"},
+		},
+		{
+			name:  "custom resolution normalized and kept",
+			input: map[string]any{"resolution": "768P"},
+			want:  map[string]any{"resolution": "768p"},
+		},
+		{
+			name:  "malformed resolution dropped",
+			input: map[string]any{"resolution": "high"},
+			want:  map[string]any{},
+		},
+		{
+			name:  "unrelated keys pass through untouched",
+			input: map[string]any{"duration": 5, "seed": 42},
+			want:  map[string]any{"duration": 5, "seed": 42},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			SanitizeXAIVideoOptions(test.input)
+			if !reflect.DeepEqual(test.input, test.want) {
+				t.Fatalf("SanitizeXAIVideoOptions() = %v, want %v", test.input, test.want)
 			}
 		})
 	}

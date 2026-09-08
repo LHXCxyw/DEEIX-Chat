@@ -1792,6 +1792,7 @@ func (r *Repo) UpdateConversationRun(ctx context.Context, item *domainconversati
 			"model_vendor",
 			"model_icon",
 			"upstream_model_name",
+			"upstream_task_id",
 			"input_tokens",
 			"output_tokens",
 			"cache_read_tokens",
@@ -2182,6 +2183,39 @@ func (r *Repo) ListConversationRunsByRunIDs(
 		return nil, dberror.Translate(err)
 	}
 	return toConversationRunDomains(items), nil
+}
+
+// GetConversationRunByRunID 按运行 ID 读取当前用户的运行记录。
+func (r *Repo) GetConversationRunByRunID(ctx context.Context, userID uint, runID string) (*domainconversation.Run, error) {
+	runID = strings.TrimSpace(runID)
+	if userID == 0 || runID == "" {
+		return nil, repository.ErrInvalidInput
+	}
+	var item models.ConversationRun
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND run_id = ?", userID, runID).
+		First(&item).Error; err != nil {
+		return nil, dberror.Translate(err)
+	}
+	domain := toConversationRunDomain(item)
+	return &domain, nil
+}
+
+// FindAssistantMessageIDByRunID 定位当前用户某次运行中的 assistant 消息。
+func (r *Repo) FindAssistantMessageIDByRunID(ctx context.Context, userID uint, runID string) (uint, error) {
+	runID = strings.TrimSpace(runID)
+	if userID == 0 || runID == "" {
+		return 0, repository.ErrInvalidInput
+	}
+	var row models.Message
+	if err := r.db.WithContext(ctx).
+		Select("id").
+		Where("user_id = ? AND run_id = ? AND role = ?", userID, runID, "assistant").
+		Order("id ASC").
+		First(&row).Error; err != nil {
+		return 0, dberror.Translate(err)
+	}
+	return row.ID, nil
 }
 
 // ListConversationRunStatusesByRunIDs 按运行 ID 批量查询当前用户的最小运行状态快照。
@@ -4079,6 +4113,7 @@ func toConversationRunDomain(item models.ConversationRun) domainconversation.Run
 		ModelVendor:              item.ModelVendor,
 		ModelIcon:                item.ModelIcon,
 		UpstreamModelName:        item.UpstreamModelName,
+		UpstreamTaskID:           item.UpstreamTaskID,
 		InputTokens:              item.InputTokens,
 		OutputTokens:             item.OutputTokens,
 		CacheReadTokens:          item.CacheReadTokens,
@@ -4175,6 +4210,7 @@ func toConversationRunModel(item *domainconversation.Run) models.ConversationRun
 		ModelVendor:              item.ModelVendor,
 		ModelIcon:                item.ModelIcon,
 		UpstreamModelName:        item.UpstreamModelName,
+		UpstreamTaskID:           item.UpstreamTaskID,
 		InputTokens:              item.InputTokens,
 		OutputTokens:             item.OutputTokens,
 		CacheReadTokens:          item.CacheReadTokens,

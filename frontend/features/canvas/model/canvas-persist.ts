@@ -2,6 +2,7 @@ import type { ConversationOptions } from "@/shared/api/conversation.types";
 import type {
   CanvasBookmark,
   CanvasDecoration,
+  CanvasMediaType,
   CanvasNodeReference,
   CanvasOperation,
   CanvasPointerMode,
@@ -36,16 +37,18 @@ export function toPersistedGraphNodes(nodes: ReadonlyArray<GraphNode>): Persiste
         return { ...meta, kind: "image", reference: node.reference };
       case "generate":
         return {
-          ...meta, kind: "generate", model: node.model, options: node.options, resultCount: node.resultCount,
-          operation: node.operation, maskReference: node.maskReference ?? null,
+          ...meta, kind: "generate", mediaType: node.mediaType ?? "image", model: node.model, options: node.options,
+          resultCount: node.resultCount, operation: node.operation, maskReference: node.maskReference ?? null,
           errorMessage: node.errorMessage, errorDetail: node.errorDetail,
+          conversationID: node.conversationID, runID: node.runID,
         };
       case "output":
         return {
-          ...meta, kind: "output", status: node.status, fileID: node.fileID, fileName: node.fileName,
-          mimeType: node.mimeType, sizeBytes: node.sizeBytes, prompt: node.prompt, model: node.model,
-          sourceGenerateID: node.sourceGenerateID ?? null, errorMessage: node.errorMessage,
+          ...meta, kind: "output", mediaType: node.mediaType, status: node.status, fileID: node.fileID,
+          fileName: node.fileName, mimeType: node.mimeType, sizeBytes: node.sizeBytes, prompt: node.prompt,
+          model: node.model, sourceGenerateID: node.sourceGenerateID ?? null, errorMessage: node.errorMessage,
           errorDetail: node.errorDetail, completedAt: node.completedAt, durationMs: node.durationMs,
+          durationSeconds: node.durationSeconds,
         };
     }
   });
@@ -69,6 +72,7 @@ function viewport(value: unknown) { const v = obj(value); return { x: finite(v?.
 function reference(value: unknown): CanvasNodeReference | null { const v = obj(value); return v && text(v.fileID) ? { fileID: text(v.fileID), fileName: text(v.fileName), mimeType: text(v.mimeType), sizeBytes: finite(v.sizeBytes) } : null; }
 function options(value: unknown): ConversationOptions | undefined { return obj(value) as ConversationOptions | null ?? undefined; }
 function operationOf(value: unknown): CanvasOperation { return value === "edit" || value === "inpaint" || value === "outpaint" || value === "crop" ? value : "generate"; }
+function mediaTypeOf(value: unknown): CanvasMediaType | undefined { return value === "video" ? "video" : value === "image" ? "image" : undefined; }
 function metaOf(v: Record<string, unknown>) {
   return { id: identifier(v.id), x: finite(v.x), y: finite(v.y), createdAt: finite(v.createdAt, Date.now()), locked: v.locked === true, groupID: text(v.groupID) || null, frameID: text(v.frameID) || null, zIndex: finite(v.zIndex) };
 }
@@ -87,22 +91,25 @@ export function graphNode(value: unknown): PersistedGraphNode | null {
   }
   if (kind === "generate") {
     return {
-      ...meta, kind: "generate", model: text(v.model) || null, options: options(v.options) ?? {},
+      ...meta, kind: "generate", mediaType: mediaTypeOf(v.mediaType), model: text(v.model) || null,
+      options: options(v.options) ?? {},
       resultCount: Math.min(4, Math.max(1, Math.round(finite(v.resultCount, 1)))),
       operation: operationOf(v.operation), maskReference: reference(v.maskReference),
       errorMessage: text(v.errorMessage) || undefined, errorDetail: text(v.errorDetail) || undefined,
+      conversationID: text(v.conversationID) || undefined, runID: text(v.runID) || undefined,
     };
   }
   if (kind === "output") {
     const status = v.status === "done" && text(v.fileID) ? "done" : v.status === "error" ? "error" : "empty";
     return {
-      ...meta, kind: "output", status,
+      ...meta, kind: "output", mediaType: mediaTypeOf(v.mediaType), status,
       fileID: text(v.fileID) || undefined, fileName: text(v.fileName) || undefined,
-      mimeType: text(v.mimeType, "image/png") || undefined, sizeBytes: finite(v.sizeBytes) || undefined,
+      mimeType: text(v.mimeType) || undefined, sizeBytes: finite(v.sizeBytes) || undefined,
       prompt: text(v.prompt) || undefined, model: text(v.model) || undefined,
       sourceGenerateID: text(v.sourceGenerateID) || null,
       errorMessage: text(v.errorMessage) || undefined, errorDetail: text(v.errorDetail) || undefined,
       completedAt: finite(v.completedAt) || undefined, durationMs: finite(v.durationMs) || undefined,
+      durationSeconds: finite(v.durationSeconds) || undefined,
     };
   }
   return null;
@@ -208,7 +215,8 @@ export function parseCanvasState(raw: string): PersistedCanvasState | null {
     return {
       version: 4, projectName: text(v.projectName, "Untitled project"), activeCanvasID, canvases,
       versions: Array.isArray(v.versions) ? v.versions.flatMap((x) => { const item = version(x); return item ? [item] : []; }).slice(0, 20) : [],
-      conversationID: null, selectedModelName: text(v.selectedModelName) || null, pointerMode,
+      conversationID: null, selectedModelName: text(v.selectedModelName) || null,
+      selectedVideoModelName: text(v.selectedVideoModelName) || null, pointerMode,
       viewport: active.viewport, nodes: active.nodes, graphNodes: active.graphNodes ?? [], edges: active.edges ?? [],
       decorations: active.decorations, bookmarks: active.bookmarks, imageOptions: imageOptions(v.imageOptions),
     };
@@ -245,16 +253,22 @@ export function restoreGraphNodes(items: ReadonlyArray<PersistedGraphNode>): Gra
         return { ...meta, kind: "image", reference: item.reference } satisfies ImageGraphNode;
       case "generate":
         return {
-          ...meta, kind: "generate", model: item.model, options: item.options ?? {},
+          ...meta, kind: "generate", mediaType: item.mediaType ?? "image", model: item.model, options: item.options ?? {},
           resultCount: item.resultCount, operation: item.operation, maskReference: item.maskReference ?? null,
-          runStatus: "idle", errorMessage: item.errorMessage, errorDetail: item.errorDetail,
+          // 运行中任务（持久化了会话与运行 ID 且无错误）恢复为待恢复态，由恢复引擎接管；
+          // 错误节点保留运行 ID 供「重新查询」手动回查，其余节点回到空闲态
+          runStatus: item.runID && item.conversationID && !item.errorMessage ? "pending" : "idle",
+          conversationID: item.conversationID, runID: item.runID,
+          errorMessage: item.errorMessage, errorDetail: item.errorDetail,
         } satisfies GenerateGraphNode;
       case "output":
         return {
-          ...meta, kind: "output", status: item.status, fileID: item.fileID, fileName: item.fileName,
-          mimeType: item.mimeType, sizeBytes: item.sizeBytes, prompt: item.prompt, model: item.model,
+          ...meta, kind: "output", mediaType: item.mediaType, status: item.status, fileID: item.fileID,
+          fileName: item.fileName, mimeType: item.mimeType ?? (item.mediaType === "video" ? "video/mp4" : "image/png"),
+          sizeBytes: item.sizeBytes, prompt: item.prompt, model: item.model,
           sourceGenerateID: item.sourceGenerateID ?? null, errorMessage: item.errorMessage,
           errorDetail: item.errorDetail, completedAt: item.completedAt, durationMs: item.durationMs,
+          durationSeconds: item.durationSeconds,
         } satisfies OutputGraphNode;
     }
   });

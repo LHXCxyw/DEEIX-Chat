@@ -13,6 +13,7 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 
 	// 用户自有渠道（BYOK）
 	authRequired.GET("/user/upstreams", m.Handler.ListUserUpstreams)
+	authRequired.GET("/user/upstream-presets", m.Handler.ListUserUpstreamPresets)
 	authRequired.POST("/user/upstreams", m.Handler.CreateUserUpstream)
 	authRequired.GET("/user/upstreams/:id", m.Handler.GetUserUpstream)
 	authRequired.PATCH("/user/upstreams/:id", m.Handler.UpdateUserUpstream)
@@ -94,4 +95,6 @@ func (m *Module) RegisterAdminRoutes(adminGroup *gin.RouterGroup) {
 	// 全局设置
 	adminGroup.GET("/llm/settings", m.Handler.ListLLMSettings)
 	adminGroup.PATCH("/llm/settings/:key", m.Handler.UpdateLLMSetting)
+	adminGroup.GET("/llm/user-upstream-presets", m.Handler.ListAdminUserUpstreamPresets)
+	adminGroup.PUT("/llm/user-upstream-presets", m.Handler.ReplaceUserUpstreamPresets)
 }

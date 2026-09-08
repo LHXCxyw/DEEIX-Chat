@@ -54,6 +54,7 @@ type ContentPart struct {
 	Text         string        // Kind=text 或 Kind=file 时的文本内容
 	MimeType     string        // Kind=image 时的 MIME 类型（如 "image/jpeg"）
 	Data         []byte        // Kind=image 时的原始字节（发送时 base64 编码）
+	URL          string        // Kind=image 时可携带图片 URL，上游可自行拉取；优先于 Data
 	FileName     string        // Kind=file 时的文件显示名
 	CacheControl *CacheControl // 支持块级缓存的 adapter 可读取该提示
 }
@@ -109,6 +110,22 @@ type GenerateInput struct {
 	ImageEditMask *ContentPart
 	// VideoExtensionSource 仅供视频扩展 adapter 使用，表示待扩展的源视频。
 	VideoExtensionSource *ContentPart
+	// OnProgress 供异步媒体 adapter（如视频生成）在轮询期间上报 0-100 的进度百分比。
+	// 可为 nil；adapter 只在数值变化时回调，调用方需自行保证回调不阻塞。
+	OnProgress func(percent int)
+	// OnTaskStarted 供异步媒体 adapter 在上游任务提交成功后回调任务编号，
+	// 调用方据此持久化上游任务 ID，支持失败后的任务重查。可为 nil。
+	OnTaskStarted func(upstreamTaskID string)
+}
+
+// VideoTaskRetrieval 描述一次异步媒体任务回查的结果状态。
+type VideoTaskRetrieval struct {
+	// Status 为 "pending" | "completed" | "failed"。
+	Status string
+	// Output 在 completed 时携带生成产物（含下载 URL）；其余情况为 nil。
+	Output *GenerateOutput
+	// Message 是 failed/pending 时的人类可读说明。
+	Message string
 }
 
 // ToolDefinition 是模型可调用工具的统一声明。
@@ -251,6 +268,9 @@ type GeneratedImage struct {
 // GeneratedVideo 表示视频生成接口返回的一个视频结果。
 type GeneratedVideo struct {
 	URL             string
+	// FallbackURL 是主 URL 下载失败时的备用下载端点（如 /v1/videos/{id}/content），
+	// 与 URL 同鉴权域时由下载方附带 Bearer 凭据重试。
+	FallbackURL     string
 	B64JSON         string
 	MIMEType        string
 	FileName        string

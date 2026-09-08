@@ -23,6 +23,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/filetype"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/objectstore"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/filelink"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/pagination"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -690,6 +691,13 @@ func (s *Service) snapshot() config.Config {
 		return config.Config{}
 	}
 	return s.cfg.Snapshot()
+}
+
+// BuildSignedFileContentURL 构建文件内容的限时签名访问 URL，供无登录态的上游按 URL 回源拉取；
+// 未配置公网 API 地址或签名密钥时返回空串，调用方应回退为内联传输文件字节。
+func (s *Service) BuildSignedFileContentURL(userID uint, fileID string) string {
+	cfg := s.snapshot()
+	return filelink.BuildContentURL(cfg.PublicAPIBaseURL, cfg.JWTSecret, userID, fileID, time.Now())
 }
 
 func (s *Service) initializeUploadedFile(ctx context.Context, file *domainconversation.FileObject) error {

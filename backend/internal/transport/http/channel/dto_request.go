@@ -54,38 +54,40 @@ type UpdateUpstreamRequest struct {
 
 // CreateModelRequest 创建模型请求。
 type CreateModelRequest struct {
-	PlatformModelName  string `json:"platformModelName" binding:"required,min=2,max=128"`
-	Vendor             string `json:"vendor,omitempty" binding:"omitempty,max=64"`
-	DisplayGroupID     uint   `json:"displayGroupID,omitempty"`
-	KindsJSON          string `json:"kindsJSON,omitempty" binding:"omitempty,max=1000"`
-	Icon               string `json:"icon,omitempty" binding:"max=2048"`
-	CapabilitiesJSON   string `json:"capabilitiesJSON,omitempty" binding:"max=10000"`
-	SystemPrompt       string `json:"systemPrompt,omitempty" binding:"max=20000"`
-	AccessScope        string `json:"accessScope,omitempty" binding:"omitempty,oneof=public internal"`
-	Status             string `json:"status,omitempty" binding:"omitempty,oneof=active inactive"`
-	Description        string `json:"description,omitempty" binding:"max=10000"`
-	CbPolicyMode       string `json:"cbPolicyMode,omitempty" binding:"omitempty,oneof=default enforced"`
-	CbFailureThreshold int    `json:"cbFailureThreshold,omitempty" binding:"gte=0"`
-	CbDurationMin      int    `json:"cbDurationMin,omitempty" binding:"gte=0"`
-	CbWindowMin        int    `json:"cbWindowMin,omitempty" binding:"gte=0"`
+	PlatformModelName  string   `json:"platformModelName" binding:"required,min=2,max=128"`
+	Vendor             string   `json:"vendor,omitempty" binding:"omitempty,max=64"`
+	DisplayGroupID     uint     `json:"displayGroupID,omitempty"`
+	KindsJSON          string   `json:"kindsJSON,omitempty" binding:"omitempty,max=1000"`
+	Icon               string   `json:"icon,omitempty" binding:"max=2048"`
+	CapabilitiesJSON   string   `json:"capabilitiesJSON,omitempty" binding:"max=10000"`
+	SystemPrompt       string   `json:"systemPrompt,omitempty" binding:"max=20000"`
+	AccessScope        string   `json:"accessScope,omitempty" binding:"omitempty,oneof=public internal"`
+	Status             string   `json:"status,omitempty" binding:"omitempty,oneof=active inactive"`
+	Description        string   `json:"description,omitempty" binding:"max=10000"`
+	CbPolicyMode       string   `json:"cbPolicyMode,omitempty" binding:"omitempty,oneof=default enforced"`
+	CbFailureThreshold int      `json:"cbFailureThreshold,omitempty" binding:"gte=0"`
+	CbDurationMin      int      `json:"cbDurationMin,omitempty" binding:"gte=0"`
+	CbWindowMin        int      `json:"cbWindowMin,omitempty" binding:"gte=0"`
+	DefaultTaskTypes   []string `json:"defaultTaskTypes,omitempty" binding:"max=5,unique,dive,oneof=chat image_generation image_edit video_generation video_extension"`
 }
 
 // UpdateModelRequest 更新模型请求。
 type UpdateModelRequest struct {
-	PlatformModelName  *string `json:"platformModelName,omitempty" binding:"omitempty,min=2,max=128"`
-	Vendor             *string `json:"vendor,omitempty" binding:"omitempty,max=64"`
-	DisplayGroupID     *uint   `json:"displayGroupID,omitempty"`
-	KindsJSON          *string `json:"kindsJSON,omitempty" binding:"omitempty,max=1000"`
-	Icon               *string `json:"icon,omitempty" binding:"omitempty,max=2048"`
-	CapabilitiesJSON   *string `json:"capabilitiesJSON,omitempty" binding:"omitempty,max=10000"`
-	SystemPrompt       *string `json:"systemPrompt,omitempty" binding:"omitempty,max=20000"`
-	AccessScope        *string `json:"accessScope,omitempty" binding:"omitempty,oneof=public internal"`
-	Status             *string `json:"status,omitempty" binding:"omitempty,oneof=active inactive"`
-	Description        *string `json:"description,omitempty" binding:"omitempty,max=10000"`
-	CbPolicyMode       *string `json:"cbPolicyMode,omitempty" binding:"omitempty,oneof=default enforced"`
-	CbFailureThreshold *int    `json:"cbFailureThreshold,omitempty" binding:"omitempty,gte=0"`
-	CbDurationMin      *int    `json:"cbDurationMin,omitempty" binding:"omitempty,gte=0"`
-	CbWindowMin        *int    `json:"cbWindowMin,omitempty" binding:"omitempty,gte=0"`
+	PlatformModelName  *string   `json:"platformModelName,omitempty" binding:"omitempty,min=2,max=128"`
+	Vendor             *string   `json:"vendor,omitempty" binding:"omitempty,max=64"`
+	DisplayGroupID     *uint     `json:"displayGroupID,omitempty"`
+	KindsJSON          *string   `json:"kindsJSON,omitempty" binding:"omitempty,max=1000"`
+	Icon               *string   `json:"icon,omitempty" binding:"omitempty,max=2048"`
+	CapabilitiesJSON   *string   `json:"capabilitiesJSON,omitempty" binding:"omitempty,max=10000"`
+	SystemPrompt       *string   `json:"systemPrompt,omitempty" binding:"omitempty,max=20000"`
+	AccessScope        *string   `json:"accessScope,omitempty" binding:"omitempty,oneof=public internal"`
+	Status             *string   `json:"status,omitempty" binding:"omitempty,oneof=active inactive"`
+	Description        *string   `json:"description,omitempty" binding:"omitempty,max=10000"`
+	CbPolicyMode       *string   `json:"cbPolicyMode,omitempty" binding:"omitempty,oneof=default enforced"`
+	CbFailureThreshold *int      `json:"cbFailureThreshold,omitempty" binding:"omitempty,gte=0"`
+	CbDurationMin      *int      `json:"cbDurationMin,omitempty" binding:"omitempty,gte=0"`
+	CbWindowMin        *int      `json:"cbWindowMin,omitempty" binding:"omitempty,gte=0"`
+	DefaultTaskTypes   *[]string `json:"defaultTaskTypes,omitempty" binding:"omitempty,max=5,unique,dive,oneof=chat image_generation image_edit video_generation video_extension"`
 }
 
 // SetModelProtocolsRequest 原子替换平台模型全部来源的协议集合。

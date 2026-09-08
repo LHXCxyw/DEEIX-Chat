@@ -56,6 +56,7 @@ type CreateModelInput struct {
 	CbFailureThreshold int
 	CbDurationMin      int
 	CbWindowMin        int
+	DefaultTaskTypes   []string
 }
 
 // UpdateModelInput 定义更新模型入参。
@@ -74,6 +75,7 @@ type UpdateModelInput struct {
 	CbFailureThreshold *int
 	CbDurationMin      *int
 	CbWindowMin        *int
+	DefaultTaskTypes   *[]string
 }
 
 // SetModelProtocolsInput 定义平台模型全部来源的目标协议集合。
