@@ -1772,11 +1772,18 @@ func (r *Repo) ListModelUpstreamSourcesForUpdate(ctx context.Context, platformMo
 	return items, nil
 }
 
+// modelUpstreamSourcesBaseQuery 平台模型来源基础查询。
+// 与 modelListQuery 的来源统计保持一致：仅平台自有渠道计入模型来源，
+// 用户自用渠道（ownership_type='user'）和已软删除的渠道不对外展示。
 func (r *Repo) modelUpstreamSourcesBaseQuery(ctx context.Context, platformModelName string) *gorm.DB {
 	return r.db.WithContext(ctx).
 		Table("llm_model_routes AS r").
 		Joins("JOIN llm_platform_models pm ON pm.id = r.platform_model_id").
-		Where("pm.name = ?", platformModelName)
+		Joins("JOIN llm_upstream_models um ON um.id = r.upstream_model_id").
+		Joins("JOIN llm_upstreams u ON u.id = um.upstream_id").
+		Where("pm.name = ?", platformModelName).
+		Where("(u.ownership_type = ? OR ((u.ownership_type IS NULL OR u.ownership_type = ?) AND u.owner_user_id IS NULL))", "platform", "").
+		Where("u.deleted_at IS NULL")
 }
 
 func (r *Repo) modelUpstreamSourcesQuery(ctx context.Context, platformModelName string) *gorm.DB {
@@ -1786,9 +1793,7 @@ func (r *Repo) modelUpstreamSourcesQuery(ctx context.Context, platformModelName 
 				"u.compatible AS upstream_compatible, u.protocol_defaults_json AS upstream_protocol_defaults_json, u.base_url AS base_url, " +
 				"um.binding_code, um.upstream_model_name, um.vendor AS upstream_model_vendor, um.icon AS upstream_model_icon, " +
 				"um.kinds_json AS upstream_model_kinds_json, um.suggested_protocol, um.status AS upstream_model_status",
-		).
-		Joins("JOIN llm_upstream_models um ON um.id = r.upstream_model_id").
-		Joins("JOIN llm_upstreams u ON u.id = um.upstream_id")
+		)
 }
 
 // GetModelUpstreamSourceByRouteID 按平台模型名和路由 ID 精确查询模型来源。
