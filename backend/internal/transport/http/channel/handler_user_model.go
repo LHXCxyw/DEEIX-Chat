@@ -209,7 +209,7 @@ func (h *Handler) DeleteUserModel(c *gin.Context) {
 
 func userModelError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, repository.ErrNotFound), errors.Is(err, appchannel.ErrUpstreamNotFound):
+	case errors.Is(err, repository.ErrNotFound), errors.Is(err, repository.ErrModelNotFound), errors.Is(err, appchannel.ErrUpstreamNotFound):
 		response.Error(c, http.StatusNotFound, "user model or upstream not found")
 	case errors.Is(err, repository.ErrInvalidInput):
 		response.Error(c, http.StatusBadRequest, "invalid user model")

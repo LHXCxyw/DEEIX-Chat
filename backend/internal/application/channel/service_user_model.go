@@ -102,7 +102,7 @@ func (s *Service) CreateUserModel(ctx context.Context, userID, upstreamID uint, 
 	}
 	item := &domainchannel.UserModel{OwnerUserID: userID, UpstreamID: upstreamID, UpstreamModelID: strings.TrimSpace(input.UpstreamModelID), Name: strings.TrimSpace(input.Name), Protocol: strings.TrimSpace(input.Protocol), KindsJSON: input.KindsJSON, CapabilitiesJSON: strings.TrimSpace(input.CapabilitiesJSON), Status: input.Status, Priority: input.Priority, Weight: input.Weight, HeadersJSON: input.HeadersJSON, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	template, templateErr := s.repo.GetModelByName(ctx, item.UpstreamModelID)
-	if templateErr != nil && !errors.Is(templateErr, repository.ErrNotFound) {
+	if templateErr != nil && !errors.Is(templateErr, repository.ErrModelNotFound) {
 		return nil, templateErr
 	}
 	if templateErr == nil && template != nil {
