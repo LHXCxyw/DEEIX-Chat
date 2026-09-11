@@ -19,7 +19,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import type { FileObjectDTO } from "@/shared/api/file.types";
 import { useLoadMoreSentinel } from "@/shared/hooks/use-load-more-sentinel";
-import { resolveFileIcon } from "@/shared/lib/file-display";
+import { resolveFileIcon, isFileReady } from "@/shared/lib/file-display";
+import { canShowFileThumbnail, FileThumbnail } from "@/shared/components/file-thumbnail";
 import { canManuallyVectorizeFile, isVectorIndexOutdated } from "@/shared/lib/file-processing";
 
 type SidebarListProps = {
@@ -80,6 +81,7 @@ function SidebarListItem({
 }) {
   const t = useTranslations("files");
   const fileIcon = resolveFileIcon(item);
+  const showThumbnail = canShowFileThumbnail(item.fileCategory, item.mimeType) && isFileReady(item.status);
   const showsRetrievalStatus = item.fileCategory !== "image" && item.embedStatus === "ready";
   const vectorizable = canManuallyVectorizeFile(item);
   const [actionsMenuOpen, setActionsMenuOpen] = React.useState(false);
@@ -133,8 +135,10 @@ function SidebarListItem({
         )}
         onClick={() => onSelect(item.fileID)}
       >
-        <span className="flex size-3 shrink-0 items-center justify-center">
-          {React.createElement(fileIcon, { className: "size-3 text-muted-foreground" })}
+        <span className="flex size-5 shrink-0 items-center justify-center">
+          {showThumbnail
+            ? <FileThumbnail fileID={item.fileID} alt="" className="size-5 rounded-sm" />
+            : React.createElement(fileIcon, { className: "size-3 text-muted-foreground" })}
         </span>
 
         <AnimatedText
