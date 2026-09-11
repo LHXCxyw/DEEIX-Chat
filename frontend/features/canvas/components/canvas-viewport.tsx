@@ -414,6 +414,7 @@ export function CanvasViewport({
         onEndNodeMove();
       }
       draggingNodeRef.current = null;
+      document.body.style.userSelect = "";
       if (connectionDragRef.current) {
         connectionDragRef.current = null;
         setConnectionDrag(null);
@@ -700,6 +701,7 @@ export function CanvasViewport({
           }
           dragging.active = true;
           onBeginNodeMove();
+          document.body.style.userSelect = "none";
           dragging.captureTarget.setPointerCapture?.(event.pointerId);
         }
         const point = toCanvasPoint(event.clientX, event.clientY);
@@ -873,6 +875,7 @@ export function CanvasViewport({
           clearElasticPreview(true);
           onEndNodeMove();
         }
+        document.body.style.userSelect = "";
         draggingNodeRef.current = null;
       }
     },
@@ -1032,33 +1035,53 @@ export function CanvasViewport({
           transform: preview ? `scale(${1 + preview.tension * 0.006})` : undefined,
           transformOrigin: "center",
         }}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          const additiveSelection = event.metaKey || event.ctrlKey || event.shiftKey;
-          onSelectedDecorationIDsChange(additiveSelection
-            ? selectedDecorationIDs.includes(item.id)
-              ? selectedDecorationIDs.filter((id) => id !== item.id)
-              : [...selectedDecorationIDs, item.id]
-            : [item.id]);
-          if (!additiveSelection) {
-            onSelectedNodeIDsChange([]);
-            onSelectedEdgeIDsChange([]);
-          }
-          if (item.locked || additiveSelection) return;
-          const start = { x: event.clientX, y: event.clientY, left: item.x, top: item.y };
-          const move = (next: PointerEvent) => onMoveDecoration(item.id, snapToGrid(start.left + (next.clientX - start.x) / viewport.scale), snapToGrid(start.top + (next.clientY - start.y) / viewport.scale));
-          const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-          window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
-        }}
+        // 拖动与选中仅由标题栏触发，frame 主体不拦截指针，
+        // 点击内部区域时事件冒泡到画布容器，按背景处理（平移/框选）
       >
         {/* 内容裁剪层：圆角内滚动裁剪，同时让缩放手柄可以溢出边框 */}
         <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
-          <div className={cn(
-            "relative z-10 flex h-12 items-center gap-2.5 px-3",
-            item.kind === "frame" && "border-b border-indigo-400/20 bg-indigo-500/[0.08]",
-            item.kind === "section" && "border-b border-dashed border-cyan-400/20 bg-background/25",
-            item.kind === "note" && "h-10 border-b border-current/10",
-          )}>
+          <div
+            className={cn(
+              "relative z-10 flex h-12 cursor-grab select-none items-center gap-2.5 px-3 active:cursor-grabbing",
+              item.kind === "frame" && "border-b border-indigo-400/20 bg-indigo-500/[0.08]",
+              item.kind === "section" && "border-b border-dashed border-cyan-400/20 bg-background/25",
+              item.kind === "note" && "h-10 border-b border-current/10",
+            )}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              event.preventDefault();
+              const additiveSelection = event.metaKey || event.ctrlKey || event.shiftKey;
+              onSelectedDecorationIDsChange(additiveSelection
+                ? selectedDecorationIDs.includes(item.id)
+                  ? selectedDecorationIDs.filter((id) => id !== item.id)
+                  : [...selectedDecorationIDs, item.id]
+                : [item.id]);
+              if (!additiveSelection) {
+                onSelectedNodeIDsChange([]);
+                onSelectedEdgeIDsChange([]);
+              }
+              if (item.locked || additiveSelection) return;
+              // 拖动期间全局禁用文本选择：标题栏本身 select-none 时，
+              // 浏览器会把选区"跳"到周围可选中文本（其他节点内容）上
+              document.body.style.userSelect = "none";
+              // pointer capture 让后续指针事件全部重定向到标题栏，
+              // 避免划过 textarea 等可编辑内容时浏览器把选区"装"进去
+              const headerElement = event.currentTarget;
+              headerElement.setPointerCapture?.(event.pointerId);
+              const start = { x: event.clientX, y: event.clientY, left: item.x, top: item.y };
+              const move = (next: PointerEvent) => {
+                window.getSelection()?.removeAllRanges();
+                onMoveDecoration(item.id, snapToGrid(start.left + (next.clientX - start.x) / viewport.scale), snapToGrid(start.top + (next.clientY - start.y) / viewport.scale));
+              };
+              const up = () => {
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+                headerElement.releasePointerCapture?.(event.pointerId);
+                document.body.style.userSelect = "";
+              };
+              window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+            }}
+          >
             {item.kind === "frame" ? <Box className="size-4 shrink-0 text-indigo-500" strokeWidth={1.8} /> : null}
             {item.kind === "section" ? <LayoutTemplate className="size-4 shrink-0 text-cyan-500" strokeWidth={1.8} /> : null}
             <div className="min-w-0">
@@ -1173,6 +1196,21 @@ export function CanvasViewport({
     uploadReferenceFile,
   }), [onCancelNode, onDownloadNode, onEditNode, onEditReferenceNode, onEnsureNodePreview, onPreviewNode, onRemoveNode, onRequeryNode, onRunNode, onUpdateNode, onUseAsReference, uploadReferenceFile]);
 
+  // 原生文本选择由 mousedown 默认行为启动。在非交互内容上阻止它，
+  // 拖动画布 / 节点 / 装饰时就不会选中节点内文本；
+  // textarea、input、pre（错误详情）等可编辑/可复制内容保持原生选择。
+  const handleMouseDownCapture = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest("textarea, input, pre, [data-canvas-selectable]") || target.isContentEditable) {
+      return;
+    }
+    event.preventDefault();
+    containerRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
     <div
       ref={containerRef}
@@ -1184,6 +1222,7 @@ export function CanvasViewport({
         spacePressed ? "cursor-grab active:cursor-grabbing" : connectionDrag ? "cursor-crosshair" : pointerMode === "select" ? "cursor-crosshair" : "cursor-grab",
       )}
       onKeyDown={handleKeyDown}
+      onMouseDownCapture={handleMouseDownCapture}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
