@@ -207,7 +207,6 @@ export async function fetchFileContent(
     {
       method: "GET",
       accessToken,
-      cache: "no-store",
       signal,
     },
     true,

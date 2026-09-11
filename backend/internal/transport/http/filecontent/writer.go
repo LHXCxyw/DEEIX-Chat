@@ -19,12 +19,23 @@ func Write(c *gin.Context, result *appupload.FileContentResult, public bool) err
 	contentType := safeContentType(result.ContentType)
 	c.Header("Content-Type", contentType)
 	c.Header("Content-Disposition", buildContentDisposition(result.File.FileName, isPassiveInlineContentType(contentType)))
-	if public {
+	if immutableGeneratedArtifact(result.File.Purpose) {
+		// 生成产物内容不可变（每次生成/重查都产生新 fileID），可长缓存
+		if public {
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			c.Header("Cache-Control", "private, max-age=31536000, immutable")
+		}
+	} else if public {
 		c.Header("Cache-Control", "public, max-age=60")
 	} else {
 		c.Header("Cache-Control", "private, max-age=60")
 	}
 	applySecurityHeaders(c, public)
+	if !public {
+		// 授权响应按凭证区分缓存条目，避免同浏览器多账号串缓存
+		c.Header("Vary", "Authorization")
+	}
 	if result.SizeBytes > 0 {
 		c.Header("Content-Length", strconv.FormatInt(result.SizeBytes, 10))
 	}
@@ -36,6 +47,17 @@ func Write(c *gin.Context, result *appupload.FileContentResult, public bool) err
 		return err
 	}
 	return nil
+}
+
+// immutableGeneratedArtifact 判断文件是否为生成产物：这类内容一经写入永不修改，
+// 后续生成/重查都会产生新的 fileID，因此可以放心长缓存。
+func immutableGeneratedArtifact(purpose string) bool {
+	switch strings.TrimSpace(purpose) {
+	case "generated_image", "generated_video":
+		return true
+	default:
+		return false
+	}
 }
 
 func buildContentDisposition(fileName string, inline bool) string {
