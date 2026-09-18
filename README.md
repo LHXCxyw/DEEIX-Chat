@@ -49,6 +49,8 @@ DEEIX Chat 是一款开源可部署的 AI 平台，面向需要长期、稳定�
 
 ![DEEIX Chat 工作区](./docs/assets/screenshots/DEEIX-Chat.jpg)
 
+![DEEIX Chat 创作画布](./docs/assets/screenshots/DEEIX-Canvas.png)
+
 ## 核心能力
 
 | 模块 | 能力 |
