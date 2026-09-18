@@ -2,9 +2,72 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
+	"time"
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/filelink"
 )
+
+// hydrateMessages 是消息读取路径的统一富化入口：反馈计数 + 媒体直连地址。
+func (s *Service) hydrateMessages(ctx context.Context, userID uint, items []model.Message) error {
+	if err := s.hydrateMessageFeedback(ctx, userID, items); err != nil {
+		return err
+	}
+	s.hydrateMessageAttachmentURLs(userID, items)
+	return nil
+}
+
+// hydrateMessageAttachmentURLs 为图片类消息附件内嵌签名缩略图直连地址（thumb/preview 两档），
+// 前端 <img> 直连加载，免去带 Authorization 的 fetch 全量拉取；签名只需用户、文件与密钥，零 DB 查询。
+func (s *Service) hydrateMessageAttachmentURLs(userID uint, items []model.Message) {
+	cfg := s.cfg.Snapshot()
+	if cfg.JWTSecret == "" {
+		return
+	}
+	for i := range items {
+		raw := strings.TrimSpace(items[i].Attachments)
+		if raw == "" || raw == "[]" || !strings.Contains(raw, "\"file_id\"") {
+			continue
+		}
+		var entries []map[string]any
+		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+			continue
+		}
+		changed := false
+		for _, entry := range entries {
+			if entryString(entry, "kind") != "image" {
+				continue
+			}
+			fileID := entryString(entry, "file_id")
+			if fileID == "" {
+				continue
+			}
+			mimeType := strings.ToLower(entryString(entry, "mime_type")) + " " + strings.ToLower(entryString(entry, "detected_mime"))
+			if strings.Contains(mimeType, "svg") {
+				continue
+			}
+			if _, exists := entry["thumbnail_url"]; exists {
+				continue
+			}
+			entry["thumbnail_url"] = filelink.BuildSignedThumbnailPath(cfg.JWTSecret, userID, fileID, "thumb", time.Now())
+			entry["preview_url"] = filelink.BuildSignedThumbnailPath(cfg.JWTSecret, userID, fileID, "preview", time.Now())
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		if enriched, err := json.Marshal(entries); err == nil {
+			items[i].Attachments = string(enriched)
+		}
+	}
+}
+
+func entryString(entry map[string]any, key string) string {
+	value, _ := entry[key].(string)
+	return value
+}
 
 func (s *Service) hydrateMessageFeedback(ctx context.Context, userID uint, items []model.Message) error {
 	if len(items) == 0 {

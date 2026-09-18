@@ -518,6 +518,7 @@ export function CanvasWorkspace() {
         onRunNode={(nodeID) => void canvas.runGenerateNode(nodeID)}
         onCancelNode={canvas.cancelNode}
         onRequeryNode={(nodeID) => void canvas.requeryGenerateNode(nodeID)}
+        onRetryOutputSave={(nodeID) => void canvas.retryOutputNodeSave(nodeID)}
         onConnectNodes={canvas.connectGraphNodes}
         onRemoveEdge={canvas.removeEdge}
         onPreviewNode={setPreviewNode}

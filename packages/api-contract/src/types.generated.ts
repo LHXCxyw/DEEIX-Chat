@@ -1475,6 +1475,7 @@ export interface FileObjectResponse {
   sha256: string;
   canVectorize: boolean;
   chunkCount: number;
+  contentURL?: string;
   createdAt: string;
   detectedMIME: string;
   embedError: string;
@@ -1494,6 +1495,7 @@ export interface FileObjectResponse {
   ragOptOut: boolean;
   sizeBytes: number;
   status: string;
+  thumbnailURL?: string;
   updatedAt: string;
   vectorizationReason: string;
 }

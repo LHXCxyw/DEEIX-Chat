@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"strconv"
@@ -553,7 +554,9 @@ func newRouteHTTPClient(policy security.OutboundPolicy, redirectPolicy security.
 	transport := security.NewOutboundHTTPTransport(policy, time.Duration(connectTimeoutMS)*time.Millisecond)
 	transport.MaxIdleConns = 100
 	transport.MaxIdleConnsPerHost = 20
-	transport.IdleConnTimeout = 90 * time.Second
+	// 空闲连接保留时间必须短于常见网关（nginx/CDN）60s 的 keepalive，
+	// 否则会复用已被服务端单侧关闭的连接，导致请求写出阶段断连失败。
+	transport.IdleConnTimeout = 55 * time.Second
 	transport.ForceAttemptHTTP2 = true
 
 	client := &http.Client{
@@ -566,12 +569,49 @@ func newRouteHTTPClient(policy security.OutboundPolicy, redirectPolicy security.
 	return outboundhttp.ManagedClient{Client: client, CloseIdleConnections: transport.CloseIdleConnections}, nil
 }
 
+// isStaleConnectionWriteError 判断错误是否发生在请求写出阶段的连接断连。
+// 此时请求尚未完整送达上游，网关不会转发部分请求，重放不会造成重复生成；
+// 读取响应阶段的断连（纯 EOF、read 前缀错误）可能已被上游处理，不在此列。
+func isStaleConnectionWriteError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "write" {
+		return true
+	}
+	// HTTP/2 复用连接失效时上游发送 GOAWAY 拒绝未处理的新流，请求未被上游执行。
+	return strings.Contains(strings.ToLower(err.Error()), "server sent goaway")
+}
+
+// retryStaleRouteRequest 对复用连接在请求写出阶段断连的请求安全重放一次。
+// 仅当请求体可通过 GetBody 重建（bytes.Reader 等标准类型自动具备）
+// 且上下文未被取消时重试，避免改变取消与超时语义。
+func retryStaleRouteRequest(do func(*http.Request) (*http.Response, error), request *http.Request) (*http.Response, error) {
+	resp, err := do(request)
+	if err == nil || !isStaleConnectionWriteError(err) || request.GetBody == nil || request.Context().Err() != nil {
+		return resp, err
+	}
+	body, bodyErr := request.GetBody()
+	if bodyErr != nil {
+		return resp, err
+	}
+	retried := request.Clone(request.Context())
+	retried.Body = body
+	return do(retried)
+}
+
 func (c *Client) doRouteRequest(route portllm.RouteConfig, request *http.Request) (*http.Response, error) {
 	if request == nil || request.URL == nil {
 		return nil, fmt.Errorf("model provider request is nil")
 	}
 	connectTimeoutMS := normalizeConnectTimeoutMS(route.ConnectTimeoutMS)
-	return c.httpClients.Do(request, route.BaseURL, strconv.Itoa(connectTimeoutMS))
+	return retryStaleRouteRequest(func(req *http.Request) (*http.Response, error) {
+		return c.httpClients.Do(req, route.BaseURL, strconv.Itoa(connectTimeoutMS))
+	}, request)
 }
 
 func (c *Client) doRouteGenerationRequest(route portllm.RouteConfig, request *http.Request) (*http.Response, error) {
@@ -580,7 +620,9 @@ func (c *Client) doRouteGenerationRequest(route portllm.RouteConfig, request *ht
 	}
 	connectTimeoutMS := normalizeConnectTimeoutMS(route.ConnectTimeoutMS)
 	return doGenerationRequest(func(tracedRequest *http.Request) (*http.Response, error) {
-		return c.httpClients.Do(tracedRequest, route.BaseURL, strconv.Itoa(connectTimeoutMS))
+		return retryStaleRouteRequest(func(req *http.Request) (*http.Response, error) {
+			return c.httpClients.Do(req, route.BaseURL, strconv.Itoa(connectTimeoutMS))
+		}, tracedRequest)
 	}, request)
 }
 

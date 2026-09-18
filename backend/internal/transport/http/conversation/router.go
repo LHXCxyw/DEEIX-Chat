@@ -55,6 +55,7 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.GET("/conversation-runs/:run_id/tool-calls/:tool_call_id", m.Handler.GetConversationToolCallDetail)
 	authRequired.POST("/conversation-runs/:run_id/cancel", m.Handler.CancelMessageGeneration)
 	authRequired.POST("/conversation-runs/:run_id/media/requery", m.Handler.RequeryMediaVideoRun)
+	authRequired.POST("/conversation-runs/:run_id/media/artifact-retry", m.Handler.RetryMediaImageArtifact)
 	authRequired.PATCH("/messages/:id", m.Handler.UpdateMessage)
 	authRequired.DELETE("/messages/:id", m.Handler.DeleteMessage)
 	authRequired.PUT("/messages/:id/feedback", m.Handler.SetMessageFeedback)
@@ -66,6 +67,7 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.GET("/files/:file_id/extract", m.Handler.GetFileExtract)
 	authRequired.PATCH("/files/:file_id", m.Handler.UpdateFile)
 	authRequired.GET("/files/:file_id/content", m.Handler.GetFileContent)
+	authRequired.GET("/files/:file_id/thumbnail", m.Handler.GetFileThumbnail)
 	authRequired.DELETE("/files/:file_id", m.Handler.DeleteFile)
 	authRequired.GET("/runtime/chat-file-policy", m.Handler.GetChatFilePolicy)
 }
@@ -75,4 +77,5 @@ func (m *Module) RegisterPublicRoutes(public *gin.RouterGroup) {
 	public.GET("/shared-conversations/:share_id", m.Handler.GetPublicSharedConversation)
 	public.GET("/shared-conversations/:share_id/files/:file_id/content", m.Handler.GetPublicSharedFileContent)
 	public.GET("/files/:file_id/signed-content", m.Handler.GetSignedFileContent)
+	public.GET("/files/:file_id/signed-thumbnail", m.Handler.GetSignedFileThumbnail)
 }

@@ -425,6 +425,56 @@ func (h *Handler) RequeryMediaVideoRun(c *gin.Context) {
 	response.Success(c, payload)
 }
 
+// RetryMediaImageArtifact godoc
+// @Summary 重试保存待保存的图像产物
+// @Description 上游生成已成功但产物下载瞬时失败时，输出节点按 runID + 产物序号重试一次保存：重新下载 -> 上传 -> 追加消息附件
+// @Tags chat
+// @Security BearerAuth
+// @Param run_id path string true "运行 ID"
+// @Accept json
+// @Param body body object true "产物序号 {index}"
+// @Success 200 {object} RetryMediaImageArtifactResponse
+// @Failure 400 {object} response.Envelope
+// @Failure 404 {object} ErrorDoc
+// @Router /conversation-runs/{run_id}/media/artifact-retry [post]
+func (h *Handler) RetryMediaImageArtifact(c *gin.Context) {
+	runID, err := stringParam(c, "run_id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRunID)
+		return
+	}
+	var req struct {
+		Index *int `json:"index"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Index == nil || *req.Index < 0 {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidRunID)
+		return
+	}
+	result, err := h.service.RetryMediaImageArtifact(c.Request.Context(), middleware.MustUserID(c), runID, *req.Index)
+	if err != nil {
+		response.ErrorDescribed(c, describeSendMessageError(err))
+		return
+	}
+	payload := RetryMediaImageArtifactResponse{
+		Status: string(result.Status),
+		RunID:  result.RunID,
+		Index:  result.Index,
+	}
+	if result.Message != "" {
+		msg := result.Message
+		payload.Message = &msg
+	}
+	if result.Attachment != nil {
+		payload.Attachment = &RetryMediaImageArtifactAttachmentResult{
+			FileID:    result.Attachment.FileID,
+			FileName:  result.Attachment.FileName,
+			MimeType:  result.Attachment.MimeType,
+			SizeBytes: result.Attachment.SizeBytes,
+		}
+	}
+	response.Success(c, payload)
+}
+
 // StreamActiveMessageGenerations godoc
 // @Summary Stream active conversation generations
 // @Description Sends an authoritative snapshot followed by live user-scoped run state events; the snapshot is re-sent periodically for client-side reconciliation

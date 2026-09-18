@@ -135,6 +135,9 @@ func classifyRunErrorCode(err error) string {
 	if errors.Is(err, ErrGeneratedMediaArtifactUnavailable) {
 		return MessageErrorCodeMediaArtifactUnavailable
 	}
+	if errors.Is(err, ErrMediaArtifactPending) {
+		return "media.artifact_pending"
+	}
 	var upstreamErr *llm.UpstreamError
 	if errors.As(err, &upstreamErr) && isImageStreamConfigurationFailure(upstreamErr) {
 		return MessageErrorCodeMediaImageStreamUnsupported

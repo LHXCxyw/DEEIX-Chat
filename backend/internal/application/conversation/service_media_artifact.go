@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
@@ -128,6 +129,133 @@ type generatedMediaArtifactFailure struct {
 	mediaType string
 	stage     string
 	cause     error
+}
+
+// ---------------------------------------------------------------------------
+// 待保存制品暂存：上游生成已成功但产物下载瞬时失败时，保存上游 URL 引用
+// 供输出节点逐个重试。仅存小体积 URL 引用（不暂存媒体字节），
+// 进程内存态，重启或超时后按过期处理，由用户重新生成。
+// ---------------------------------------------------------------------------
+
+// pendingArtifactTTL 待保存制品引用的存活时长（上游临时 URL 本身有时效）。
+const pendingArtifactTTL = 10 * time.Minute
+
+// pendingImageArtifact 记录一个待保存图像制品的上游引用与产物序号。
+type pendingImageArtifact struct {
+	URL      string
+	MimeType string
+	Index    int
+}
+
+// pendingArtifactStore 按 runID 暂存待保存制品引用，读写均懒清理过期条目。
+type pendingArtifactStore struct {
+	mu      sync.RWMutex
+	entries map[string]pendingArtifactEntry
+}
+
+type pendingArtifactEntry struct {
+	Artifacts []pendingImageArtifact
+	ExpiresAt time.Time
+}
+
+func newPendingArtifactStore() *pendingArtifactStore {
+	return &pendingArtifactStore{entries: make(map[string]pendingArtifactEntry)}
+}
+
+// Register 记录 runID 的待保存制品引用（追加合并，同 index 去重覆盖）并刷新 TTL。
+func (p *pendingArtifactStore) Register(runID string, artifacts []pendingImageArtifact) {
+	if p == nil || strings.TrimSpace(runID) == "" || len(artifacts) == 0 {
+		return
+	}
+	key := strings.TrimSpace(runID)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sweepLocked()
+	entry, ok := p.entries[key]
+	if !ok {
+		p.entries[key] = pendingArtifactEntry{Artifacts: artifacts, ExpiresAt: time.Now().Add(pendingArtifactTTL)}
+		return
+	}
+	// 追加合并：重试后仍失败的产物重新登记，同 index 覆盖旧引用
+	merged := make([]pendingImageArtifact, 0, len(entry.Artifacts)+len(artifacts))
+	merged = append(merged, entry.Artifacts...)
+	for _, artifact := range artifacts {
+		replaced := false
+		for i := range merged {
+			if merged[i].Index == artifact.Index {
+				merged[i] = artifact
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			merged = append(merged, artifact)
+		}
+	}
+	p.entries[key] = pendingArtifactEntry{Artifacts: merged, ExpiresAt: time.Now().Add(pendingArtifactTTL)}
+}
+
+// Take 移除并返回 runID 下指定 index 的制品引用；不存在或已过期返回 false。
+func (p *pendingArtifactStore) Take(runID string, index int) (pendingImageArtifact, bool) {
+	if p == nil {
+		return pendingImageArtifact{}, false
+	}
+	key := strings.TrimSpace(runID)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sweepLocked()
+	entry, ok := p.entries[key]
+	if !ok {
+		return pendingImageArtifact{}, false
+	}
+	for i, artifact := range entry.Artifacts {
+		if artifact.Index != index {
+			continue
+		}
+		remaining := make([]pendingImageArtifact, 0, len(entry.Artifacts)-1)
+		remaining = append(remaining, entry.Artifacts[:i]...)
+		remaining = append(remaining, entry.Artifacts[i+1:]...)
+		if len(remaining) == 0 {
+			delete(p.entries, key)
+		} else {
+			p.entries[key] = pendingArtifactEntry{Artifacts: remaining, ExpiresAt: entry.ExpiresAt}
+		}
+		return artifact, true
+	}
+	return pendingImageArtifact{}, false
+}
+
+// sweepLocked 清理过期条目（调用方持有写锁）。
+func (p *pendingArtifactStore) sweepLocked() {
+	now := time.Now()
+	for key, entry := range p.entries {
+		if now.After(entry.ExpiresAt) {
+			delete(p.entries, key)
+		}
+	}
+}
+
+// emitMediaArtifactPendingEvent 通知前端：上游生成已成功，但部分产物保存待重试。
+// 前端据此在输出节点上挂"保存失败可重试"状态，生成节点不再被保存失败占用。
+func emitMediaArtifactPendingEvent(onEvent func(string, map[string]any) error, runID string, mediaType string, indexes []int) {
+	if onEvent == nil || strings.TrimSpace(runID) == "" || len(indexes) == 0 {
+		return
+	}
+	normalized := make([]int, 0, len(indexes))
+	for _, index := range indexes {
+		normalized = append(normalized, index)
+	}
+	_ = onEvent("media_artifact_pending", map[string]any{
+		"run_id":     strings.TrimSpace(runID),
+		"media_type": strings.TrimSpace(mediaType),
+		"indexes":    normalized,
+	})
+}
+
+// isRetryableGeneratedMediaDownload 判定制品读取失败是否属于可重试的下载类瞬时故障。
+// 解码/校验失败属数据损坏、配置缺失属环境问题，重试无意义。
+func isRetryableGeneratedMediaDownload(err error) bool {
+	return generatedMediaArtifactFailureDetails(err).stage == "download"
 }
 
 func generatedMediaArtifactFailureDetails(err error) generatedMediaArtifactFailure {

@@ -14,6 +14,7 @@ import type {
   GraphNodeKind,
   ImageGraphNode,
   OutputGraphNode,
+  OutputPendingRetry,
   PersistedCanvasNode,
   PersistedCanvasPage,
   PersistedCanvasState,
@@ -48,7 +49,7 @@ export function toPersistedGraphNodes(nodes: ReadonlyArray<GraphNode>): Persiste
           fileName: node.fileName, mimeType: node.mimeType, sizeBytes: node.sizeBytes, prompt: node.prompt,
           model: node.model, sourceGenerateID: node.sourceGenerateID ?? null, errorMessage: node.errorMessage,
           errorDetail: node.errorDetail, completedAt: node.completedAt, durationMs: node.durationMs,
-          durationSeconds: node.durationSeconds,
+          durationSeconds: node.durationSeconds, pendingRetry: node.pendingRetry,
         };
     }
   });
@@ -73,6 +74,14 @@ function reference(value: unknown): CanvasNodeReference | null { const v = obj(v
 function options(value: unknown): ConversationOptions | undefined { return obj(value) as ConversationOptions | null ?? undefined; }
 function operationOf(value: unknown): CanvasOperation { return value === "edit" || value === "inpaint" || value === "outpaint" || value === "crop" ? value : "generate"; }
 function mediaTypeOf(value: unknown): CanvasMediaType | undefined { return value === "video" ? "video" : value === "image" ? "image" : undefined; }
+// 保存待重试引用：校验 mediaType / runID / index 结构，非法数据按无引用处理
+function pendingRetryOf(value: unknown): OutputPendingRetry | undefined {
+  const v = obj(value);
+  const mediaType = mediaTypeOf(v?.mediaType);
+  const runID = text(v?.runID);
+  const index = finite(v?.index, -1);
+  return v && mediaType && runID && index >= 0 ? { mediaType, runID, index } : undefined;
+}
 function metaOf(v: Record<string, unknown>) {
   return { id: identifier(v.id), x: finite(v.x), y: finite(v.y), createdAt: finite(v.createdAt, Date.now()), locked: v.locked === true, groupID: text(v.groupID) || null, frameID: text(v.frameID) || null, zIndex: finite(v.zIndex) };
 }
@@ -110,6 +119,7 @@ export function graphNode(value: unknown): PersistedGraphNode | null {
       errorMessage: text(v.errorMessage) || undefined, errorDetail: text(v.errorDetail) || undefined,
       completedAt: finite(v.completedAt) || undefined, durationMs: finite(v.durationMs) || undefined,
       durationSeconds: finite(v.durationSeconds) || undefined,
+      pendingRetry: pendingRetryOf(v.pendingRetry),
     };
   }
   return null;
@@ -268,7 +278,7 @@ export function restoreGraphNodes(items: ReadonlyArray<PersistedGraphNode>): Gra
           sizeBytes: item.sizeBytes, prompt: item.prompt, model: item.model,
           sourceGenerateID: item.sourceGenerateID ?? null, errorMessage: item.errorMessage,
           errorDetail: item.errorDetail, completedAt: item.completedAt, durationMs: item.durationMs,
-          durationSeconds: item.durationSeconds,
+          durationSeconds: item.durationSeconds, pendingRetry: item.pendingRetry,
         } satisfies OutputGraphNode;
     }
   });

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/pagination"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 var errLocalFileTooLarge = errors.New("local file too large")
@@ -59,6 +61,8 @@ type Service struct {
 	storeProvider    appstorage.Provider
 	uploadGatesMu    sync.Mutex
 	uploadGates      map[string]*uploadContentGate
+	lastTouch        sync.Map
+	thumbFlight      singleflight.Group
 }
 
 // uploadContentGate 同一内容（用户+SHA+大小）上传的互斥闸门：token 为容量 1 的许可通道，users 记录等待者数量用于回收。
@@ -361,6 +365,8 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 		fileItem.ExtractStatus = "none"
 	}
 
+	s.prewarmThumbnailVariants(*fileItem)
+
 	return &UploadFileResult{
 		File:   *fileItem,
 		Quota:  *quota,
@@ -444,6 +450,7 @@ func (s *Service) tryReuseExistingFile(
 						zap.Error(rmErr),
 					)
 				}
+				s.deleteThumbnailVariants(ctx, store, deletedFile.StoragePath)
 			}
 			continue
 		}
@@ -542,6 +549,8 @@ func (s *Service) deleteFile(ctx context.Context, userID uint, fileID string, op
 				zap.String("path", deletedFile.StoragePath),
 				zap.Error(rmErr),
 			)
+		} else {
+			s.deleteThumbnailVariants(ctx, store, deletedFile.StoragePath)
 		}
 	}
 
@@ -606,6 +615,22 @@ func (s *Service) ValidateImageFile(ctx context.Context, userID uint, fileID str
 	return s.errMIMEBlocked()
 }
 
+// StatFileContent 仅读取文件对象元数据（不打开存储、不触碰访问时间），供 304 重验证快路径使用。
+func (s *Service) StatFileContent(ctx context.Context, userID uint, fileID string) (*domainconversation.FileObject, error) {
+	normalizedFileID := strings.TrimSpace(fileID)
+	if normalizedFileID == "" {
+		return nil, s.errInvalidFileReference()
+	}
+	item, err := s.repo.GetActiveFileObjectByID(ctx, userID, normalizedFileID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) || errors.Is(err, repository.ErrFileNotFound) {
+			return nil, s.errFileNotFound()
+		}
+		return nil, err
+	}
+	return item, nil
+}
+
 // OpenFileContent 打开当前用户的文件内容。
 func (s *Service) OpenFileContent(ctx context.Context, userID uint, fileID string) (*FileContentResult, error) {
 	normalizedFileID := strings.TrimSpace(fileID)
@@ -644,14 +669,8 @@ func (s *Service) OpenFileContent(ctx context.Context, userID uint, fileID strin
 		contentType = "application/octet-stream"
 	}
 
-	accessedAt := time.Now()
-	item.LastAccessedAt = &accessedAt
-	if touchErr := s.repo.TouchFileObjectLastAccessedAt(ctx, userID, normalizedFileID, accessedAt); touchErr != nil && s.logger != nil {
-		s.logger.Warn("touch_file_last_accessed_failed",
-			zap.String("file_id", normalizedFileID),
-			zap.Error(touchErr),
-		)
-	}
+	// 访问时间只用于配额统计，移出响应关键路径并按文件节流，避免高频媒体请求放大 DB 写。
+	s.touchLastAccessedAsync(userID, normalizedFileID)
 
 	return &FileContentResult{
 		File:        *item,
@@ -660,6 +679,30 @@ func (s *Service) OpenFileContent(ctx context.Context, userID uint, fileID strin
 		SizeBytes:   info.SizeBytes,
 		ModTime:     info.ModTime,
 	}, nil
+}
+
+const touchLastAccessedInterval = 10 * time.Minute
+
+// touchLastAccessedAsync 异步更新访问时间；同一文件在间隔内只写一次库。
+func (s *Service) touchLastAccessedAsync(userID uint, fileID string) {
+	key := strconv.FormatUint(uint64(userID), 10) + ":" + fileID
+	now := time.Now()
+	if v, ok := s.lastTouch.Load(key); ok {
+		if last, ok := v.(time.Time); ok && now.Sub(last) < touchLastAccessedInterval {
+			return
+		}
+	}
+	s.lastTouch.Store(key, now)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.repo.TouchFileObjectLastAccessedAt(ctx, userID, fileID, now); err != nil && s.logger != nil {
+			s.logger.Warn("touch_file_last_accessed_failed",
+				zap.String("file_id", fileID),
+				zap.Error(err),
+			)
+		}
+	}()
 }
 
 const (

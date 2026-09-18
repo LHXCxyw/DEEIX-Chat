@@ -61,6 +61,14 @@ export type GenerateGraphNode = GraphNodeBase & {
   progress?: number;
 };
 
+// 输出节点的待重试保存引用：上游生成已成功但产物保存瞬时失败，
+// 输出节点持有运行与产物序号，可自行重试保存而不占用生成节点状态。
+export type OutputPendingRetry = {
+  mediaType: CanvasMediaType;
+  runID: string;
+  index: number;
+};
+
 // 输出节点：展示生成结果图像/视频，可通过出端口链式接入下一个生成节点
 export type OutputGraphNode = GraphNodeBase & {
   kind: "output";
@@ -80,6 +88,10 @@ export type OutputGraphNode = GraphNodeBase & {
   completedAt?: number;
   durationMs?: number;
   durationSeconds?: number;
+  // 产物保存待重试：生成已成功，保存失败后由本节点重试（图像重下载 / 视频重查）
+  pendingRetry?: OutputPendingRetry;
+  // 保存重试进行中（瞬态标记，不持久化）：UI 显示加载态并隐藏重试按钮
+  retrySaving?: boolean;
 };
 
 export type GraphNode = PromptGraphNode | ImageGraphNode | GenerateGraphNode | OutputGraphNode;
@@ -144,6 +156,7 @@ export type PersistedOutputGraphNode = PersistedGraphNodeBase & {
   fileID?: string; fileName?: string; mimeType?: string; sizeBytes?: number;
   prompt?: string; model?: string; sourceGenerateID?: string | null;
   errorMessage?: string; errorDetail?: string; completedAt?: number; durationMs?: number; durationSeconds?: number;
+  pendingRetry?: OutputPendingRetry;
 };
 export type PersistedGraphNode =
   | PersistedPromptGraphNode

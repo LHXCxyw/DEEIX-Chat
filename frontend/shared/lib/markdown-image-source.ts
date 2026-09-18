@@ -17,7 +17,37 @@ async function fetchProtectedMarkdownImage(path: string, signal?: AbortSignal): 
   if (!accessToken) {
     throw new Error("Missing access token");
   }
-  return authedFetch(path, { accessToken, cache: "no-store", signal });
+  return authedFetch(path, { accessToken, signal });
+}
+
+// 消息附件携带的服务端签名直连地址注册表：markdown 内容里的 /files/{id}/content
+// 引用在渲染时映射为签名缩略图 URL，由浏览器/CDN 直接加载，不走鉴权 fetch。
+// SPA 生命周期内有效；签名过期导致加载失败时回退为鉴权 fetch。
+const signedMarkdownImageURLs = new Map<string, string>();
+
+export function registerSignedMarkdownImageURL(fileID: string, signedURL: string | undefined): void {
+  if (!fileID || !signedURL) {
+    return;
+  }
+  signedMarkdownImageURLs.set(`/api/v1/files/${fileID}/content`, signedURL);
+}
+
+// resolveSignedMarkdownImageSource 返回签名直连的完整 URL；未注册时返回 null。
+export function resolveSignedMarkdownImageSource(src: string): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  let pathname = "";
+  try {
+    pathname = new URL(src, window.location.origin).pathname;
+  } catch {
+    return null;
+  }
+  const signedPath = signedMarkdownImageURLs.get(pathname.replace(/\/$/, ""));
+  if (!signedPath) {
+    return null;
+  }
+  return `${resolveApiBaseURL()}${signedPath}`;
 }
 
 export function resolveMarkdownImageSource(src: string): string {

@@ -369,6 +369,11 @@ function handleStreamEvent(event: StreamMessageEvent, options: ConversationStrea
     return null;
   }
 
+  if (event.type === "media_artifact_pending") {
+    options.onMediaArtifactPending?.(event);
+    return null;
+  }
+
   if (event.type === "media_image_delta") {
     options.onMediaImageDelta?.(event);
     return null;
@@ -1199,6 +1204,36 @@ export async function requeryMediaVideoRun(
   );
 }
 
+export type MediaImageArtifactRetryResult = {
+  status: "recovered" | "expired" | string;
+  runID: string;
+  index: number;
+  message?: string;
+  attachment?: {
+    fileID: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  };
+};
+
+// 制品重试：对待保存的图像产物按 runID + 序号重试一次保存（重新下载并上传）。
+export async function retryMediaImageArtifact(
+  accessToken: string,
+  runID: string,
+  index: number,
+): Promise<MediaImageArtifactRetryResult> {
+  return authedRequest<MediaImageArtifactRetryResult>(
+    `/api/v1/conversation-runs/${pathParam(runID)}/media/artifact-retry`,
+    {
+      method: "POST",
+      accessToken,
+      body: { index },
+    },
+    true,
+  );
+}
+
 export async function setMessageFeedback(
   accessToken: string,
   messagePublicID: string,
@@ -1262,6 +1297,7 @@ export type ConversationStreamOptions = {
   onFileProc?: (message: string) => void;
   onRagSearch?: (message: string) => void;
   onMediaStatus?: (event: Extract<StreamMessageEvent, { type: "media_status" }>) => void;
+  onMediaArtifactPending?: (event: Extract<StreamMessageEvent, { type: "media_artifact_pending" }>) => void;
   onMediaImageDelta?: (event: Extract<StreamMessageEvent, { type: "media_image_delta" }>) => void;
   onCompactDone?: (event: CompactDoneEvent) => void;
   onProcessUpdate?: (event: Extract<StreamMessageEvent, { type: "process_update" }>) => void;

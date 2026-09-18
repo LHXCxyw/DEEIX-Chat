@@ -10,6 +10,9 @@ export type MessageAttachment = {
   durationSeconds?: number;
   kind: "file" | "image";
   previewURL?: string;
+  // 服务端签发的缩略图直连地址（thumb/preview 两档），<img> 直接加载免鉴权 fetch
+  signedThumbnailURL?: string;
+  signedPreviewURL?: string;
   processingStatus?: string;
   processingReady?: boolean;
   processingErrorCode?: string;

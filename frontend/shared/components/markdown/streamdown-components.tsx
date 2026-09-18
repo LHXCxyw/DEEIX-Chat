@@ -21,6 +21,7 @@ import {
   resolveMarkdownImageDownloadName,
   resolveMarkdownImageSource,
   resolveProtectedMarkdownImageSource,
+  resolveSignedMarkdownImageSource,
 } from "@/shared/lib/markdown-image-source";
 import { MarkdownFootnotesContext } from "./streamdown-html";
 import { StreamdownCheckIcon, StreamdownCopyIcon } from "./streamdown-icons";
@@ -670,6 +671,13 @@ export function MarkdownImage({ alt, className, onError, onLoad, src: srcProp, .
 
     if (!protectedSrc) {
       setDisplaySrc(resolvedSrc);
+      return undefined;
+    }
+    // 命中签名直连注册表时直接加载，不经过鉴权 fetch 与 blob 转换；
+    // 签名 URL 由浏览器/CDN 按不可变内容长缓存。
+    const signedSource = resolveSignedMarkdownImageSource(src);
+    if (signedSource) {
+      setDisplaySrc(signedSource);
       return undefined;
     }
     setDisplaySrc("");

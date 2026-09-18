@@ -174,6 +174,7 @@ export function CanvasViewport({
   onRunNode,
   onCancelNode,
   onRequeryNode,
+  onRetryOutputSave,
   onConnectNodes,
   onRemoveEdge,
   onPreviewNode,
@@ -212,6 +213,7 @@ export function CanvasViewport({
   onRunNode: (nodeID: string) => void;
   onCancelNode: (nodeID: string) => void;
   onRequeryNode: (nodeID: string) => void;
+  onRetryOutputSave: (nodeID: string) => void;
   onConnectNodes: (attempt: { fromNodeID: string; fromPort: "out"; toNodeID: string; toPort: "prompt" | "image" | "result" }) => boolean;
   onRemoveEdge: (edgeID: string) => void;
   onPreviewNode: (node: OutputGraphNode) => void;
@@ -1188,13 +1190,14 @@ export function CanvasViewport({
     onRunNode,
     onCancelNode,
     onRequeryNode,
+    onRetryOutputSave,
     onPreviewNode,
     onDownloadNode,
     onEditNode,
     onEditReferenceNode,
     onUseAsReference,
     uploadReferenceFile,
-  }), [onCancelNode, onDownloadNode, onEditNode, onEditReferenceNode, onEnsureNodePreview, onPreviewNode, onRemoveNode, onRequeryNode, onRunNode, onUpdateNode, onUseAsReference, uploadReferenceFile]);
+  }), [onCancelNode, onDownloadNode, onEditNode, onEditReferenceNode, onEnsureNodePreview, onPreviewNode, onRemoveNode, onRequeryNode, onRetryOutputSave, onRunNode, onUpdateNode, onUseAsReference, uploadReferenceFile]);
 
   // 原生文本选择由 mousedown 默认行为启动。在非交互内容上阻止它，
   // 拖动画布 / 节点 / 装饰时就不会选中节点内文本；

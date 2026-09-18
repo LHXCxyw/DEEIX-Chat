@@ -443,7 +443,21 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	now := time.Now()
 	for i, video := range output.GeneratedVideos {
 		data, mimeType, readErr := s.readGeneratedVideo(ctx, video, route.BaseURL, route.APIKey)
+		if readErr != nil && isRetryableGeneratedMediaDownload(readErr) {
+			// 下载类瞬时故障自动重试一次，多数网络抖动在此消化
+			data, mimeType, readErr = s.readGeneratedVideo(ctx, video, route.BaseURL, route.APIKey)
+		}
 		if readErr != nil {
+			if isRetryableGeneratedMediaDownload(readErr) && strings.TrimSpace(run.UpstreamTaskID) != "" {
+				// 上游任务已完成：生成已成功，保存职责移交输出节点，
+				// 视频重试复用任务重查接口（按 UpstreamTaskID 回查上游并回收产物）。
+				// 流以 completed 结束，生成节点不再被保存失败占用状态。
+				emitMediaArtifactPendingEvent(input.OnEvent, run.RunID, "video", []int{i})
+				s.logGeneratedMediaArtifactFailure(ctx, run, i+1, len(output.GeneratedVideos), readErr)
+				retErr = readErr
+				_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(readErr), textutil.TruncateTrimmed(messageErrorSummary(readErr), 255))
+				return buildFailureResult(readErr, output.Usage), nil
+			}
 			retErr = s.finalizeGeneratedMediaArtifactFailure(ctx, run, assistantMessage.ID, i+1, len(output.GeneratedVideos), readErr)
 			return buildFailureResult(retErr, output.Usage), retErr
 		}

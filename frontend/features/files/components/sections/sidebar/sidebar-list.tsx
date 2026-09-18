@@ -137,7 +137,7 @@ function SidebarListItem({
       >
         <span className="flex size-5 shrink-0 items-center justify-center">
           {showThumbnail
-            ? <FileThumbnail fileID={item.fileID} alt="" className="size-5 rounded-sm" />
+            ? <FileThumbnail fileID={item.fileID} alt="" className="size-5 rounded-sm" signedURL={item.thumbnailURL} />
             : React.createElement(fileIcon, { className: "size-3 text-muted-foreground" })}
         </span>
 

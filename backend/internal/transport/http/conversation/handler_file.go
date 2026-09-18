@@ -12,6 +12,7 @@ import (
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/pagination"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/filecontent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -99,7 +100,7 @@ func (h *Handler) UploadFile(c *gin.Context) {
 		[]model.FileObject{result.File},
 	)[result.File.FileID]
 	response.Success(c, FileUploadResponse{
-		File:   toFileObjectResponse(&result.File, capability),
+		File:   toFileObjectResponse(&result.File, capability, buildFileMediaURLs(h.uploads, userID, &result.File)),
 		Quota:  toStorageQuotaResponse(result.Quota),
 		Reused: result.Reused,
 	})
@@ -154,7 +155,7 @@ func (h *Handler) ListFiles(c *gin.Context) {
 	results := make([]FileObjectResponse, 0, len(result.Items))
 	capabilities := h.processing.ResolveFileVectorizationCapabilities(c.Request.Context(), result.Items)
 	for i := range result.Items {
-		results = append(results, toFileObjectResponse(&result.Items[i], capabilities[result.Items[i].FileID]))
+		results = append(results, toFileObjectResponse(&result.Items[i], capabilities[result.Items[i].FileID], buildFileMediaURLs(h.uploads, userID, &result.Items[i])))
 	}
 	response.Success(c, FileListResponse{
 		Total:   result.Total,
@@ -384,7 +385,7 @@ func (h *Handler) UpdateFile(c *gin.Context) {
 		c.Request.Context(),
 		[]model.FileObject{*item},
 	)[item.FileID]
-	response.Success(c, toFileObjectResponse(item, capability))
+	response.Success(c, toFileObjectResponse(item, capability, buildFileMediaURLs(h.uploads, userID, item)))
 }
 
 // DeleteFile godoc
@@ -458,5 +459,39 @@ func (h *Handler) GetFileContent(c *gin.Context) {
 		return
 	}
 
-	h.serveFileContent(c, userID, fileID)
+	h.serveFileContent(c, userID, fileID, false)
+}
+
+// GetFileThumbnail godoc
+// @Summary 获取图片缩略图变体
+// @Description 按当前登录用户权限读取图片的缩略图（thumb ≤400px / preview ≤1280px），缺失时惰性生成
+// @Tags chat
+// @Produce image/jpeg
+// @Security BearerAuth
+// @Param file_id path string true "文件ID"
+// @Param variant query string false "变体档位: thumb | preview，默认 thumb"
+// @Success 200 {file} binary
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /files/{file_id}/thumbnail [get]
+func (h *Handler) GetFileThumbnail(c *gin.Context) {
+	fileID := c.Param("file_id")
+	if strings.TrimSpace(fileID) == "" {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidFileID)
+		return
+	}
+	result, err := h.uploads.OpenThumbnail(c.Request.Context(), middleware.MustUserID(c), fileID, c.Query("variant"))
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrFileNotFound),
+			errors.Is(err, appupload.ErrThumbnailUnsupported):
+			response.ErrorFrom(c, http.StatusNotFound, appconversation.ErrFileNotFound)
+		case errors.Is(err, appconversation.ErrInvalidFileReference):
+			response.ErrorFrom(c, http.StatusBadRequest, errInvalidFileID)
+		default:
+			response.InternalError(c)
+		}
+		return
+	}
+	_ = filecontent.Write(c, result, false)
 }

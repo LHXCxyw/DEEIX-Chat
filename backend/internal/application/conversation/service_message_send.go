@@ -1179,7 +1179,7 @@ func (s *Service) sendMessageInternal(
 	// 新消息 feedback 必为 0，两次 DB 读无意义，跳过以消除 completed 事件前的最后阻塞。
 	if !preferStream {
 		feedbackMessages := []model.Message{*userMessage, *assistantMessage}
-		if err = s.hydrateMessageFeedback(ctx, input.UserID, feedbackMessages); err == nil {
+		if err = s.hydrateMessages(ctx, input.UserID, feedbackMessages); err == nil {
 			_ = s.hydrateMessageProcessTraces(ctx, feedbackMessages)
 			*userMessage = feedbackMessages[0]
 			*assistantMessage = feedbackMessages[1]

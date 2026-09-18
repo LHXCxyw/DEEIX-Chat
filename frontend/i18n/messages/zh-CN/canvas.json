@@ -252,5 +252,11 @@
   "requeryStarted": "正在回查上游任务结果",
   "requeryPending": "上游任务仍在执行，请稍后再次重查",
   "requeryUnavailable": "暂无法回查该任务的结果",
-  "requeryRecovered": "已从上游找回生成结果"
+  "requeryRecovered": "已从上游找回生成结果",
+  "nodeRetrySave": "重试保存",
+  "artifactSavePending": "生成已完成，保存结果失败",
+  "artifactRetrySaving": "正在重新保存生成结果",
+  "artifactRetryFailed": "保存生成结果失败，请稍后重试",
+  "artifactRecovered": "已重新保存生成结果",
+  "artifactExpired": "保存结果已过期，请重新生成"
 }

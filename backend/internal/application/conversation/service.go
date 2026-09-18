@@ -146,7 +146,8 @@ type Service struct {
 	moderationSvc         *appcm.Service
 	toolLimiters          sync.Map
 	generationStreams     *generationStreamRegistry
-	snapshotCache         sync.Map // conversationID (uint) → *cachedSnapshot
+	pendingArtifacts      *pendingArtifactStore
+	snapshotCache        sync.Map // conversationID (uint) → *cachedSnapshot
 	userMemCache          sync.Map // userID (uint) → *cachedUserMemories
 	imageContextCache     *preparedConversationImageCache
 }
@@ -311,6 +312,7 @@ func NewServiceWithRuntime(deps Dependencies) *Service {
 		ragSvc:            deps.RAGService,
 		logger:            deps.Logger,
 		generationStreams: newGenerationStreamRegistry(deps.Cache, defaultGenerationStreamOptions()),
+		pendingArtifacts:  newPendingArtifactStore(),
 		imageContextCache: defaultPreparedConversationImageCache(),
 	}
 	// 注入 LLM 语义压缩回调（在 svc 完全初始化后绑定）

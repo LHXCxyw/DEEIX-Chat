@@ -16,6 +16,7 @@ import {
   Pencil,
   Play,
   Repeat2,
+  RotateCw,
   Search,
   Square,
   TextCursorInput,
@@ -56,6 +57,8 @@ export type GraphNodeActionHandlers = {
   onRunNode: (nodeID: string) => void;
   onCancelNode: (nodeID: string) => void;
   onRequeryNode: (nodeID: string) => void;
+  // 输出节点产物保存重试（保存待重试时输出节点自治重新保存）
+  onRetryOutputSave: (nodeID: string) => void;
   onPreviewNode: (node: OutputGraphNode) => void;
   onDownloadNode: (node: OutputGraphNode) => void;
   onEditNode: (node: OutputGraphNode) => void;
@@ -724,7 +727,37 @@ function OutputGraphNodeView({
     >
       <div className="flex h-full flex-col gap-1.5 p-2.5">
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border/50 bg-muted/25">
-          {node.status === "error" ? (
+          {node.status === "error" && node.pendingRetry ? (
+            // 生成已成功、保存待重试：重试职责归本输出节点，不占用生成节点
+            <div className="flex size-full flex-col items-center justify-center gap-1.5 p-2 text-center">
+              {node.retrySaving ? (
+                <span className={cn(
+                  "size-5 animate-spin rounded-full border-2 border-muted-foreground/20",
+                  isVideo ? "border-t-violet-500" : "border-t-primary",
+                )} />
+              ) : (
+                <AlertTriangle className="size-5 shrink-0 text-amber-500/90" strokeWidth={1.6} />
+              )}
+              <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
+                {node.errorMessage || t("generateFailed")}
+              </p>
+              {node.retrySaving ? null : (
+                <button
+                  type="button"
+                  data-canvas-selectable
+                  className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handlers.onRetryOutputSave(node.id);
+                  }}
+                >
+                  <RotateCw className="size-3" strokeWidth={1.8} />
+                  {t("nodeRetrySave")}
+                </button>
+              )}
+            </div>
+          ) : node.status === "error" ? (
             <div className="flex size-full flex-col items-center justify-center gap-1.5 p-2 text-center">
               <AlertTriangle className="size-5 shrink-0 text-destructive/80" strokeWidth={1.6} />
               <p className="text-[11px] leading-relaxed break-words text-muted-foreground">

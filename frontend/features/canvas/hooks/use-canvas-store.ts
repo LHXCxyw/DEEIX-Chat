@@ -71,6 +71,11 @@ export function useCanvasStore({
       requeryPending: t("requeryPending"),
       requeryUnavailable: t("requeryUnavailable"),
       requeryRecovered: t("requeryRecovered"),
+      artifactSavePending: t("artifactSavePending"),
+      artifactRetrySaving: t("artifactRetrySaving"),
+      artifactRetryFailed: t("artifactRetryFailed"),
+      artifactRecovered: t("artifactRecovered"),
+      artifactExpired: t("artifactExpired"),
     };
     canvasStore.setLabels(labels);
   }, [t, tMediaStatus]);
@@ -306,6 +311,7 @@ export function useCanvasStore({
     runGenerateNode: canvasStore.runGenerateNode,
     cancelNode: canvasStore.cancelNode,
     requeryGenerateNode: canvasStore.requeryGenerateNode,
+    retryOutputNodeSave: canvasStore.retryOutputNodeSave,
     enqueueGraphEdit: canvasStore.enqueueGraphEdit,
     undo: canvasStore.undo,
     redo: canvasStore.redo,

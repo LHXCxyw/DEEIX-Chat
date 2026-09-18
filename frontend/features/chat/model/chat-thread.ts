@@ -25,6 +25,8 @@ export function parseAttachments(raw: string): MessageAttachment[] {
         sizeBytes: Number(item.file_size ?? 0),
         durationSeconds: parseAttachmentDurationSeconds(item.duration_seconds),
         kind: item.kind === "image" ? ("image" as const) : ("file" as const),
+        signedThumbnailURL: typeof item.thumbnail_url === "string" && item.thumbnail_url ? item.thumbnail_url : undefined,
+        signedPreviewURL: typeof item.preview_url === "string" && item.preview_url ? item.preview_url : undefined,
         processingStatus: String(item.processing_status ?? ""),
         processingReady: Boolean(item.processing_ready),
         processingErrorCode: String(item.processing_error_code ?? ""),

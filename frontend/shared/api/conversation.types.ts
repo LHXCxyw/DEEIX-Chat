@@ -345,6 +345,13 @@ export type StreamMessageEvent =
       revised_prompt?: string;
     }
   | {
+      type: "media_artifact_pending";
+      seq?: number;
+      run_id: string;
+      media_type: "image" | "video" | string;
+      indexes: number[];
+    }
+  | {
       type: "completed";
       seq?: number;
       data: SendMessageResult;

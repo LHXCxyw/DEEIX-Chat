@@ -55,6 +55,7 @@ import {
   graphNodeSize,
   type ImageGraphNode,
   type OutputGraphNode,
+  type OutputPendingRetry,
   type PersistedCanvasPage,
   type PersistedCanvasState,
   type PromptGraphNode,
@@ -69,6 +70,7 @@ import {
   listMessages,
   requeryMediaVideoRun,
   resumeMessageGenerationStream,
+  retryMediaImageArtifact,
   streamImageEdit,
   streamImageGeneration,
   streamMessage,
@@ -119,6 +121,11 @@ export type CanvasStoreLabels = {
   requeryPending: string;
   requeryUnavailable: string;
   requeryRecovered: string;
+  artifactSavePending: string;
+  artifactRetrySaving: string;
+  artifactRetryFailed: string;
+  artifactRecovered: string;
+  artifactExpired: string;
 };
 
 export type CanvasState = {
@@ -171,6 +178,8 @@ let state: CanvasState = initialState;
 const listeners = new Set<() => void>();
 const objectURLCache = new Map<string, string>();
 const abortControllers = new Map<string, AbortController>();
+// 尚未注册 AbortController 的启动窗口（取 token/创建会话期间）收到的取消请求
+const startAborts = new Set<string>();
 let labels: CanvasStoreLabels | null = null;
 let modelCatalog: ChatModelOption[] = [];
 let persistTimer: number | null = null;
@@ -537,13 +546,24 @@ async function createTaskConversation(token: string): Promise<string> {
   return conversation.publicID;
 }
 
+// 生成结果落位条目：成功产物携带文件信息，保存待重试产物携带输出节点的重试引用。
+type GenerateResultEntry = {
+  fileID?: string;
+  fileName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  durationSeconds?: number;
+  pendingRetry?: OutputPendingRetry;
+};
+
 // 将生成结果写入下游输出节点：优先复用已连接的输出节点（重复生成时覆盖写入同一节点，
 // 不再派生新节点），连接数量不足时才在生成节点右侧派生新的输出节点并连线。
 // 视频结果只能写入视频/中立输出节点，图像结果只能写入图像/中立输出节点。
+// 保存待重试的产物同样落位为输出节点（error 态 + 重试引用），保存职责归输出节点自治。
 function writeGenerateResults(
   generateNode: GenerateGraphNode,
-  attachments: { fileID: string; fileName: string; mimeType: string; sizeBytes: number; durationSeconds?: number }[],
-  context: { prompt: string; modelName: string; durationMs?: number; durationSeconds?: number },
+  entries: GenerateResultEntry[],
+  context: { prompt: string; modelName: string; durationMs?: number; durationSeconds?: number; savePendingLabel?: string },
 ): void {
   const mediaType = generateNode.mediaType ?? "image";
   const size = GRAPH_NODE_SIZES.output;
@@ -563,14 +583,14 @@ function writeGenerateResults(
     // 只复用仍为空的输出节点承接本次结果；已有结果的输出节点保留原内容不覆盖，
     // 不足的结果派生新的输出节点，让多次生成的结果在画布上共存。
     const reusableTargets = connectedTargets.filter((node) => !(node.status === "done" && node.fileID));
-    const targets: OutputGraphNode[] = reusableTargets.slice(0, attachments.length);
+    const targets: OutputGraphNode[] = reusableTargets.slice(0, entries.length);
     const outputX = generateNode.x + generateSize.width + 96;
     const bottomY = connectedTargets.length > 0
       ? Math.max(...connectedTargets.map((target) => target.y + size.height))
       : generateNode.y + Math.round((generateSize.height - size.height) / 2);
     let nextSpawnY = bottomY;
     const spawned: OutputGraphNode[] = [];
-    while (targets.length < attachments.length) {
+    while (targets.length < entries.length) {
       const outputID = createNodeID();
       const outputNode: OutputGraphNode = {
         id: outputID, kind: "output", mediaType,
@@ -609,18 +629,31 @@ function writeGenerateResults(
         return node;
       }
       const targetIndex = targets.findIndex((target) => target.id === node.id);
-      const attachment = attachments[targetIndex];
-      const next: OutputGraphNode = attachment
+      const entry = entries[targetIndex];
+      const next: OutputGraphNode = entry?.pendingRetry
+        // 保存待重试：生成已成功，本节点持有重试引用，保存失败不占用生成节点状态
         ? {
-          ...node, status: "done", mediaType, fileID: attachment.fileID, fileName: attachment.fileName,
-          mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes, objectURL: undefined,
-          imageLoadFailed: false, prompt: context.prompt, model: context.modelName,
-          sourceGenerateID: generateNode.id, errorMessage: undefined, errorDetail: undefined,
-          completedAt, durationMs: context.durationMs,
-          durationSeconds: attachment.durationSeconds ?? context.durationSeconds,
+          ...node, status: "error", mediaType, fileID: undefined, fileName: undefined,
+          mimeType: undefined, sizeBytes: undefined, objectURL: undefined, imageLoadFailed: false,
+          prompt: context.prompt, model: context.modelName,
+          sourceGenerateID: generateNode.id,
+          errorMessage: context.savePendingLabel ?? "",
+          errorDetail: undefined, completedAt,
+          durationMs: context.durationMs, durationSeconds: undefined,
+          pendingRetry: entry.pendingRetry,
         }
-        // 输出节点多于结果时重置为空状态
-        : { ...node, status: "empty", fileID: undefined, fileName: undefined, mimeType: undefined, sizeBytes: undefined, objectURL: undefined, imageLoadFailed: false, errorMessage: undefined, errorDetail: undefined, sourceGenerateID: generateNode.id };
+        : entry
+          ? {
+            ...node, status: "done", mediaType, fileID: entry.fileID, fileName: entry.fileName,
+            mimeType: entry.mimeType, sizeBytes: entry.sizeBytes, objectURL: undefined,
+            imageLoadFailed: false, prompt: context.prompt, model: context.modelName,
+            sourceGenerateID: generateNode.id, errorMessage: undefined, errorDetail: undefined,
+            completedAt, durationMs: context.durationMs,
+            durationSeconds: entry.durationSeconds ?? context.durationSeconds,
+            pendingRetry: undefined,
+          }
+          // 输出节点多于结果时重置为空状态
+          : { ...node, status: "empty", fileID: undefined, fileName: undefined, mimeType: undefined, sizeBytes: undefined, objectURL: undefined, imageLoadFailed: false, errorMessage: undefined, errorDetail: undefined, sourceGenerateID: generateNode.id, pendingRetry: undefined };
       return next;
     });
 
@@ -651,10 +684,12 @@ function buildStreamOptions(
   signal: AbortSignal | undefined,
   extra: {
     onDelta?: (delta: string) => void;
+    onMediaArtifactPending?: ConversationStreamOptions["onMediaArtifactPending"];
   } = {},
 ): ConversationStreamOptions {
   return {
     signal,
+    onMediaArtifactPending: extra.onMediaArtifactPending,
     onMediaStatus: (event) => {
       const label = resolveStatusLabel(event.status, event.message, mediaType);
       updateNode(generateNodeID, (node) => {
@@ -1338,7 +1373,13 @@ const canvasStoreImplementation = {
   },
 
   cancelNode(nodeID: string): void {
-    abortControllers.get(nodeID)?.abort();
+    const controller = abortControllers.get(nodeID);
+    if (controller) {
+      controller.abort();
+      return;
+    }
+    // 启动窗口期（尚未注册 controller）的取消：记录后由 runGenerateNode 在启动流前落地
+    startAborts.add(nodeID);
   },
 
   clearCanvas(): void {
@@ -1346,6 +1387,7 @@ const canvasStoreImplementation = {
       controller.abort();
     }
     abortControllers.clear();
+    startAborts.clear();
     for (const objectURL of objectURLCache.values()) {
       URL.revokeObjectURL(objectURL);
     }
@@ -1379,9 +1421,26 @@ const canvasStoreImplementation = {
     if (!generateNode || generateNode.kind !== "generate" || !labels) {
       return;
     }
-    if (abortControllers.has(generateNodeID)) {
+    // 防重入：除已注册的请求外，同步检查节点运行状态，
+    // 覆盖取 token/创建会话这段尚未注册 AbortController 的异步窗口
+    if (abortControllers.has(generateNodeID) || generateNode.runStatus === "pending" || generateNode.runStatus === "streaming") {
       return;
     }
+    startAborts.delete(generateNodeID);
+    // 点击即进入准备态：按钮立刻切换为「取消」，后续校验失败由 markGenerateNodeError 复位为错误态
+    updateNode(generateNodeID, (node) =>
+      node.kind === "generate"
+        ? {
+          ...node,
+          runStatus: "pending",
+          statusLabel: labels?.nodePreparing ?? "",
+          previewURL: undefined,
+          errorMessage: undefined,
+          errorDetail: undefined,
+          progress: undefined,
+        }
+        : node,
+    );
     const mediaType = generateNode.mediaType ?? "image";
     const inputs = gatherGraphGenerateInputs(generateNodeID, state.nodes, state.edges);
     const model = canvasStore.resolveModel(generateNode.model, mediaType);
@@ -1461,6 +1520,14 @@ const canvasStoreImplementation = {
       };
     });
 
+    // 准备期（取 token/创建会话）收到的取消：不启动生成流，直接落地为取消态
+    if (startAborts.has(generateNodeID)) {
+      startAborts.delete(generateNodeID);
+      markGenerateNodeError(generateNodeID, labels.canceled ?? "");
+      void deleteConversation(token, conversationID).catch(() => {});
+      return;
+    }
+
     await canvasStore.runGeneration({
       generateNodeID,
       prompt,
@@ -1513,6 +1580,8 @@ const canvasStoreImplementation = {
 
     const mergedOptions = mergeCanvasOptions(model.defaultOptions ?? {}, options);
     let assistantText = "";
+    // 保存待重试产物收集：上游生成已成功但产物保存瞬时失败，落位为输出节点的重试引用
+    const pendingArtifacts: OutputPendingRetry[] = [];
     const streamOptions = buildStreamOptions(generateNodeID, mediaType, controller.signal, {
       onDelta: (delta) => {
         assistantText += delta;
@@ -1521,6 +1590,12 @@ const canvasStoreImplementation = {
             ? { ...node, runStatus: "streaming", statusLabel: labels?.statusRunning ?? node.statusLabel }
             : node,
         );
+      },
+      onMediaArtifactPending: (event) => {
+        const eventMediaType = event.media_type === "video" ? "video" : "image";
+        for (const index of event.indexes ?? []) {
+          pendingArtifacts.push({ mediaType: eventMediaType, runID: event.run_id, index });
+        }
       },
     });
 
@@ -1584,6 +1659,7 @@ const canvasStoreImplementation = {
         completed,
         assistantText,
         startedAt,
+        pendingArtifacts,
       });
     } catch (error) {
       if (controller.signal.aborted) {
@@ -1614,6 +1690,7 @@ const canvasStoreImplementation = {
 
   // 生成完成的收尾：解析结果附件、写入输出节点并复位生成节点。
   // 正常运行与刷新恢复共用，保证两条路径的产物落位一致。
+  // pendingArtifacts 为保存待重试产物：生成已成功，落位为输出节点的重试引用。
   async completeGeneration({
     generateNodeID,
     prompt,
@@ -1623,6 +1700,7 @@ const canvasStoreImplementation = {
     completed,
     assistantText = "",
     startedAt,
+    pendingArtifacts = [],
   }: {
     generateNodeID: string;
     prompt: string;
@@ -1632,6 +1710,7 @@ const canvasStoreImplementation = {
     completed: { assistantMessage: MessageDTO };
     assistantText?: string;
     startedAt?: number;
+    pendingArtifacts?: OutputPendingRetry[];
   }): Promise<void> {
     updateNode(generateNodeID, (node) =>
       node.kind === "generate" && (node.runStatus === "pending" || node.runStatus === "streaming")
@@ -1678,7 +1757,7 @@ const canvasStoreImplementation = {
       return;
     }
 
-    if (mediaAttachments.length === 0) {
+    if (mediaAttachments.length === 0 && pendingArtifacts.length === 0) {
       const emptyLabel = mediaType === "video" ? (labels?.noVideoOutput ?? labels?.noImageOutput) : labels?.noImageOutput;
       markGenerateNodeError(
         generateNodeID,
@@ -1688,17 +1767,28 @@ const canvasStoreImplementation = {
       return;
     }
 
-    // 生成数量约束：仅保留前 N 个结果（视频固定 1 个）
+    // 生成数量约束：仅保留前 N 个结果（视频固定 1 个）；保存待重试产物不受限（上游已生成）
     const limitedAttachments = mediaAttachments.slice(0, Math.max(1, resultCount));
     const durationMs = startedAt ? Math.max(0, Date.now() - startedAt) : undefined;
     const videoDuration = mediaType === "video"
       ? limitedAttachments.find((item) => item.durationSeconds && item.durationSeconds > 0)?.durationSeconds
       : undefined;
-    writeGenerateResults(sourceNode, limitedAttachments, {
+    const entries: GenerateResultEntry[] = limitedAttachments.map((attachment) => ({
+      fileID: attachment.fileID,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      durationSeconds: attachment.durationSeconds,
+    }));
+    for (const pending of pendingArtifacts) {
+      entries.push({ pendingRetry: pending });
+    }
+    writeGenerateResults(sourceNode, entries, {
       prompt,
       modelName,
       durationMs,
       durationSeconds: videoDuration,
+      savePendingLabel: labels?.artifactSavePending,
     });
 
     // 运行完成：生成节点回到空闲态
@@ -1919,6 +2009,102 @@ const canvasStoreImplementation = {
       abortControllers.delete(generateNodeID);
       updateNode(generateNodeID, (item) =>
         item.kind === "generate" && item.runStatus === "idle" ? { ...item, statusLabel: undefined } : item,
+      );
+    }
+  },
+
+  // 输出节点保存重试：产物保存待重试的输出节点自行重新保存（图像重下载 / 视频重查上游任务），
+  // 成功后本节点转为完成态并加载预览；失败保持可重试状态，不占用生成节点。
+  async retryOutputNodeSave(nodeID: string): Promise<void> {
+    const node = state.nodes.find((item) => item.id === nodeID);
+    if (!node || node.kind !== "output" || !node.pendingRetry || !labels) {
+      return;
+    }
+    if (abortControllers.has(nodeID)) {
+      return;
+    }
+    const controller = new AbortController();
+    abortControllers.set(nodeID, controller);
+    updateNode(nodeID, (item) =>
+      item.kind === "output" ? { ...item, errorMessage: labels?.artifactRetrySaving ?? "", retrySaving: true } : item,
+    );
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        updateNode(nodeID, (item) =>
+          item.kind === "output" ? { ...item, errorMessage: labels?.needLogin ?? "" } : item,
+        );
+        return;
+      }
+      const retry = node.pendingRetry;
+      if (retry.mediaType === "video") {
+        // 视频重试复用任务重查：按上游任务 ID 回查并回收产物
+        const result = await requeryMediaVideoRun(token, retry.runID);
+        if (result.status === "completed" && result.attachments && result.attachments.length > 0) {
+          const attachment = result.attachments[retry.index] ?? result.attachments[0];
+          updateNode(nodeID, (item) =>
+            item.kind === "output"
+              ? {
+                ...item, status: "done", fileID: attachment.fileID, fileName: attachment.fileName,
+                mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes,
+                durationSeconds: attachment.durationSeconds, objectURL: undefined, imageLoadFailed: false,
+                errorMessage: undefined, errorDetail: undefined, pendingRetry: undefined,
+                completedAt: Date.now(),
+              }
+              : item,
+          );
+          void loadOutputImage(nodeID, attachment.fileID);
+          toast.success(labels.requeryRecovered);
+          return;
+        }
+        if (result.status === "pending") {
+          const message = labels.requeryPending;
+          updateNode(nodeID, (item) => item.kind === "output" ? { ...item, errorMessage: message } : item);
+          toast.info(message);
+          return;
+        }
+        const message = result.message?.trim() || labels.requeryUnavailable;
+        updateNode(nodeID, (item) => item.kind === "output" ? { ...item, errorMessage: message } : item);
+        toast.error(message);
+        return;
+      }
+      // 图像重试：按 runID + 产物序号重新下载保存
+      const result = await retryMediaImageArtifact(token, retry.runID, retry.index);
+      if (result.status === "recovered" && result.attachment) {
+        const attachment = result.attachment;
+        updateNode(nodeID, (item) =>
+          item.kind === "output"
+            ? {
+              ...item, status: "done", fileID: attachment.fileID, fileName: attachment.fileName,
+              mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes,
+              objectURL: undefined, imageLoadFailed: false,
+              errorMessage: undefined, errorDetail: undefined, pendingRetry: undefined,
+              completedAt: Date.now(),
+            }
+            : item,
+        );
+        void loadOutputImage(nodeID, attachment.fileID);
+        toast.success(labels.artifactRecovered);
+        return;
+      }
+      // 引用过期：产物无法找回，移除重试引用并提示重新生成
+      const message = result.message?.trim() || labels.artifactExpired;
+      updateNode(nodeID, (item) =>
+        item.kind === "output" ? { ...item, errorMessage: message, pendingRetry: undefined } : item,
+      );
+      toast.error(message);
+    } catch (error) {
+      // 保存仍失败：保留重试引用，输出节点可继续重试
+      const message = error instanceof ApiError && error.message
+        ? error.message
+        : labels?.artifactRetryFailed ?? "";
+      updateNode(nodeID, (item) => item.kind === "output" ? { ...item, errorMessage: message } : item);
+      toast.error(message);
+    } finally {
+      abortControllers.delete(nodeID);
+      // 统一清除重试中的瞬态标记（成功/失败分支的字段展开会携带旧值）
+      updateNode(nodeID, (item) =>
+        item.kind === "output" ? { ...item, retrySaving: false } : item,
       );
     }
   },

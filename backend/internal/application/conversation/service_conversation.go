@@ -169,7 +169,7 @@ func (s *Service) ListMessages(ctx context.Context, userID uint, conversationID 
 	if err != nil {
 		return nil, 0, err
 	}
-	if err = s.hydrateMessageFeedback(ctx, userID, items); err != nil {
+	if err = s.hydrateMessages(ctx, userID, items); err != nil {
 		return nil, 0, err
 	}
 	if err = s.hydrateMessageProcessTraces(ctx, items); err != nil {
@@ -192,7 +192,7 @@ func (s *Service) ListMessagesBeforeID(ctx context.Context, userID uint, convers
 	if err != nil {
 		return nil, 0, err
 	}
-	if err = s.hydrateMessageFeedback(ctx, userID, items); err != nil {
+	if err = s.hydrateMessages(ctx, userID, items); err != nil {
 		return nil, 0, err
 	}
 	if err = s.hydrateMessageProcessTraces(ctx, items); err != nil {
@@ -212,7 +212,7 @@ func (s *Service) ExportConversation(ctx context.Context, userID uint, publicID 
 	if err != nil {
 		return nil, err
 	}
-	if err = s.hydrateMessageFeedback(ctx, userID, items); err != nil {
+	if err = s.hydrateMessages(ctx, userID, items); err != nil {
 		return nil, err
 	}
 	if err = s.hydrateMessageProcessTraces(ctx, items); err != nil {
@@ -303,7 +303,7 @@ func (s *Service) ListRecentMessages(ctx context.Context, userID uint, conversat
 	if err != nil {
 		return nil, 0, err
 	}
-	if err = s.hydrateMessageFeedback(ctx, userID, items); err != nil {
+	if err = s.hydrateMessages(ctx, userID, items); err != nil {
 		return nil, 0, err
 	}
 	if err = s.hydrateMessageProcessTraces(ctx, items); err != nil {
@@ -379,7 +379,7 @@ func (s *Service) SetMessageFeedback(
 	}
 
 	items := []model.Message{*message}
-	if err = s.hydrateMessageFeedback(ctx, userID, items); err != nil {
+	if err = s.hydrateMessages(ctx, userID, items); err != nil {
 		return nil, err
 	}
 	enriched := items[0]
@@ -431,7 +431,7 @@ func (s *Service) UpdateAssistantMessageContent(
 		return nil, err
 	}
 	items := []model.Message{*updated}
-	if err = s.hydrateMessageFeedback(ctx, userID, items); err != nil {
+	if err = s.hydrateMessages(ctx, userID, items); err != nil {
 		return nil, err
 	}
 	if err = s.hydrateMessageProcessTraces(ctx, items); err != nil {

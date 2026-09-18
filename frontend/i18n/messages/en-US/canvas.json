@@ -252,5 +252,11 @@
   "requeryStarted": "Checking upstream task result",
   "requeryPending": "Upstream task is still running. Re-check later.",
   "requeryUnavailable": "Result for this task cannot be retrieved yet",
-  "requeryRecovered": "Recovered the generated result from upstream"
+  "requeryRecovered": "Recovered the generated result from upstream",
+  "nodeRetrySave": "Retry save",
+  "artifactSavePending": "Generation finished, but saving the result failed",
+  "artifactRetrySaving": "Re-saving the generated result",
+  "artifactRetryFailed": "Failed to save the generated result. Try again later.",
+  "artifactRecovered": "Generated result saved",
+  "artifactExpired": "The result reference has expired. Regenerate to retry."
 }
