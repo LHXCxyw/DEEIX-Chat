@@ -34,7 +34,7 @@ func TestComputeRewindFileActions(t *testing.T) {
 		fileEntry("legacy.txt", 1, "key-legacy"),
 	}
 
-	actions, restoreTargets, deleteTargets := computeRewindFileActions(target, changedAfter, liveFiles)
+	actions, restoreTargets, deleteTargets, _ := computeRewindFileActions(target, changedAfter, liveFiles)
 
 	byPath := map[string]ConversationRewindPreviewItem{}
 	for _, item := range actions {
@@ -77,7 +77,7 @@ func TestComputeRewindFileActionsSkipsDirectories(t *testing.T) {
 	liveFiles := []model.ProjectFile{
 		{RelativePath: "docs", EntryType: model.ProjectFileEntryTypeDirectory},
 	}
-	actions, _, _ := computeRewindFileActions(map[string]model.ProjectFileSnapshot{}, map[string]struct{}{}, liveFiles)
+	actions, _, _, _ := computeRewindFileActions(map[string]model.ProjectFileSnapshot{}, map[string]struct{}{}, liveFiles)
 	if len(actions) != 0 {
 		t.Fatalf("directories must not produce actions: %+v", actions)
 	}

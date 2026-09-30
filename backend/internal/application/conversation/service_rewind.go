@@ -22,26 +22,27 @@ const (
 )
 
 // ConversationRewindPreviewItem 描述回退确认清单中的一个受影响文件。
+// json 契约由 transport 层 Doc DTO 承载，这里保持应用层类型纯净。
 type ConversationRewindPreviewItem struct {
-	RelativePath    string `json:"relativePath"`
-	Action          string `json:"action"`
-	CurrentVersion  int    `json:"currentVersion"`
-	TargetVersion   int    `json:"targetVersion"`
-	TargetSizeBytes int64  `json:"targetSizeBytes"`
+	RelativePath    string
+	Action          string
+	CurrentVersion  int
+	TargetVersion   int
+	TargetSizeBytes int64
 }
 
 // ConversationRewindPreview 描述一次消息回退将产生的全部影响，供前端确认。
 type ConversationRewindPreview struct {
-	MessagePublicID string                         `json:"messagePublicID"`
-	HasProjectFiles bool                           `json:"hasProjectFiles"`
-	Items           []ConversationRewindPreviewItem `json:"items"`
+	MessagePublicID string
+	HasProjectFiles bool
+	Items           []ConversationRewindPreviewItem
 }
 
 // ConversationRewindResult 描述回退执行结果。
 type ConversationRewindResult struct {
-	Conversation *model.Conversation             `json:"-"`
-	Items        []ConversationRewindPreviewItem `json:"items"`
-	TipPublicID  string                          `json:"activeTipMessagePublicID"`
+	Conversation *model.Conversation
+	Items        []ConversationRewindPreviewItem
+	TipPublicID  string
 }
 
 // rewindFilePlan 汇总一次回退的文件侧计算结果。
@@ -52,6 +53,9 @@ type rewindFilePlan struct {
 	restoreTargets map[string]model.ProjectFileSnapshot
 	// deleteTargets 记录 action 为 delete 的当前活文件，按路径索引。
 	deleteTargets map[string]model.ProjectFile
+	// liveByPath 计算计划时的活跃文件快照（仅 file 节点），apply 阶段复用，
+	// 避免重复查询与两次查询之间的状态漂移。
+	liveByPath map[string]model.ProjectFile
 }
 
 // PreviewConversationRewind 计算回退到指定消息将产生的影响，不做任何变更。
@@ -157,6 +161,7 @@ func (s *Service) prepareConversationRewind(ctx context.Context, userID uint, co
 		rewindFilePlan: rewindFilePlan{
 			restoreTargets: map[string]model.ProjectFileSnapshot{},
 			deleteTargets:  map[string]model.ProjectFile{},
+			liveByPath:     map[string]model.ProjectFile{},
 		},
 	}
 
@@ -173,9 +178,18 @@ func (s *Service) prepareConversationRewind(ctx context.Context, userID uint, co
 	}
 	plan.workspace = workspace
 
-	boundary := message.UpdatedAt
-	if boundary.IsZero() {
-		boundary = message.CreatedAt
+	// 时点 T 需要一个不会被后续更新推后的稳定锚点：assistant 消息绑定 run，
+	// 用 run.EndedAt（仅落一次）；无 run 的消息（如用户消息）退回创建时间。
+	// message.UpdatedAt 会被用量/计费回写持续 bump，不能作为锚点。
+	boundary := message.CreatedAt
+	if strings.TrimSpace(message.RunID) != "" {
+		if run, runErr := s.repo.GetConversationRunByRunID(ctx, userID, message.RunID); runErr == nil {
+			if run.EndedAt != nil && !run.EndedAt.IsZero() {
+				boundary = *run.EndedAt
+			} else {
+				boundary = run.UpdatedAt
+			}
+		}
 	}
 	changesBefore, err := s.repo.ListProjectFileChanges(ctx, userID, workspace.ID, repository.ProjectFileChangeListFilter{CreatedAtOrBefore: &boundary})
 	if err != nil {
@@ -201,7 +215,7 @@ func (s *Service) prepareConversationRewind(ctx context.Context, userID uint, co
 		return nil, err
 	}
 
-	plan.actions, plan.restoreTargets, plan.deleteTargets = computeRewindFileActions(target, changedAfter, liveFiles)
+	plan.actions, plan.restoreTargets, plan.deleteTargets, plan.liveByPath = computeRewindFileActions(target, changedAfter, liveFiles)
 	return plan, nil
 }
 
@@ -212,10 +226,10 @@ func computeRewindFileActions(
 	target map[string]model.ProjectFileSnapshot,
 	changedAfter map[string]struct{},
 	liveFiles []model.ProjectFile,
-) (actions []ConversationRewindPreviewItem, restoreTargets map[string]model.ProjectFileSnapshot, deleteTargets map[string]model.ProjectFile) {
+) (actions []ConversationRewindPreviewItem, restoreTargets map[string]model.ProjectFileSnapshot, deleteTargets map[string]model.ProjectFile, liveByPath map[string]model.ProjectFile) {
 	restoreTargets = map[string]model.ProjectFileSnapshot{}
 	deleteTargets = map[string]model.ProjectFile{}
-	liveByPath := make(map[string]model.ProjectFile, len(liveFiles))
+	liveByPath = map[string]model.ProjectFile{}
 	for _, file := range liveFiles {
 		if file.EntryType == model.ProjectFileEntryTypeFile {
 			liveByPath[file.RelativePath] = file
@@ -261,26 +275,26 @@ func computeRewindFileActions(
 		})
 		deleteTargets[livePath] = liveFile
 	}
-	return actions, restoreTargets, deleteTargets
+	return actions, restoreTargets, deleteTargets, liveByPath
 }
 
 // applyRewindFilePlan 落盘文件恢复计划。内容对象一律保留在对象存储中
 // （由变更日志引用），这里只切换数据库指针，保证"回退之后再回退"仍可推导。
+// 回退事件本身也写入变更日志并关联目标消息，保证日志与文件实际状态始终一致。
 func (s *Service) applyRewindFilePlan(ctx context.Context, userID uint, plan *rewindPlan) error {
 	if plan.workspace == nil || len(plan.actions) == 0 {
 		return nil
 	}
-	changeCtx := ProjectFileChangeContext{Source: model.ProjectFileChangeSourceRewind}
+	changeCtx := ProjectFileChangeContext{
+		Source:         model.ProjectFileChangeSourceRewind,
+		ConversationID: plan.conversation.ID,
+		MessageID:      plan.message.ID,
+		RunID:          plan.message.RunID,
+	}
 	var storageDelta int64
 	fileDelta := 0
-	liveFiles, err := s.repo.ListProjectFiles(ctx, userID, plan.workspace.ID)
-	if err != nil {
-		return err
-	}
-	liveByPath := make(map[string]model.ProjectFile, len(liveFiles))
-	for _, file := range liveFiles {
-		liveByPath[file.RelativePath] = file
-	}
+	liveByPath := plan.liveByPath
+	var err error
 
 	for _, action := range plan.actions {
 		switch action.Action {

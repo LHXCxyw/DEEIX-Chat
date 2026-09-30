@@ -58,7 +58,6 @@ export function ChatRewindDialog({
       return;
     }
     let cancelled = false;
-    const controller = new AbortController();
     setLoading(true);
     void (async () => {
       try {
@@ -83,7 +82,6 @@ export function ChatRewindDialog({
     })();
     return () => {
       cancelled = true;
-      controller.abort();
     };
   }, [conversationID, messagePublicID, onClose, resolveErrorMessage, t]);
 

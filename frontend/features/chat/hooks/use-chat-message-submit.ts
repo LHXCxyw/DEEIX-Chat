@@ -57,7 +57,7 @@ import {
   resolveErrorMessage,
   resolveErrorSummary,
 } from "@/features/chat/utils/chat-runtime";
-import { getConversation } from "@/shared/api/conversation";
+import { getConversation, rewindConversationToMessage } from "@/shared/api/conversation";
 import type {
   ConversationDTO,
   ConversationOptions,
@@ -176,6 +176,7 @@ export function useChatMessageSubmit({
   resumeGenerationActive?: boolean;
 }) {
   const t = useTranslations("chat.submit");
+  const tMessages = useTranslations("chat.messages");
   const activeStreamsRef = React.useRef(new Map<string, ActiveStream>());
   const conversationIDRef = React.useRef(conversationID);
   const conversationScopeKeyRef = React.useRef(conversationScopeKey);
@@ -351,6 +352,27 @@ export function useChatMessageSubmit({
       } = plan;
       let targetConversationScopeKey = plan.targetConversationScopeKey;
       let targetBranchScope = plan.targetBranchScope;
+
+      // 继续非活跃锚点分支（回退后又切回旧分支重试/编辑/发送）时，先沿 ADR-0004
+      // 把项目文件恢复到该分支时点，再提交，保证文件状态与对话路径一致。
+      const restoreAnchorID = resolvedParentPublicID?.trim() || "";
+      const tipPublicID = activeConversationRef.current?.activeTipMessagePublicID?.trim() || "";
+      const restoreConversationID = queuedSubmission?.conversationPublicID ?? conversationIDRef.current;
+      if (restoreConversationID && restoreAnchorID && tipPublicID && restoreAnchorID !== tipPublicID) {
+        try {
+          const rewindToken = await resolveAccessToken();
+          if (!rewindToken) {
+            throw new Error(t("signInRequired"));
+          }
+          const rewindResult = await rewindConversationToMessage(rewindToken, restoreConversationID, restoreAnchorID);
+          touchByPublicID(restoreConversationID, {
+            activeTipMessagePublicID: rewindResult.activeTipMessagePublicID || restoreAnchorID,
+          });
+        } catch {
+          toast.error(tMessages("rewindFailed"));
+          return false;
+        }
+      }
       const wasConversationMode = showConversationLayout || visibleMessageCount > 0;
       const createdAt = new Date().toISOString();
       let terminalResultReceived = false;
@@ -799,6 +821,7 @@ export function useChatMessageSubmit({
       startStream,
       syncActiveRuns,
       t,
+      tMessages,
       touchByPublicID,
       transferAttachments,
       updatePendingExchange,
