@@ -26,6 +26,9 @@ import type {
   ConversationPreviewMessageResponse,
   ConversationProjectResponse,
   ConversationResponse,
+  ConversationRewindPreviewItem,
+  ConversationRewindPreviewResponseDoc,
+  ConversationRewindResultResponseDoc,
   ConversationRunStatusResponse,
   ConversationSearchPageResponse,
   ConversationSearchResultResponse,
@@ -101,6 +104,12 @@ export type MessageDTO = Omit<
 };
 
 export type ConversationRunDTO = Omit<RunResponse, "taskType">;
+
+export type ConversationRewindPreviewItemDTO = ConversationRewindPreviewItem;
+
+export type ConversationRewindPreviewDTO = ConversationRewindPreviewResponseDoc;
+
+export type ConversationRewindResultDTO = ConversationRewindResultResponseDoc;
 
 export type ConversationRunStatusDTO = ConversationRunStatusResponse;
 

@@ -275,7 +275,18 @@
     "savingPreference": "Saving...",
     "savePreference": "Save preference",
     "deleteMessage": "Delete message",
-    "deleteMessageFailed": "Failed to delete message"
+    "deleteMessageFailed": "Failed to delete message",
+    "rewindMessage": "Rewind to this message",
+    "rewindTitle": "Rewind to this message",
+    "rewindDescription": "The conversation will be truncated to this message (later messages are kept as inactive branches), and project files will be restored to the state when this message completed.",
+    "rewindAffectedFiles": "Affected project files",
+    "rewindNoChanges": "No project files need changes; only the conversation is rewound.",
+    "rewindConfirm": "Confirm rewind",
+    "rewindActionRestore": "restore",
+    "rewindActionCreate": "recreate",
+    "rewindActionDelete": "delete",
+    "rewindSuccess": "Rewound; project files restored to the state when the selected message completed",
+    "rewindFailed": "Rewind failed"
   },
   "loadError": {
     "title": "Failed to load conversation",
@@ -365,8 +376,9 @@
     "moderationBlockedDescription": "This response was withdrawn after a safety check.",
     "moderationEventId": "Event ID: {id}",
     "moderationCategories": "Categories: {categories}",
-"deleteMessageFailed": "Failed to delete message",
-"moderationBlockedBilled": "Upstream usage incurred before the block is billed as usual."  },
+    "deleteMessageFailed": "Failed to delete message",
+    "moderationBlockedBilled": "Upstream usage incurred before the block is billed as usual."
+  },
   "data": {
     "signInRequired": "Sign in before loading conversation messages.",
     "loadFailed": "Failed to load conversation messages"

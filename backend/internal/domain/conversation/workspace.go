@@ -57,3 +57,48 @@ type ProjectImport struct {
 	UpdatedAt      time.Time
 	CompletedAt    *time.Time
 }
+
+// 项目文件变更来源。
+const (
+	ProjectFileChangeSourceAgent  = "agent"
+	ProjectFileChangeSourceUser   = "user"
+	ProjectFileChangeSourceImport = "import"
+	ProjectFileChangeSourceRewind = "rewind"
+)
+
+// 项目文件变更操作类型。
+const (
+	ProjectFileChangeOpWrite  = "write"
+	ProjectFileChangeOpDelete = "delete"
+)
+
+// ProjectFileSnapshot 表示某次变更发生前后单个文件的内容状态；全部零值表示文件不存在。
+type ProjectFileSnapshot struct {
+	Version    int
+	StorageKey string
+	SHA256     string
+	SizeBytes  int64
+	MimeType   string
+}
+
+// Empty 表示该快照对应"文件不存在"。
+func (s ProjectFileSnapshot) Empty() bool {
+	return s.Version == 0 && s.StorageKey == ""
+}
+
+// ProjectFileChange 表示项目文件的一次历史变更记录。
+type ProjectFileChange struct {
+	ID             uint
+	OwnerUserID    uint
+	ProjectID      uint
+	RelativePath   string
+	Op             string
+	Source         string
+	ConversationID uint
+	MessageID      uint
+	RunID          string
+	Before         ProjectFileSnapshot
+	After          ProjectFileSnapshot
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}

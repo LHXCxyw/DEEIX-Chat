@@ -213,6 +213,7 @@ export function useChatBranchState({
   pendingExchanges,
   liveRunIDs,
   liveActivityLabels,
+  activeTipMessagePublicID = null,
 }: {
   conversationID: string | null;
   conversationScopeKey: string;
@@ -221,6 +222,7 @@ export function useChatBranchState({
   pendingExchanges: PendingExchangeMap;
   liveRunIDs?: ReadonlySet<string>;
   liveActivityLabels?: ReadonlyMap<string, string>;
+  activeTipMessagePublicID?: string | null;
 }) {
   const t = useTranslations("chat.messages");
   const submitT = useTranslations("chat.submit");
@@ -283,12 +285,14 @@ export function useChatBranchState({
   );
 
   React.useEffect(() => {
-    setBranchSelections((prev) => reconcileBranchSelections(combinedMessagesRef.current, prev));
-  }, [messageStructureKey]);
+    setBranchSelections((prev) =>
+      reconcileBranchSelections(combinedMessagesRef.current, prev, activeTipMessagePublicID),
+    );
+  }, [activeTipMessagePublicID, messageStructureKey]);
 
   const visibleMessages = React.useMemo(
-    () => buildVisibleMessages(combinedMessages, branchSelections),
-    [branchSelections, combinedMessages],
+    () => buildVisibleMessages(combinedMessages, branchSelections, activeTipMessagePublicID),
+    [activeTipMessagePublicID, branchSelections, combinedMessages],
   );
 
   const visibleMessageCount = visibleMessages.length;

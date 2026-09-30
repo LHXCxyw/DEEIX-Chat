@@ -73,7 +73,7 @@ func (h *Handler) WriteProjectFile(c *gin.Context) {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	item, err := h.service.WriteProjectFile(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), req.Path, []byte(req.Content))
+	item, err := h.service.WriteProjectFile(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), req.Path, []byte(req.Content), appconversation.UserFileChangeContext())
 	if err != nil {
 		switch {
 		case errors.Is(err, appconversation.ErrInvalidFileReference), errors.Is(err, appconversation.ErrFileTooLarge):
@@ -90,7 +90,7 @@ func (h *Handler) WriteProjectFile(c *gin.Context) {
 
 // DeleteProjectFile 删除项目文件。
 func (h *Handler) DeleteProjectFile(c *gin.Context) {
-	deleted, err := h.service.DeleteProjectFile(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), c.Param("file_id"))
+	deleted, err := h.service.DeleteProjectFile(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), c.Param("file_id"), appconversation.UserFileChangeContext())
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) || errors.Is(err, appconversation.ErrConversationProjectNotFound) {
 			response.Error(c, http.StatusNotFound, "project file not found")

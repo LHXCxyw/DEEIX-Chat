@@ -40,6 +40,10 @@ func (r *textTaskRouteResolverStub) MarkRouteFailure(context.Context, *channel.R
 
 func (r *textTaskRouteResolverStub) MarkRouteSuccess(context.Context, *channel.ResolvedRoute) {}
 
+func (r *textTaskRouteResolverStub) BuildRouteForUpstream(context.Context, uint, string, string) (*channel.ResolvedRoute, error) {
+	return nil, errors.New("upstream route resolution is not expected")
+}
+
 func TestResolveTextTaskRouteCandidatesFollowUsesCurrentThenDefault(t *testing.T) {
 	service := &Service{routeResolver: &textTaskRouteResolverStub{
 		routes: map[string]*channel.ResolvedRoute{

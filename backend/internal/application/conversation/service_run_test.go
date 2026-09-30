@@ -83,6 +83,10 @@ func (*conversationRunClaimRouteResolver) MarkRouteFailure(context.Context, *cha
 }
 func (*conversationRunClaimRouteResolver) MarkRouteSuccess(context.Context, *channel.ResolvedRoute) {}
 
+func (*conversationRunClaimRouteResolver) BuildRouteForUpstream(context.Context, uint, string, string) (*channel.ResolvedRoute, error) {
+	return nil, errors.New("route resolution must not run after a duplicate claim")
+}
+
 type conversationRunClaimLLMGateway struct {
 	generateCalls int
 }
@@ -103,8 +107,11 @@ func (g *conversationRunClaimLLMGateway) RetrieveOpenAIResponse(context.Context,
 }
 
 func (g *conversationRunClaimLLMGateway) CancelOpenAIResponse(context.Context, llm.RouteConfig, string) (*llm.GenerateOutput, error) {
-	g.generateCalls++
-	return nil, errors.New("upstream must not run after a duplicate claim")
+	return nil, errors.New("llm gateway is not expected after a duplicate claim")
+}
+
+func (g *conversationRunClaimLLMGateway) RetrieveVideoTask(context.Context, llm.RouteConfig, string) (*llm.VideoTaskRetrieval, error) {
+	return nil, errors.New("llm gateway is not expected after a duplicate claim")
 }
 
 func TestClaimConversationRunAllowsOneConcurrentOwner(t *testing.T) {

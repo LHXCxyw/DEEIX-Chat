@@ -99,6 +99,10 @@ var (
 	ErrMessageForkTargetInvalid = apperr.New("conversation.message_fork_target_invalid", "only assistant messages can be forked")
 	// ErrMessageForkHistoryIncomplete 消息祖先链超过安全上限或已损坏，无法完整 fork。
 	ErrMessageForkHistoryIncomplete = apperr.New("conversation.message_fork_history_incomplete", "message history is too deep or incomplete")
+	// ErrMessageRewindStateInvalid 当前会话或消息状态不允许回退（存在进行中的生成）。
+	ErrMessageRewindStateInvalid = apperr.New("conversation.message_rewind_state_invalid", "conversation has an in-progress generation")
+	// ErrMessageRewindHistoryIncomplete 消息祖先链超过安全上限或已损坏，无法定位回退点。
+	ErrMessageRewindHistoryIncomplete = apperr.New("conversation.message_rewind_history_incomplete", "message history is too deep or incomplete")
 	// ErrModelRouteNotConfigured 模型路由未配置。
 	ErrModelRouteNotConfigured = apperr.NewMasked("llm.model_route_not_configured", "model route is not configured", "model route not configured")
 	// ErrModelAccessDenied 当前用户无权使用此模型。

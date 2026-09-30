@@ -955,6 +955,8 @@ export interface ConversationProjectResponseDoc {
 }
 
 export interface ConversationResponse {
+  /** ActiveTipMessagePublicID 回退后的续聊锚点消息公开ID；空表示未回退过。 */
+  activeTipMessagePublicID: string;
   contextPolicyJSON: string;
   createdAt: string;
   isStarred: boolean;
@@ -978,6 +980,25 @@ export interface ConversationResponse {
   title: string;
   updatedAt: string;
   userID: number;
+}
+
+export interface ConversationRewindPreviewItem {
+  action: string;
+  currentVersion: number;
+  relativePath: string;
+  targetSizeBytes: number;
+  targetVersion: number;
+}
+
+export interface ConversationRewindPreviewResponseDoc {
+  hasProjectFiles: boolean;
+  items: ConversationRewindPreviewItem[];
+  messagePublicID: string;
+}
+
+export interface ConversationRewindResultResponseDoc {
+  activeTipMessagePublicID: string;
+  items: ConversationRewindPreviewItem[];
 }
 
 export interface ConversationRunListResponseDoc {
@@ -3133,6 +3154,21 @@ export interface ResetUserPasswordResponse {
 export interface ResetUserPasswordResponseDoc {
   data: ResetUserPasswordResponse;
   errorMsg: string;
+}
+
+export interface RetryMediaImageArtifactAttachmentResult {
+  fileID: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface RetryMediaImageArtifactResponse {
+  attachment?: RetryMediaImageArtifactAttachmentResult;
+  index: number;
+  message?: string;
+  runID: string;
+  status: string;
 }
 
 export interface RevokeConversationSharesRequest {
@@ -8280,6 +8316,25 @@ export namespace ConversationRuns {
   }
 
   /**
+   * @description 上游生成已成功但产物下载瞬时失败时，输出节点按 runID + 产物序号重试一次保存：重新下载 -> 上传 -> 追加消息附件
+   * @tags chat
+   * @name MediaArtifactRetryCreate
+   * @summary 重试保存待保存的图像产物
+   * @request POST:/conversation-runs/{run_id}/media/artifact-retry
+   * @secure
+   */
+  export namespace MediaArtifactRetryCreate {
+    export type RequestParams = {
+      /** 运行 ID */
+      runId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = object;
+    export type RequestHeaders = {};
+    export type ResponseBody = RetryMediaImageArtifactResponse;
+  }
+
+  /**
    * @description 按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态
    * @tags chat
    * @name MediaRequeryCreate
@@ -8702,6 +8757,48 @@ export namespace Conversations {
   }
 
   /**
+   * @description 将会话截断到指定消息（其后消息保留为非当前分支），并把项目工作区文件恢复到该消息完成时的状态；回退前请先调用 preview 获取影响清单
+   * @tags chat
+   * @name MessagesRewindCreate
+   * @summary 回退到指定消息
+   * @request POST:/conversations/{id}/messages/{message_id}/rewind
+   * @secure
+   */
+  export namespace MessagesRewindCreate {
+    export type RequestParams = {
+      /** 会话 public_id */
+      id: string;
+      /** 消息 public_id */
+      messageId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = ConversationRewindResultResponseDoc;
+  }
+
+  /**
+   * @description 计算回退到指定消息将产生的文件影响清单（恢复/重建/删除），不做任何变更
+   * @tags chat
+   * @name MessagesRewindPreviewCreate
+   * @summary 预览回退到指定消息的影响
+   * @request POST:/conversations/{id}/messages/{message_id}/rewind/preview
+   * @secure
+   */
+  export namespace MessagesRewindPreviewCreate {
+    export type RequestParams = {
+      /** 会话 public_id */
+      id: string;
+      /** 消息 public_id */
+      messageId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = ConversationRewindPreviewResponseDoc;
+  }
+
+  /**
    * @description 设置当前用户单个会话的项目归属
    * @tags chat
    * @name ProjectPartialUpdate
@@ -9033,6 +9130,28 @@ export namespace Files {
       fileId: string;
     };
     export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = Blob;
+  }
+
+  /**
+   * @description 按当前登录用户权限读取图片的缩略图（thumb ≤400px / preview ≤1280px），缺失时惰性生成
+   * @tags chat
+   * @name ThumbnailList
+   * @summary 获取图片缩略图变体
+   * @request GET:/files/{file_id}/thumbnail
+   * @secure
+   */
+  export namespace ThumbnailList {
+    export type RequestParams = {
+      /** 文件ID */
+      fileId: string;
+    };
+    export type RequestQuery = {
+      /** 变体档位: thumb | preview，默认 thumb */
+      variant?: string;
+    };
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = Blob;

@@ -12,6 +12,7 @@ import {
   DatabaseZap,
   FilePenLine,
   Forward,
+  History,
   TicketSlash,
   Trash2,
 } from "lucide-react";
@@ -960,6 +961,7 @@ export function AssistantMessageMeta({
   onEdit,
   onCopy,
   onFork,
+  onRewind,
   onDelete,
   copySucceeded = false,
   onReact,
@@ -982,6 +984,7 @@ export function AssistantMessageMeta({
   onEdit?: () => void;
   onCopy: () => void;
   onFork?: () => Promise<void> | void;
+  onRewind?: () => Promise<void> | void;
   onDelete?: () => Promise<void> | void;
   copySucceeded?: boolean;
   onReact: (value: AssistantReaction) => void;
@@ -1008,6 +1011,7 @@ export function AssistantMessageMeta({
   const canEdit = Boolean(canRetry && !busy && onEdit);
   const canContinue = Boolean(canRetry && !busy && item.status === "interrupted");
   const canFork = Boolean(canRetry && onFork);
+  const canRewind = Boolean(canRetry && !busy && onRewind);
   const canDelete = Boolean(canRetry && onDelete);
   const canShowBranchNavigator = Boolean(showBranchNavigator && item.branchNavigator);
   const hasTokenUsage = Boolean(
@@ -1121,6 +1125,14 @@ export function AssistantMessageMeta({
                     label={t("forkMessage")}
                     onFork={onFork}
                   />
+                ) : null}
+                {canRewind && onRewind ? (
+                  <MetaIconButton
+                    label={t("rewindMessage")}
+                    onClick={() => void onRewind()}
+                  >
+                    <History strokeWidth={1.8} />
+                  </MetaIconButton>
                 ) : null}
                 {canDelete && onDelete ? (
                   <MetaIconButton

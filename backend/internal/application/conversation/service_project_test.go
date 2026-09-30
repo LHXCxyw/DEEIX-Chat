@@ -234,6 +234,10 @@ func (s *projectDefaultModelResolverStub) ResolveRoute(context.Context, channel.
 func (s *projectDefaultModelResolverStub) MarkRouteFailure(context.Context, *channel.ResolvedRoute, error) {
 }
 
+func (s *projectDefaultModelResolverStub) BuildRouteForUpstream(context.Context, uint, string, string) (*channel.ResolvedRoute, error) {
+	return nil, errors.New("route resolution is not expected")
+}
+
 func (s *projectDefaultModelResolverStub) MarkRouteSuccess(context.Context, *channel.ResolvedRoute) {}
 
 func (s *projectDefaultModelResolverStub) ListActiveModels(context.Context, uint) ([]channel.ModelView, error) {

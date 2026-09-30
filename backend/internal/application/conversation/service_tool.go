@@ -28,6 +28,8 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 type ExecuteToolInput struct {
 	UserID          uint
 	ConversationID  uint
+	MessageID       uint
+	RunID           string
 	RequestID       string
 	ProjectPublicID string
 	ToolName        string
@@ -123,7 +125,7 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 		}
 		return marshalProjectToolResult(result)
 	case "project_write_file":
-		file, err := s.WriteProjectFile(ctx, input.UserID, input.ProjectPublicID, stringArg(args, "path"), []byte(stringArg(args, "content")))
+		file, err := s.WriteProjectFile(ctx, input.UserID, input.ProjectPublicID, stringArg(args, "path"), []byte(stringArg(args, "content")), AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
 		if err != nil {
 			return "", err
 		}
@@ -173,7 +175,7 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 		if updated == string(old) {
 			return "", fmt.Errorf("patch target not found")
 		}
-		updatedFile, err := s.WriteProjectFile(ctx, input.UserID, input.ProjectPublicID, file.RelativePath, []byte(updated))
+		updatedFile, err := s.WriteProjectFile(ctx, input.UserID, input.ProjectPublicID, file.RelativePath, []byte(updated), AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
 		if err != nil {
 			return "", err
 		}
@@ -183,7 +185,7 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 		if err != nil {
 			return "", err
 		}
-		deleted, err := s.DeleteProjectFile(ctx, input.UserID, input.ProjectPublicID, file.PublicID)
+		deleted, err := s.DeleteProjectFile(ctx, input.UserID, input.ProjectPublicID, file.PublicID, AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
 		if err != nil {
 			return "", err
 		}

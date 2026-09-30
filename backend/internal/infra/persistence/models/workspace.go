@@ -35,6 +35,33 @@ type ProjectFile struct {
 
 func (ProjectFile) TableName() string { return "project_files" }
 
+// ProjectFileChange 记录项目文件每次内容变更的前后状态，是消息回退（rewind）
+// 推导"目标时点工作区状态"的唯一依据。行一经写入永不修改、永不删除。
+// Before*/After* 为空表示该侧文件不存在（创建/删除）。
+type ProjectFileChange struct {
+	BaseModel
+	OwnerUserID     uint   `gorm:"not null;index:idx_project_file_changes_scope,priority:1;comment:归属用户ID"`
+	ProjectID       uint   `gorm:"not null;index:idx_project_file_changes_scope,priority:2;comment:工作区ID"`
+	RelativePath    string `gorm:"size:1024;not null;index:idx_project_file_changes_path;comment:规范化POSIX相对路径"`
+	Op              string `gorm:"size:16;not null;comment:操作类型(write/delete)"`
+	Source          string `gorm:"size:16;not null;index:idx_project_file_changes_source;comment:来源(agent/user/import/rewind)"`
+	ConversationID  uint   `gorm:"not null;default:0;index:idx_project_file_changes_conversation;comment:产生变更的会话ID(非会话内操作为0)"`
+	MessageID       uint   `gorm:"not null;default:0;index:idx_project_file_changes_message;comment:产生变更的消息ID(非消息内操作为0)"`
+	RunID           string `gorm:"size:64;not null;default:'';comment:产生变更的运行ID"`
+	BeforeVersion   int    `gorm:"not null;default:0;comment:变更前版本号(0表示此前不存在)"`
+	BeforeStorageKey string `gorm:"size:1536;not null;default:'';comment:变更前对象存储键"`
+	BeforeSHA256    string `gorm:"size:64;not null;default:'';comment:变更前内容SHA256"`
+	BeforeSizeBytes int64  `gorm:"not null;default:0;comment:变更前大小"`
+	BeforeMimeType  string `gorm:"size:128;not null;default:'';comment:变更前MIME类型"`
+	AfterVersion    int    `gorm:"not null;default:0;comment:变更后版本号(0表示已删除)"`
+	AfterStorageKey string `gorm:"size:1536;not null;default:'';comment:变更后对象存储键"`
+	AfterSHA256     string `gorm:"size:64;not null;default:'';comment:变更后内容SHA256"`
+	AfterSizeBytes  int64  `gorm:"not null;default:0;comment:变更后大小"`
+	AfterMimeType   string `gorm:"size:128;not null;default:'';comment:变更后MIME类型"`
+}
+
+func (ProjectFileChange) TableName() string { return "project_file_changes" }
+
 // ProjectImport 存储项目 ZIP 导入任务及结果。
 type ProjectImport struct {
 	BaseModel

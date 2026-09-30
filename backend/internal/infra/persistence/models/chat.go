@@ -23,6 +23,10 @@ type Conversation struct {
 	LastCompactedAt       *time.Time `gorm:"comment:最近上下文压缩时间"`
 	LastResponseID        string     `gorm:"size:128;not null;default:'';index:idx_chat_conversations_last_response_id;comment:最新响应ID"`
 	LastPromptFingerprint string     `gorm:"size:64;not null;default:'';index:idx_chat_conversations_last_prompt_fingerprint;comment:最新上游状态指纹"`
+	// ActiveTipMessageID / ActiveTipMessagePublicID 记录消息回退（rewind）后的活跃续聊锚点。
+	// 0/空表示未回退过，默认续聊行为与回退前一致（按最近消息选择锚点）。
+	ActiveTipMessageID       uint   `gorm:"not null;default:0;comment:回退后活跃续聊锚点消息ID"`
+	ActiveTipMessagePublicID string `gorm:"size:32;not null;default:'';comment:回退后活跃续聊锚点消息公开ID"`
 }
 
 // TableName 指定表名。

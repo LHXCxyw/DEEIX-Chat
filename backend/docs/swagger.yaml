@@ -2338,6 +2338,9 @@ definitions:
     type: object
   ConversationResponse:
     properties:
+      activeTipMessagePublicID:
+        description: ActiveTipMessagePublicID 回退后的续聊锚点消息公开ID；空表示未回退过。
+        type: string
       contextPolicyJSON:
         type: string
       createdAt:
@@ -2393,6 +2396,7 @@ definitions:
       userID:
         type: integer
     required:
+    - activeTipMessagePublicID
     - contextPolicyJSON
     - createdAt
     - isStarred
@@ -2416,6 +2420,52 @@ definitions:
     - title
     - updatedAt
     - userID
+    type: object
+  ConversationRewindPreviewItem:
+    properties:
+      action:
+        type: string
+      currentVersion:
+        type: integer
+      relativePath:
+        type: string
+      targetSizeBytes:
+        type: integer
+      targetVersion:
+        type: integer
+    required:
+    - action
+    - currentVersion
+    - relativePath
+    - targetSizeBytes
+    - targetVersion
+    type: object
+  ConversationRewindPreviewResponseDoc:
+    properties:
+      hasProjectFiles:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/ConversationRewindPreviewItem'
+        type: array
+      messagePublicID:
+        type: string
+    required:
+    - hasProjectFiles
+    - items
+    - messagePublicID
+    type: object
+  ConversationRewindResultResponseDoc:
+    properties:
+      activeTipMessagePublicID:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/ConversationRewindPreviewItem'
+        type: array
+    required:
+    - activeTipMessagePublicID
+    - items
     type: object
   ConversationRunListResponseDoc:
     properties:
@@ -3330,6 +3380,8 @@ definitions:
         type: boolean
       chunkCount:
         type: integer
+      contentURL:
+        type: string
       createdAt:
         type: string
       detectedMIME:
@@ -3373,6 +3425,8 @@ definitions:
       sizeBytes:
         type: integer
       status:
+        type: string
+      thumbnailURL:
         type: string
       updatedAt:
         type: string
@@ -7099,6 +7153,39 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  RetryMediaImageArtifactAttachmentResult:
+    properties:
+      fileID:
+        type: string
+      fileName:
+        type: string
+      mimeType:
+        type: string
+      sizeBytes:
+        type: integer
+    required:
+    - fileID
+    - fileName
+    - mimeType
+    - sizeBytes
+    type: object
+  RetryMediaImageArtifactResponse:
+    properties:
+      attachment:
+        $ref: '#/definitions/RetryMediaImageArtifactAttachmentResult'
+      index:
+        type: integer
+      message:
+        type: string
+      runID:
+        type: string
+      status:
+        type: string
+    required:
+    - index
+    - runID
+    - status
     type: object
   RevokeConversationSharesRequest:
     properties:
@@ -16445,6 +16532,41 @@ paths:
       summary: 取消流式生成
       tags:
       - chat
+  /conversation-runs/{run_id}/media/artifact-retry:
+    post:
+      consumes:
+      - application/json
+      description: 上游生成已成功但产物下载瞬时失败时，输出节点按 runID + 产物序号重试一次保存：重新下载 -> 上传 -> 追加消息附件
+      parameters:
+      - description: 运行 ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      - description: 产物序号 {index}
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RetryMediaImageArtifactResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 重试保存待保存的图像产物
+      tags:
+      - chat
   /conversation-runs/{run_id}/media/requery:
     post:
       description: 按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态
@@ -17033,6 +17155,91 @@ paths:
       security:
       - BearerAuth: []
       summary: 从指定消息 fork 新会话
+      tags:
+      - chat
+  /conversations/{id}/messages/{message_id}/rewind:
+    post:
+      description: 将会话截断到指定消息（其后消息保留为非当前分支），并把项目工作区文件恢复到该消息完成时的状态；回退前请先调用 preview
+        获取影响清单
+      parameters:
+      - description: 会话 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 消息 public_id
+        in: path
+        name: message_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationRewindResultResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 回退到指定消息
+      tags:
+      - chat
+  /conversations/{id}/messages/{message_id}/rewind/preview:
+    post:
+      description: 计算回退到指定消息将产生的文件影响清单（恢复/重建/删除），不做任何变更
+      parameters:
+      - description: 会话 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 消息 public_id
+        in: path
+        name: message_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationRewindPreviewResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 预览回退到指定消息的影响
       tags:
       - chat
   /conversations/{id}/messages/preview:
@@ -17841,6 +18048,39 @@ paths:
       security:
       - BearerAuth: []
       summary: 获取文件内容
+      tags:
+      - chat
+  /files/{file_id}/thumbnail:
+    get:
+      description: 按当前登录用户权限读取图片的缩略图（thumb ≤400px / preview ≤1280px），缺失时惰性生成
+      parameters:
+      - description: 文件ID
+        in: path
+        name: file_id
+        required: true
+        type: string
+      - description: '变体档位: thumb | preview，默认 thumb'
+        in: query
+        name: variant
+        type: string
+      produces:
+      - image/jpeg
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 获取图片缩略图变体
       tags:
       - chat
   /files/embeddings:
@@ -19514,6 +19754,10 @@ paths:
             $ref: '#/definitions/Envelope'
         "403":
           description: 功能未启用或超过配额
+          schema:
+            $ref: '#/definitions/Envelope'
+        "409":
+          description: 同名渠道已存在
           schema:
             $ref: '#/definitions/Envelope'
         "500":

@@ -26,6 +26,7 @@ import { ChatArtifactWorkspace } from "@/features/chat/components/sections/chat-
 import { ChatEmptyState } from "@/features/chat/components/sections/chat-empty";
 import { ChatInput } from "@/features/chat/components/sections/chat-input";
 import { ChatProjectWorkspace, collectProjectFileChanges, type ProjectChange, ProjectFileEditor, type ProjectFileTab, type ProjectWorkspaceHandle, reconstructProjectFileInitial } from "@/features/chat/components/sections/chat-project-workspace";
+import { ChatRewindDialog } from "@/features/chat/components/sections/chat-rewind-dialog";
 import { ChatScreenshotPreviewDialog } from "@/features/chat/components/sections/chat-screenshot-preview-dialog";
 import { TemporaryChatModeControl } from "@/features/chat/components/temporary-chat-mode-control";
 import { useChatSession } from "@/features/chat/context/chat-session-context";
@@ -520,6 +521,28 @@ export function AppChatArea() {
   });
   const generating = sending;
   const uploadDropDisabled = loading || uploading;
+
+  // 消息回退（rewind）：先在确认弹窗中拉取文件影响清单，确认后截断会话并恢复项目文件。
+  const [rewindTarget, setRewindTarget] = React.useState<ChatAreaMessage | null>(null);
+  const handleRewindMessage = React.useCallback((message: ChatAreaMessage) => {
+    setRewindTarget(message);
+  }, []);
+  const handleRewindClosed = React.useCallback(() => {
+    setRewindTarget(null);
+  }, []);
+  const handleRewound = React.useCallback(
+    (tipPublicID: string) => {
+      setRewindTarget(null);
+      // 后端已把活跃续聊锚点切到目标消息，本地同步会话 DTO 使默认可见路径立即生效。
+      if (conversationID && tipPublicID) {
+        touchByPublicID(conversationID, { activeTipMessagePublicID: tipPublicID });
+      }
+      reload();
+      projectWorkspaceRef.current?.refresh();
+    },
+    [conversationID, reload, touchByPublicID],
+  );
+
   const onStopActiveMessage = React.useCallback(() => {
     const visibleRunID = currentLeafMessage?.runID?.trim() || "";
     if (resumingRunID && visibleRunID === resumingRunID) {
@@ -1152,6 +1175,7 @@ export function AppChatArea() {
                     onEditAssistantMessage={onEditAssistantMessage}
                     onEditUserMessage={onEditUserMessage}
                     onForkMessage={temporaryMode ? undefined : onForkMessage}
+                    onRewindMessage={temporaryMode || !workspaceProjectID ? undefined : handleRewindMessage}
                     onDeleteMessage={temporaryMode ? undefined : onDeleteMessage}
                     modelOptions={modelOptions}
                     selectedPlatformModelName={selectedPlatformModelName}
@@ -1307,6 +1331,13 @@ export function AppChatArea() {
         clipboardSupported={screenshot.clipboardSupported}
         onDownload={screenshot.downloadPreview}
         onCopy={screenshot.copyPreviewToClipboard}
+      />
+
+      <ChatRewindDialog
+        message={rewindTarget}
+        conversationID={conversationID ?? ""}
+        onClose={handleRewindClosed}
+        onRewound={handleRewound}
       />
 
       {

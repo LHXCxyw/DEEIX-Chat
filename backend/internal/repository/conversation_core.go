@@ -111,6 +111,8 @@ type ConversationMetadataRepository interface {
 	UpdateConversationModel(ctx context.Context, conversationID uint, platformModelName string, provider string) error
 	ListAllConversationsAfterID(ctx context.Context, afterID uint, limit int) ([]domainconversation.Conversation, error)
 	ListUserConversationsAfterID(ctx context.Context, userID uint, afterID uint, limit int) ([]domainconversation.Conversation, error)
+	// UpdateConversationActiveTip 更新回退后的续聊锚点；messageID=0 清空锚点。
+	UpdateConversationActiveTip(ctx context.Context, conversationID uint, messageID uint, publicID string) error
 }
 
 // MessageRepository 封装消息读写能力。
@@ -138,6 +140,8 @@ type MessageRepository interface {
 	GetMessageByID(ctx context.Context, conversationID uint, messageID uint) (*domainconversation.Message, error)
 	ListMessageAncestors(ctx context.Context, conversationID uint, leafMessageID uint, maxDepth int) ([]domainconversation.Message, error)
 	ListLatestBranchPreviewMessages(ctx context.Context, conversationID uint, maxDepth int, limit int) ([]domainconversation.Message, error)
+	// HasPendingMessageInConversation 判断会话内是否存在未完成的 pending 消息（活跃生成）。
+	HasPendingMessageInConversation(ctx context.Context, conversationID uint) (bool, error)
 }
 
 // MessageFeedbackRepository 封装消息反馈能力。

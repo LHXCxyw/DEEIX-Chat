@@ -306,6 +306,18 @@ func (s *Service) ImportProjectArchive(ctx context.Context, input ProjectArchive
 	if err = s.repo.CompleteProjectImport(ctx, input.UserID, workspace.ID, job.ID, files, len(files), total); err != nil {
 		return nil, err
 	}
+	// 导入产生的文件同样进入变更日志（来源 import），保证消息回退能恢复到导入前/后的状态。
+	changes := make([]model.ProjectFileChange, 0, len(files))
+	for i := range files {
+		changes = append(changes, model.ProjectFileChange{
+			OwnerUserID: input.UserID, ProjectID: workspace.ID, RelativePath: files[i].RelativePath,
+			Op: model.ProjectFileChangeOpWrite, Source: model.ProjectFileChangeSourceImport,
+			Before: model.ProjectFileSnapshot{}, After: projectFileSnapshot(&files[i]),
+		})
+	}
+	if err = s.repo.CreateProjectFileChanges(ctx, input.UserID, workspace.ID, changes); err != nil {
+		return nil, err
+	}
 	return &ProjectArchiveResult{Import: job, FileCount: len(files), TotalBytes: total}, nil
 }
 
@@ -322,8 +334,49 @@ func (s *Service) ListProjectFiles(ctx context.Context, userID uint, projectPubl
 	return s.repo.ListProjectFiles(ctx, userID, workspace.ID)
 }
 
+// ProjectFileChangeContext 描述一次项目文件写入/删除的来源上下文，供文件变更日志记录。
+type ProjectFileChangeContext struct {
+	Source         string
+	ConversationID uint
+	MessageID      uint
+	RunID          string
+}
+
+// AgentFileChangeContext 返回 agent 工具调用场景的变更来源上下文。
+func AgentFileChangeContext(conversationID uint, messageID uint, runID string) ProjectFileChangeContext {
+	return ProjectFileChangeContext{Source: model.ProjectFileChangeSourceAgent, ConversationID: conversationID, MessageID: messageID, RunID: runID}
+}
+
+// UserFileChangeContext 返回用户在项目面板直接操作的变更来源上下文。
+func UserFileChangeContext() ProjectFileChangeContext {
+	return ProjectFileChangeContext{Source: model.ProjectFileChangeSourceUser}
+}
+
+func projectFileSnapshot(item *model.ProjectFile) model.ProjectFileSnapshot {
+	if item == nil {
+		return model.ProjectFileSnapshot{}
+	}
+	return model.ProjectFileSnapshot{
+		Version: item.Version, StorageKey: item.StorageKey, SHA256: item.SHA256,
+		SizeBytes: item.SizeBytes, MimeType: item.MimeType,
+	}
+}
+
+// recordProjectFileChange 追加一条文件变更日志。变更日志是消息回退（rewind）推导
+// 历史工作区状态的唯一依据，写入失败必须让整个操作失败，避免日志与实际状态脱节。
+func (s *Service) recordProjectFileChange(ctx context.Context, userID uint, workspaceID uint, changeCtx ProjectFileChangeContext, relativePath string, op string, before model.ProjectFileSnapshot, after model.ProjectFileSnapshot) error {
+	item := model.ProjectFileChange{
+		OwnerUserID: userID, ProjectID: workspaceID, RelativePath: relativePath,
+		Op: op, Source: changeCtx.Source, ConversationID: changeCtx.ConversationID,
+		MessageID: changeCtx.MessageID, RunID: changeCtx.RunID,
+		Before: before, After: after,
+	}
+	return s.repo.CreateProjectFileChanges(ctx, userID, workspaceID, []model.ProjectFileChange{item})
+}
+
 // WriteProjectFile 在当前用户项目中创建文件，路径已存在时覆盖内容并递增版本。
-func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPublicID string, relativePath string, content []byte) (*model.ProjectFile, error) {
+// 覆盖时旧对象保留在对象存储中不再删除，配合文件变更日志支持消息回退恢复历史内容。
+func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPublicID string, relativePath string, content []byte, changeCtx ProjectFileChangeContext) (*model.ProjectFile, error) {
 	relative, err := normalizeProjectFilePath(relativePath)
 	if err != nil {
 		return nil, err
@@ -367,6 +420,7 @@ func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPubl
 		return nil, err
 	}
 	if existing != nil {
+		beforeSnapshot := projectFileSnapshot(existing)
 		updated, updateErr := s.repo.UpdateProjectFile(ctx, userID, workspace.ID, existing.PublicID, info.Key, info.ContentType, info.SizeBytes, hex.EncodeToString(digest[:]), existing.Version+1)
 		if updateErr != nil {
 			_ = store.Delete(ctx, info.Key)
@@ -375,7 +429,9 @@ func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPubl
 		if updateErr = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, info.SizeBytes-existing.SizeBytes, 0); updateErr != nil {
 			return nil, updateErr
 		}
-		_ = store.Delete(ctx, existing.StorageKey)
+		if err = s.recordProjectFileChange(ctx, userID, workspace.ID, changeCtx, relative, model.ProjectFileChangeOpWrite, beforeSnapshot, projectFileSnapshot(updated)); err != nil {
+			return nil, err
+		}
 		return updated, nil
 	}
 	// 创建前清理同路径的软删除残留行，避免 (project_id, relative_path) 唯一索引冲突。
@@ -413,17 +469,23 @@ func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPubl
 		if updateErr = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, info.SizeBytes-raced.SizeBytes, 0); updateErr != nil {
 			return nil, updateErr
 		}
-		_ = store.Delete(ctx, raced.StorageKey)
+		if err = s.recordProjectFileChange(ctx, userID, workspace.ID, changeCtx, relative, model.ProjectFileChangeOpWrite, projectFileSnapshot(raced), projectFileSnapshot(updated)); err != nil {
+			return nil, err
+		}
 		return updated, nil
 	}
 	if err = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, info.SizeBytes, 1); err != nil {
+		return nil, err
+	}
+	if err = s.recordProjectFileChange(ctx, userID, workspace.ID, changeCtx, relative, model.ProjectFileChangeOpWrite, model.ProjectFileSnapshot{}, projectFileSnapshot(item)); err != nil {
 		return nil, err
 	}
 	return item, nil
 }
 
 // DeleteProjectFile 按 user+project+file 三重边界删除项目文件。
-func (s *Service) DeleteProjectFile(ctx context.Context, userID uint, projectPublicID string, filePublicID string) (*model.ProjectFile, error) {
+// 文件行被删除，但其内容对象保留在对象存储中（由变更日志引用），支持消息回退恢复。
+func (s *Service) DeleteProjectFile(ctx context.Context, userID uint, projectPublicID string, filePublicID string, changeCtx ProjectFileChangeContext) (*model.ProjectFile, error) {
 	project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, strings.TrimSpace(projectPublicID))
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -439,9 +501,8 @@ func (s *Service) DeleteProjectFile(ctx context.Context, userID uint, projectPub
 	if err != nil {
 		return nil, err
 	}
-	store, storeErr := s.storeProvider.Open(ctx)
-	if storeErr == nil && deleted.StorageKey != "" {
-		_ = store.Delete(ctx, deleted.StorageKey)
+	if err = s.recordProjectFileChange(ctx, userID, workspace.ID, changeCtx, deleted.RelativePath, model.ProjectFileChangeOpDelete, projectFileSnapshot(deleted), model.ProjectFileSnapshot{}); err != nil {
+		return nil, err
 	}
 	if err = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, -deleted.SizeBytes, -1); err != nil {
 		return nil, err

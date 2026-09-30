@@ -210,6 +210,45 @@ func (r *Repo) PurgeProjectFileByPath(ctx context.Context, ownerUserID uint, pro
 		Delete(&models.ProjectFile{}).Error)
 }
 
+// CreateProjectFileChanges 批量追加文件变更日志；日志行不可变，只允许追加。
+func (r *Repo) CreateProjectFileChanges(ctx context.Context, ownerUserID uint, projectID uint, items []domainconversation.ProjectFileChange) error {
+	if len(items) == 0 {
+		return nil
+	}
+	entities := make([]models.ProjectFileChange, 0, len(items))
+	for i := range items {
+		entities = append(entities, toProjectFileChangeModel(&items[i]))
+	}
+	if err := r.db.WithContext(ctx).Create(&entities).Error; err != nil {
+		return dberror.Translate(err)
+	}
+	for i := range entities {
+		items[i] = toProjectFileChangeDomain(entities[i])
+	}
+	return nil
+}
+
+// ListProjectFileChanges 按时间窗读取变更日志，按写入顺序（id 升序）返回。
+func (r *Repo) ListProjectFileChanges(ctx context.Context, ownerUserID uint, projectID uint, filter repository.ProjectFileChangeListFilter) ([]domainconversation.ProjectFileChange, error) {
+	query := r.db.WithContext(ctx).Model(&models.ProjectFileChange{}).
+		Where("owner_user_id = ? AND project_id = ?", ownerUserID, projectID)
+	if filter.CreatedAtOrBefore != nil {
+		query = query.Where("created_at <= ?", *filter.CreatedAtOrBefore)
+	}
+	if filter.CreatedAtAfter != nil {
+		query = query.Where("created_at > ?", *filter.CreatedAtAfter)
+	}
+	items := make([]models.ProjectFileChange, 0)
+	if err := query.Order("id ASC").Find(&items).Error; err != nil {
+		return nil, dberror.Translate(err)
+	}
+	result := make([]domainconversation.ProjectFileChange, 0, len(items))
+	for _, item := range items {
+		result = append(result, toProjectFileChangeDomain(item))
+	}
+	return result, nil
+}
+
 func toProjectWorkspaceDomain(item models.ProjectWorkspace) domainconversation.ProjectWorkspace {
 	return domainconversation.ProjectWorkspace{ID: item.ID, PublicID: item.PublicID, OwnerUserID: item.OwnerUserID,
 		ConversationProjectID: item.ConversationProjectID, Status: item.Status, StorageBytes: item.StorageBytes,
@@ -229,6 +268,33 @@ func toProjectFileModel(item *domainconversation.ProjectFile) models.ProjectFile
 		OwnerUserID: item.OwnerUserID, ProjectID: item.ProjectID, ParentID: item.ParentID, RelativePath: item.RelativePath,
 		FileName: item.FileName, EntryType: item.EntryType, StorageKey: item.StorageKey, MimeType: item.MimeType,
 		SizeBytes: item.SizeBytes, SHA256: item.SHA256, SourceImportID: item.SourceImportID, Version: item.Version}
+}
+
+func toProjectFileChangeModel(item *domainconversation.ProjectFileChange) models.ProjectFileChange {
+	return models.ProjectFileChange{
+		OwnerUserID: item.OwnerUserID, ProjectID: item.ProjectID, RelativePath: item.RelativePath,
+		Op: item.Op, Source: item.Source, ConversationID: item.ConversationID, MessageID: item.MessageID, RunID: item.RunID,
+		BeforeVersion: item.Before.Version, BeforeStorageKey: item.Before.StorageKey, BeforeSHA256: item.Before.SHA256,
+		BeforeSizeBytes: item.Before.SizeBytes, BeforeMimeType: item.Before.MimeType,
+		AfterVersion: item.After.Version, AfterStorageKey: item.After.StorageKey, AfterSHA256: item.After.SHA256,
+		AfterSizeBytes: item.After.SizeBytes, AfterMimeType: item.After.MimeType,
+	}
+}
+
+func toProjectFileChangeDomain(item models.ProjectFileChange) domainconversation.ProjectFileChange {
+	return domainconversation.ProjectFileChange{
+		ID: item.ID, OwnerUserID: item.OwnerUserID, ProjectID: item.ProjectID, RelativePath: item.RelativePath,
+		Op: item.Op, Source: item.Source, ConversationID: item.ConversationID, MessageID: item.MessageID, RunID: item.RunID,
+		Before: domainconversation.ProjectFileSnapshot{
+			Version: item.BeforeVersion, StorageKey: item.BeforeStorageKey, SHA256: item.BeforeSHA256,
+			SizeBytes: item.BeforeSizeBytes, MimeType: item.BeforeMimeType,
+		},
+		After: domainconversation.ProjectFileSnapshot{
+			Version: item.AfterVersion, StorageKey: item.AfterStorageKey, SHA256: item.AfterSHA256,
+			SizeBytes: item.AfterSizeBytes, MimeType: item.AfterMimeType,
+		},
+		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+	}
 }
 
 func toProjectImportDomain(item models.ProjectImport) domainconversation.ProjectImport {

@@ -877,6 +877,37 @@ func (r *Repo) IncrementMessageCount(ctx context.Context, conversationID uint, d
 		Error)
 }
 
+// UpdateConversationActiveTip 更新回退后的续聊锚点；messageID=0 清空锚点。
+func (r *Repo) UpdateConversationActiveTip(ctx context.Context, conversationID uint, messageID uint, publicID string) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.Conversation{}).
+		Where("id = ?", conversationID).
+		Updates(map[string]any{
+			"active_tip_message_id":        messageID,
+			"active_tip_message_public_id": strings.TrimSpace(publicID),
+		})
+	if result.Error != nil {
+		return dberror.Translate(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return repository.ErrNotFound
+	}
+	return nil
+}
+
+// HasPendingMessageInConversation 判断会话内是否存在未完成的 pending 消息（活跃生成）。
+func (r *Repo) HasPendingMessageInConversation(ctx context.Context, conversationID uint) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&models.Message{}).
+		Where("conversation_id = ? AND status = ?", conversationID, "pending").
+		Count(&count).Error
+	if err != nil {
+		return false, dberror.Translate(err)
+	}
+	return count > 0, nil
+}
+
 // UpdateConversationCompactedAt 更新会话最近压缩时间。
 func (r *Repo) UpdateConversationCompactedAt(ctx context.Context, conversationID uint, compactedAt time.Time) error {
 	return dberror.Translate(r.db.WithContext(ctx).
@@ -979,7 +1010,11 @@ func (r *Repo) CreateAssistantBranchMessage(ctx context.Context, assistantMessag
 
 		result := tx.Model(&models.Conversation{}).
 			Where("id = ?", assistantMessage.ConversationID).
-			Update("message_count", gorm.Expr("message_count + ?", 1))
+			Updates(map[string]any{
+				"message_count":                gorm.Expr("message_count + ?", 1),
+				"active_tip_message_id":        assistantMessage.ID,
+				"active_tip_message_public_id": assistantMessage.PublicID,
+			})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -1038,7 +1073,11 @@ func (r *Repo) CreateMessagePairWithUserAttachments(
 
 		result := tx.Model(&models.Conversation{}).
 			Where("id = ?", userMessage.ConversationID).
-			Update("message_count", gorm.Expr("message_count + ?", 2))
+			Updates(map[string]any{
+				"message_count":                gorm.Expr("message_count + ?", 2),
+				"active_tip_message_id":        assistantMessage.ID,
+				"active_tip_message_public_id": assistantMessage.PublicID,
+			})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -3870,6 +3909,8 @@ func toConversationDomain(item models.Conversation) domainconversation.Conversat
 		LastCompactedAt:       item.LastCompactedAt,
 		LastResponseID:        item.LastResponseID,
 		LastPromptFingerprint: item.LastPromptFingerprint,
+		ActiveTipMessageID:       item.ActiveTipMessageID,
+		ActiveTipMessagePublicID: item.ActiveTipMessagePublicID,
 		CreatedAt:             item.CreatedAt,
 		UpdatedAt:             item.UpdatedAt,
 	}
@@ -3929,6 +3970,8 @@ func toConversationModel(item *domainconversation.Conversation) models.Conversat
 		LastCompactedAt:       item.LastCompactedAt,
 		LastResponseID:        item.LastResponseID,
 		LastPromptFingerprint: item.LastPromptFingerprint,
+		ActiveTipMessageID:       item.ActiveTipMessageID,
+		ActiveTipMessagePublicID: item.ActiveTipMessagePublicID,
 	}
 }
 

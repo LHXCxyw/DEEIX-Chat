@@ -34,6 +34,8 @@ type ConversationResponse struct {
 	ContextPolicy       string     `json:"contextPolicyJSON"`
 	LastCompactedAt     *time.Time `json:"lastCompactedAt" extensions:"x-nullable,!x-omitempty"`
 	LastResponseID      string     `json:"lastResponseID"`
+	// ActiveTipMessagePublicID 回退后的续聊锚点消息公开ID；空表示未回退过。
+	ActiveTipMessagePublicID string     `json:"activeTipMessagePublicID"`
 	ShareStatus         string     `json:"shareStatus"`
 	ShareID             string     `json:"shareID"`
 	SharedAt            *time.Time `json:"sharedAt" extensions:"x-nullable,!x-omitempty"`
@@ -121,6 +123,7 @@ func toConversationResponse(item *model.Conversation) ConversationResponse {
 		ContextPolicy:       item.ContextPolicy,
 		LastCompactedAt:     item.LastCompactedAt,
 		LastResponseID:      item.LastResponseID,
+		ActiveTipMessagePublicID: item.ActiveTipMessagePublicID,
 		ShareStatus:         shareStatus,
 		ShareID:             item.ShareID,
 		SharedAt:            item.SharedAt,

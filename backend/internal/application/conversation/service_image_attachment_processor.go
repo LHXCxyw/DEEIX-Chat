@@ -139,6 +139,8 @@ func (s *Service) processImageAttachments(
 		output, executeErr := s.executeToolCall(ctx, ExecuteToolInput{
 			UserID:         input.UserID,
 			ConversationID: input.ConversationID,
+			MessageID:      input.MessageID,
+			RunID:          input.RunID,
 			RequestID:      input.RequestID,
 			ToolName:       processor.toolName,
 			ArgumentsJSON:  normalizedArguments,

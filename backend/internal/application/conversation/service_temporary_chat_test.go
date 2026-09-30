@@ -78,6 +78,10 @@ func (s *temporaryLLMGatewayStub) CancelOpenAIResponse(context.Context, llm.Rout
 	return nil, nil
 }
 
+func (s *temporaryLLMGatewayStub) RetrieveVideoTask(context.Context, llm.RouteConfig, string) (*llm.VideoTaskRetrieval, error) {
+	return nil, nil
+}
+
 type temporaryPersistenceRepositoryStub struct {
 	repository.ConversationRepository
 	traceWrites      int

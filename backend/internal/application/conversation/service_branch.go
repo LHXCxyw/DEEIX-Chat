@@ -95,8 +95,18 @@ func (s *Service) resolveMessageBranch(
 		return nil, ErrInvalidMessageBranch
 	}
 
-	// 当没有指定 parent 和 source 时，从最近成功上下文里选择默认续聊锚点。
+	// 当没有指定 parent 和 source 时，优先使用回退（rewind）后的活跃续聊锚点；
+	// 锚点不存在或不可作为上下文时，退回最近成功上下文选择逻辑。
 	// 不直接使用最新 DB 行，避免 pending/error 消息或分支 sibling 把上下文带偏。
+	if parentMessage == nil && sourceMessage == nil {
+		if conversation, convErr := s.repo.GetConversationByUser(ctx, conversationID, userID); convErr == nil &&
+			conversation.ActiveTipMessageID > 0 {
+			tipMessage, tipErr := s.repo.GetMessageByID(ctx, conversationID, conversation.ActiveTipMessageID)
+			if tipErr == nil && isContextMessage(tipMessage) {
+				parentMessage = tipMessage
+			}
+		}
+	}
 	if parentMessage == nil && sourceMessage == nil {
 		recent, latestErr := s.repo.ListLatestBranchPreviewMessages(
 			ctx,

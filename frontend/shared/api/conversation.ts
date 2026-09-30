@@ -20,6 +20,8 @@ import type {
   ConversationProjectStatusFilter,
   ConversationRunDTO,
   ConversationRunStatusDTO,
+  ConversationRewindPreviewDTO,
+  ConversationRewindResultDTO,
   ConversationSearchPageDTO,
   ConversationShareDTO,
   ConversationShareFilter,
@@ -1273,6 +1275,36 @@ export async function forkConversationFromMessage(
 ): Promise<ConversationDTO> {
   return authedRequest<ConversationDTO>(
     `/api/v1/conversations/${pathParam(conversationPublicID)}/messages/${pathParam(messagePublicID)}/fork`,
+    {
+      method: "POST",
+      accessToken,
+    },
+    true,
+  );
+}
+
+export async function previewConversationRewind(
+  accessToken: string,
+  conversationPublicID: string,
+  messagePublicID: string,
+): Promise<ConversationRewindPreviewDTO> {
+  return authedRequest<ConversationRewindPreviewDTO>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/messages/${pathParam(messagePublicID)}/rewind/preview`,
+    {
+      method: "POST",
+      accessToken,
+    },
+    true,
+  );
+}
+
+export async function rewindConversationToMessage(
+  accessToken: string,
+  conversationPublicID: string,
+  messagePublicID: string,
+): Promise<ConversationRewindResultDTO> {
+  return authedRequest<ConversationRewindResultDTO>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/messages/${pathParam(messagePublicID)}/rewind`,
     {
       method: "POST",
       accessToken,

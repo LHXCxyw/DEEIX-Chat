@@ -31,7 +31,10 @@ type Conversation struct {
 	LastCompactedAt       *time.Time
 	LastResponseID        string
 	LastPromptFingerprint string
-	ShareStatus           string
+	// ActiveTipMessageID / ActiveTipMessagePublicID 记录回退后的续聊锚点；0/空表示未回退过。
+	ActiveTipMessageID       uint
+	ActiveTipMessagePublicID string
+	ShareStatus              string
 	ShareID               string
 	SharedAt              *time.Time
 	LastShareAccessedAt   *time.Time

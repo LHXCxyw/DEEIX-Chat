@@ -275,7 +275,18 @@
     "savingPreference": "保存中…",
     "savePreference": "保存偏好",
     "deleteMessage": "删除消息",
-    "deleteMessageFailed": "删除消息失败"
+    "deleteMessageFailed": "删除消息失败",
+    "rewindMessage": "回退到此消息",
+    "rewindTitle": "回退到此消息",
+    "rewindDescription": "对话将截断到该消息（其后消息保留为非当前分支），项目文件将恢复到该消息完成时的状态。",
+    "rewindAffectedFiles": "受影响的项目文件",
+    "rewindNoChanges": "没有需要变更的项目文件，仅回退对话。",
+    "rewindConfirm": "确认回退",
+    "rewindActionRestore": "恢复",
+    "rewindActionCreate": "重建",
+    "rewindActionDelete": "删除",
+    "rewindSuccess": "已回退，项目文件已恢复到所选消息完成时的状态",
+    "rewindFailed": "回退失败"
   },
   "loadError": {
     "title": "会话加载失败",
@@ -365,8 +376,9 @@
     "moderationBlockedDescription": "安全检查后已撤回本轮回答。",
     "moderationEventId": "事件编号：{id}",
     "moderationCategories": "命中分类：{categories}",
-"deleteMessageFailed": "删除消息失败",
-"moderationBlockedBilled": "拦截前上游已产生的用量照常计费。"  },
+    "deleteMessageFailed": "删除消息失败",
+    "moderationBlockedBilled": "拦截前上游已产生的用量照常计费。"
+  },
   "data": {
     "signInRequired": "未登录，无法加载会话消息",
     "loadFailed": "加载会话消息失败"
