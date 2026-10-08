@@ -448,7 +448,7 @@ export function MessageAgentTrace({
   }, [groupToolSteps, groups, messageStreaming]);
 
   const hasActiveStep = items.some((item) =>
-    item.kind === "think" ? item.streaming : isToolChainStepActive(item.step),
+    item.kind === "think" ? item.streaming : item.kind === "tool" ? isToolChainStepActive(item.step) : false,
   );
   const traceRunActive = messageStreaming && (hasActiveStep || !autoCollapseReady);
   const { open, onOpenChange } = useAutoExpandDisclosure({
