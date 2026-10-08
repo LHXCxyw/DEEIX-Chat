@@ -355,10 +355,12 @@ export function useChatMessageSubmit({
 
       // 继续非活跃锚点分支（回退后又切回旧分支重试/编辑/发送）时，先沿 ADR-0004
       // 把项目文件恢复到该分支时点，再提交，保证文件状态与对话路径一致。
+      // 只要锚点存在就执行回退：回退到锚点本身是幂等的时点快照，会一并清理
+      // 失败运行残留的文件变更（此前仅在锚点≠tip 时执行，失败运行不推进 tip，
+      // 导致用户消息重试时已写入的文件不被回退）。
       const restoreAnchorID = resolvedParentPublicID?.trim() || "";
-      const tipPublicID = activeConversationRef.current?.activeTipMessagePublicID?.trim() || "";
       const restoreConversationID = queuedSubmission?.conversationPublicID ?? conversationIDRef.current;
-      if (restoreConversationID && restoreAnchorID && tipPublicID && restoreAnchorID !== tipPublicID) {
+      if (restoreConversationID && restoreAnchorID) {
         try {
           const rewindToken = await resolveAccessToken();
           if (!rewindToken) {
@@ -368,8 +370,8 @@ export function useChatMessageSubmit({
           touchByPublicID(restoreConversationID, {
             activeTipMessagePublicID: rewindResult.activeTipMessagePublicID || restoreAnchorID,
           });
-        } catch {
-          toast.error(tMessages("rewindFailed"));
+        } catch (error) {
+          toast.error(tMessages("rewindFailed"), { description: resolveErrorMessage(error, t("retryLater")) });
           return false;
         }
       }

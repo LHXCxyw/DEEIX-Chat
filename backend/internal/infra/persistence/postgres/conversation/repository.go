@@ -896,11 +896,15 @@ func (r *Repo) UpdateConversationActiveTip(ctx context.Context, conversationID u
 }
 
 // HasPendingMessageInConversation 判断会话内是否存在未完成的 pending 消息（活跃生成）。
+// HasPendingMessageInConversation 判断会话内是否存在活跃的 pending 消息。
+// 只统计 recently（2 分钟内）有更新的 pending 行：正常生成期间用量/计费回写会
+// 持续 bump updated_at；进程崩溃或断连残留的僵死 pending 行不再推进，
+// 若不加窗口会永久阻塞会话的回退/重试。
 func (r *Repo) HasPendingMessageInConversation(ctx context.Context, conversationID uint) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).
 		Model(&models.Message{}).
-		Where("conversation_id = ? AND status = ?", conversationID, "pending").
+		Where("conversation_id = ? AND status = ? AND updated_at >= ?", conversationID, "pending", time.Now().Add(-2*time.Minute)).
 		Count(&count).Error
 	if err != nil {
 		return false, dberror.Translate(err)
