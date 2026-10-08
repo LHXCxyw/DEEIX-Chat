@@ -599,7 +599,7 @@ func (r *messageTraceRecorder) recordRoundText(text string) {
 		RunID:           r.assistant.RunID,
 		EventID:         eventID,
 		EventType:       "text",
-		Phase:           "upstream_think",
+		Phase:           "round_text",
 		RoundID:         roundID,
 		ParentEventID:   parentEventID,
 		Status:          messageTraceStatusCompleted,
@@ -622,7 +622,7 @@ func (r *messageTraceRecorder) recordRoundText(text string) {
 	r.events = append(r.events, model.MessageTraceEvent{
 		EventID:         eventID,
 		EventType:       "text",
-		Phase:           "upstream_think",
+		Phase:           "round_text",
 		RoundID:         roundID,
 		ParentEventID:   parentEventID,
 		Title:           "回复",

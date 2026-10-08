@@ -44,6 +44,9 @@ function traceEventToBlock(event: ChatTraceEvent): ChatTraceBlock {
 }
 
 function isToolTraceEvent(event: ChatTraceEvent): boolean {
+  if (event.eventType === "text") {
+    return false;
+  }
   if (event.stage === "think" || event.phase === "upstream_think" || event.eventType === "think") {
     return false;
   }
@@ -51,12 +54,15 @@ function isToolTraceEvent(event: ChatTraceEvent): boolean {
 }
 
 function isThinkTraceEvent(event: ChatTraceEvent): boolean {
+  if (event.eventType === "text") {
+    return false;
+  }
   return event.stage === "think" || event.phase === "upstream_think" || event.eventType === "think";
 }
 
 // 轮次正文事件：agent 循环中间轮的正文，按 思考→正文→工具 的顺序穿插显示。
 function isTextTraceEvent(event: ChatTraceEvent): boolean {
-  return !isThinkTraceEvent(event) && !isToolTraceEvent(event) && event.eventType === "text";
+  return event.eventType === "text";
 }
 
 function buildTraceDisplayEvents(events: ChatTraceEvent[]): TraceDisplayEvent[] {
