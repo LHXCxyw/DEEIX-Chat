@@ -5,22 +5,22 @@ import "time"
 // LLMUpstream 存储上游配置。
 type LLMUpstream struct {
 	BaseModel // 改用 BaseModel 支持软删除
-	
-	Name                 string `gorm:"size:128;not null;default:'';uniqueIndex:idx_llm_upstreams_owner_name_live,priority:2,where:deleted_at IS NULL;comment:上游名称"`
+
+	Name string `gorm:"size:128;not null;default:'';uniqueIndex:idx_llm_upstreams_owner_name_live,priority:2,where:deleted_at IS NULL;comment:上游名称"`
 
 	// 用户归属字段（BYOK 支持）
 	OwnerUserID          *uint  `gorm:"index:idx_llm_upstreams_owner;uniqueIndex:idx_llm_upstreams_owner_name_live,priority:1;comment:归属用户ID，NULL为平台渠道"`
 	OwnershipType        string `gorm:"size:16;not null;default:'platform';index:idx_llm_upstreams_ownership;comment:归属类型: platform/user"`
 	IsSharedWithPlatform bool   `gorm:"not null;default:false;comment:用户是否同意纳入平台统计"`
 	BillingMode          string `gorm:"size:16;not null;default:'self';comment:计费模式: self/platform_pricing"`
-	
+
 	BaseURL              string `gorm:"size:512;not null;default:'';comment:API端点"`
 	Compatible           string `gorm:"size:64;not null;default:'openai';comment:兼容协议"`
 	ProtocolDefaultsJSON string `gorm:"type:text;not null;default:'{}';comment:协议默认配置JSON"`
 	Status               string `gorm:"size:32;not null;default:'active';index:idx_llm_upstreams_status;comment:状态"`
 	ConnectTimeoutMS     int    `gorm:"not null;default:10000;comment:连接超时毫秒"`
 	ReadTimeoutMS        int    `gorm:"not null;default:120000;comment:非流式整体超时/流式首字节超时毫秒"`
-	StreamIdleTimeoutMS  int    `gorm:"not null;default:60000;comment:流式chunk间隔超时毫秒"`
+	StreamIdleTimeoutMS  int    `gorm:"not null;default:120000;comment:流式chunk间隔超时毫秒"`
 	APIKeysEnc           string `gorm:"type:text;comment:AES加密后的API密钥配置"`
 	CbFailureThreshold   int    `gorm:"not null;default:0;comment:上游级熔断失败次数阈值"`
 	CbModelThreshold     int    `gorm:"not null;default:0;comment:上游级熔断模型数阈值"`

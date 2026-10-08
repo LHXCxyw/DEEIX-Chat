@@ -61,6 +61,7 @@ type UpstreamForm = {
   apiKey: string;
   connectTimeoutMS: string;
   readTimeoutMS: string;
+  streamTimeoutMS: string;
   headers: string;
 };
 
@@ -71,6 +72,7 @@ const EMPTY_UPSTREAM_FORM: UpstreamForm = {
   apiKey: "",
   connectTimeoutMS: "10000",
   readTimeoutMS: "120000",
+  streamTimeoutMS: "120000",
   headers: "",
 };
 
@@ -195,6 +197,7 @@ export function SettingsUpstreams() {
       apiKey: "",
       connectTimeoutMS: String(item.connect_timeout_ms || 10000),
       readTimeoutMS: String(item.read_timeout_ms || 120000),
+      streamTimeoutMS: String(item.stream_idle_timeout_ms || 120000),
       headers: "",
     });
     setUpstreamDialogOpen(true);
@@ -227,6 +230,7 @@ export function SettingsUpstreams() {
             compatible: upstreamForm.compatible,
             connect_timeout_ms: Number(upstreamForm.connectTimeoutMS) || 10000,
             read_timeout_ms: Number(upstreamForm.readTimeoutMS) || 120000,
+            stream_idle_timeout_ms: Number(upstreamForm.streamTimeoutMS) || 120000,
           }
         : {
             name: upstreamForm.name.trim(),
@@ -234,6 +238,7 @@ export function SettingsUpstreams() {
             compatible: upstreamForm.compatible,
             connect_timeout_ms: Number(upstreamForm.connectTimeoutMS) || 10000,
             read_timeout_ms: Number(upstreamForm.readTimeoutMS) || 120000,
+            stream_idle_timeout_ms: Number(upstreamForm.streamTimeoutMS) || 120000,
             ...(headers ? { headers } : {}),
           };
       if (editingUpstream) {
@@ -598,6 +603,18 @@ export function SettingsUpstreams() {
                       value={upstreamForm.readTimeoutMS}
                       onChange={(event) => setUpstreamForm((prev) => ({ ...prev, readTimeoutMS: event.target.value }))}
                     />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="user-upstream-stream-idle">流式超时（毫秒）</Label>
+                    <Input
+                      id="user-upstream-stream-idle"
+                      type="number"
+                      min={1000}
+                      placeholder="120000"
+                      value={upstreamForm.streamTimeoutMS}
+                      onChange={(event) => setUpstreamForm((prev) => ({ ...prev, streamTimeoutMS: event.target.value }))}
+                    />
+                    <p className="text-[11px] text-muted-foreground">流式响应两个数据块之间的最大间隔，超时后请求中断（默认 120000，即 2 分钟）。</p>
                   </div>
                 </div>
                 <div className="space-y-1.5">

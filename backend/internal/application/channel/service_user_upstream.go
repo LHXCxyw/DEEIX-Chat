@@ -108,7 +108,7 @@ func (s *Service) CreateUserUpstream(ctx context.Context, userID uint, input Cre
 		Status:              determineInitialStatus(cfg.UserUpstreamRequireApproval),
 		ConnectTimeoutMS:    input.ConnectTimeoutMS,
 		ReadTimeoutMS:       input.ReadTimeoutMS,
-		StreamIdleTimeoutMS: 60000,
+		StreamIdleTimeoutMS: input.StreamIdleTimeoutMS,
 		APIKeysEnc:          encryptedKeys,
 		HeadersJSON:         string(headersJSON),
 		CbFailureThreshold:  0, // 用户渠道默认不启用熔断
@@ -122,6 +122,9 @@ func (s *Service) CreateUserUpstream(ctx context.Context, userID uint, input Cre
 	}
 	if upstream.ReadTimeoutMS == 0 {
 		upstream.ReadTimeoutMS = 120000
+	}
+	if upstream.StreamIdleTimeoutMS == 0 {
+		upstream.StreamIdleTimeoutMS = 120000
 	}
 
 	// 6. 持久化
@@ -176,6 +179,9 @@ func (s *Service) UpdateUserUpstream(ctx context.Context, userID, upstreamID uin
 	}
 	if input.ReadTimeoutMS != nil {
 		existing.ReadTimeoutMS = *input.ReadTimeoutMS
+	}
+	if input.StreamIdleTimeoutMS != nil {
+		existing.StreamIdleTimeoutMS = *input.StreamIdleTimeoutMS
 	}
 	if input.Headers != nil {
 		headersJSON, _ := json.Marshal(*input.Headers)

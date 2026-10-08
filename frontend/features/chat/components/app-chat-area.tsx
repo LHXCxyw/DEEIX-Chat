@@ -1296,6 +1296,7 @@ export function AppChatArea() {
                   messages={displayMessages}
                   width={isMobileViewport ? 0 : projectPanelWidth}
                   isDrawer={isMobileViewport}
+                  generationActive={composerSending}
                   onClose={() => setProjectPanelVisibility(false)}
                   activeTabPath={activeProjectTabKey}
                   // 移动端打开文件后收起抽屉，露出聊天区的文件标签页。

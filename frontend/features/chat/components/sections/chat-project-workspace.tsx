@@ -36,6 +36,7 @@ import {
   uploadProjectArchive,
 } from "@/shared/api/conversation";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { ApiError } from "@/shared/api/http-client";
 import { useTheme } from "@/shared/components/theme-provider";
 
 type MonacoModule = typeof Monaco;
@@ -823,7 +824,8 @@ export const ChatProjectWorkspace = React.forwardRef<ProjectWorkspaceHandle, {
   onNewFile: (directory: string) => void;
   onFilesDeleted: (paths: string[]) => void;
   isDrawer?: boolean;
-}>(function ChatProjectWorkspace({ projectID, messages, width, onClose, activeTabPath, onOpenFile, onOpenChange, onNewFile, onFilesDeleted, isDrawer = false }, ref) {
+  generationActive?: boolean;
+}>(function ChatProjectWorkspace({ projectID, messages, width, onClose, activeTabPath, onOpenFile, onOpenChange, onNewFile, onFilesDeleted, isDrawer = false, generationActive = false }, ref) {
   const tWorkspace = useTranslations("chat.workspace");
   const [files, setFiles] = React.useState<ProjectWorkspaceFileDTO[]>([]);
   const [busy, setBusy] = React.useState(false);
@@ -871,6 +873,17 @@ export const ChatProjectWorkspace = React.forwardRef<ProjectWorkspaceHandle, {
     const timer = window.setTimeout(() => { void refresh(); }, 500);
     return () => window.clearTimeout(timer);
   }, [changesSignature, refresh]);
+
+  // 每轮生成结束（generationActive true→false）强制刷新一次：
+  // 兜底覆盖写入/删除等未产生消息内变更事件的操作，列表不再需要手动刷新。
+  const prevGenerationActiveRef = React.useRef(false);
+  React.useEffect(() => {
+    const wasActive = prevGenerationActiveRef.current;
+    prevGenerationActiveRef.current = Boolean(generationActive);
+    if (wasActive && !generationActive) {
+      void refresh();
+    }
+  }, [generationActive, refresh]);
 
   // 下载整个项目为 ZIP 归档。
   async function downloadArchive() {
@@ -939,27 +952,60 @@ export const ChatProjectWorkspace = React.forwardRef<ProjectWorkspaceHandle, {
   }
 
   // 多选删除：文件按路径精确匹配，文件夹按前缀匹配其下全部文件。
+  // 删除前先刷新列表：AI 改写文件会替换行（PublicID 变化），旧列表里的 ID 可能已失效；
+  // 单个文件 404 视为"已被删除"，继续处理其余文件，避免整批中断。
   async function removeSelected() {
-    const targets = files.filter((file) => file.EntryType === "file" && (
+    setBusy(true);
+    let latestFiles: ProjectWorkspaceFileDTO[];
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error("登录状态已失效");
+      const view = await getProjectWorkspace(token, projectID);
+      latestFiles = view.Files ?? [];
+      setFiles(latestFiles);
+    } catch (error) {
+      setBusy(false);
+      toast.error(error instanceof Error ? error.message : "无法刷新项目文件");
+      return;
+    }
+    const targets = latestFiles.filter((file) => file.EntryType === "file" && (
       selectedPaths.has(file.RelativePath) ||
       [...selectedPaths].some((prefix) => prefix !== "" && file.RelativePath.startsWith(`${prefix}/`))
     ));
     if (targets.length === 0) {
+      setBusy(false);
       toast.error("没有可删除的文件");
       return;
     }
-    if (!window.confirm(`确定删除选中的 ${targets.length} 个文件吗？此操作不可恢复。`)) return;
-    setBusy(true);
+    if (!window.confirm(`确定删除选中的 ${targets.length} 个文件吗？此操作不可恢复。`)) {
+      setBusy(false);
+      return;
+    }
     try {
       const token = await resolveAccessToken();
       if (!token) throw new Error("登录状态已失效");
+      let deletedCount = 0;
+      let missingCount = 0;
       for (const file of targets) {
-        await deleteProjectFile(token, projectID, file.PublicID);
+        try {
+          await deleteProjectFile(token, projectID, file.PublicID);
+          deletedCount++;
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 404) {
+            missingCount++;
+            continue;
+          }
+          throw error;
+        }
       }
       setSelectedPaths(new Set());
       onFilesDeleted(targets.map((file) => file.RelativePath));
       await refresh();
-      toast.success(`已删除 ${targets.length} 个文件`);
+      if (missingCount > 0) {
+        toast.success(`已删除 ${deletedCount} 个文件，${missingCount} 个此前已不存在`);
+      } else {
+        toast.success(`已删除 ${deletedCount} 个文件`);
+      }
     } catch (error) { toast.error(error instanceof Error ? error.message : "删除失败"); }
     finally { setBusy(false); }
   }

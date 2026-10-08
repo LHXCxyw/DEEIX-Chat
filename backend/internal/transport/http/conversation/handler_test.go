@@ -44,6 +44,27 @@ func TestBillingStreamErrorPayloadCarriesResultWhenPresent(t *testing.T) {
 	}
 }
 
+func TestStreamErrorPayloadInternalErrorCarriesDetail(t *testing.T) {
+	// 未分类错误必须带出真实原因（截断到 512 字符），否则自部署实例无法排查 internal.error。
+	payload := streamErrorPayload(fmt.Errorf("raise usage reservation: lock wait timeout exceeded"))
+	detail, ok := payload["detail"].(string)
+	if !ok || !strings.Contains(detail, "lock wait timeout") {
+		t.Fatalf("internal error payload must carry detail, got %#v", payload)
+	}
+
+	long := strings.Repeat("x", 600)
+	truncated := streamErrorPayload(fmt.Errorf("%s", long))["detail"].(string)
+	if len([]rune(truncated)) > 520 {
+		t.Fatalf("detail must be truncated, got %d runes", len([]rune(truncated)))
+	}
+
+	// 业务错误保持既有契约，不附带内部 detail。
+	business := streamErrorPayload(appbilling.ErrUsageBalanceInsufficient)
+	if _, ok := business["detail"]; ok {
+		t.Fatalf("coded business error must not carry internal detail, got %#v", business)
+	}
+}
+
 func TestSearchConversationsRejectsLongQueryWithStableCode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

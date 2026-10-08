@@ -396,17 +396,6 @@ export function ChatMessageBot({
         active={messageStreaming}
         autoCollapseReady={processAutoCollapseReady}
       />
-      <MessageAgentTrace
-        events={postProcessEvents}
-        activeToolBlock={toolTrace}
-        activeThinkBlock={upstreamThink}
-        messageStreaming={messageStreaming}
-        autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
-        autoExpandThinking={autoExpandThinking}
-        autoExpandToolCalls={autoExpandToolCalls}
-        runID={item.runID}
-        allowFullToolResults={allowFullToolResults && !messageStreaming}
-      />
 
       <div
         data-chat-assistant-content=""
@@ -448,6 +437,19 @@ export function ChatMessageBot({
           <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{item.content}</p>
         ) : null}
       </div>
+
+      {/* 思考/工具轮次跟随对话顺序：置于正文之后，不再置顶遮挡回答。 */}
+      <MessageAgentTrace
+        events={postProcessEvents}
+        activeToolBlock={toolTrace}
+        activeThinkBlock={upstreamThink}
+        messageStreaming={messageStreaming}
+        autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
+        autoExpandThinking={autoExpandThinking}
+        autoExpandToolCalls={autoExpandToolCalls}
+        runID={item.runID}
+        allowFullToolResults={allowFullToolResults && !messageStreaming}
+      />
 
       {changes.length > 0 && onOpenProjectChange ? (
         <div className="my-3 w-full max-w-[34rem] space-y-1.5 rounded-lg border border-border/70 bg-muted/20 p-2.5">
@@ -545,7 +547,14 @@ export function ChatInlineAlertCard({
     Boolean(summary.statusCode && summary.statusCode >= 200 && summary.statusCode < 300) &&
     isUpstreamStreamingDebugBody(details?.response?.body || message);
   const summaryText = hasSuccessfulStreamDebug
-    ? t("streamResponseParseFailed", { statusCode: summary.statusCode ?? 200 })
+    ? [
+        t("streamResponseParseFailed", { statusCode: summary.statusCode ?? 200 }),
+        // 后端摘要中的“原因：”行携带真实失败原因（如空闲超时、JSON 解析失败），折叠态也要透出。
+        ...message
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith("原因：")),
+      ].join("\n")
     : [summary.statusCode ? `HTTP ${summary.statusCode}` : "", summary.reason].filter(Boolean).join(", ");
   return (
     <Alert className={cn("min-w-0 max-w-full overflow-hidden", className)} variant="destructive">

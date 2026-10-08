@@ -277,6 +277,9 @@ func upstreamErrorSummary(err *llm.UpstreamError) string {
 	if isSuccessfulUpstreamStatus(err.StatusCode) {
 		lines = append(lines, fmt.Sprintf("模型响应格式不兼容（HTTP %d）", err.StatusCode))
 		lines = append(lines, "错误：上游返回成功状态码，但响应格式与当前协议不兼容")
+		if cause := upstreamStreamFailureCause(err); cause != "" {
+			lines = append(lines, "原因："+cause)
+		}
 		if hint != "" {
 			lines = append(lines, hint)
 		}
@@ -298,6 +301,23 @@ func upstreamErrorSummary(err *llm.UpstreamError) string {
 
 func isSuccessfulUpstreamStatus(statusCode int) bool {
 	return statusCode >= 200 && statusCode < 300
+}
+
+// upstreamStreamFailureCause 提取 2xx 流式失败的真实原因（如空闲超时、JSON 解析失败等），
+// 避免所有 2xx 失败都被笼统地归类为“协议不兼容”而无法定位。
+func upstreamStreamFailureCause(err *llm.UpstreamError) string {
+	if err == nil {
+		return ""
+	}
+	if cause := normalizeUpstreamErrorMessage(err.Message); cause != "" {
+		return cause
+	}
+	if err.Cause != nil {
+		if cause := normalizeUpstreamErrorMessage(err.Cause.Error()); cause != "" {
+			return cause
+		}
+	}
+	return ""
 }
 
 func normalizeUpstreamErrorMessage(message string) string {

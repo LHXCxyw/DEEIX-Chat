@@ -15,14 +15,15 @@ type UserUpstreamAPIKeyRequest struct {
 
 // CreateUserUpstreamRequest 创建用户自有渠道请求。
 type CreateUserUpstreamRequest struct {
-	PresetID         string                      `json:"preset_id"`
-	Name             string                      `json:"name" binding:"omitempty,max=128"`
-	BaseURL          string                      `json:"base_url" binding:"omitempty,max=512"`
-	Compatible       string                      `json:"compatible" binding:"omitempty,max=64"`
-	APIKeys          []UserUpstreamAPIKeyRequest `json:"api_keys" binding:"required,min=1"`
-	ConnectTimeoutMS int                         `json:"connect_timeout_ms"`
-	ReadTimeoutMS    int                         `json:"read_timeout_ms"`
-	Headers          map[string]string           `json:"headers"`
+	PresetID            string                      `json:"preset_id"`
+	Name                string                      `json:"name" binding:"omitempty,max=128"`
+	BaseURL             string                      `json:"base_url" binding:"omitempty,max=512"`
+	Compatible          string                      `json:"compatible" binding:"omitempty,max=64"`
+	APIKeys             []UserUpstreamAPIKeyRequest `json:"api_keys" binding:"required,min=1"`
+	ConnectTimeoutMS    int                         `json:"connect_timeout_ms"`
+	ReadTimeoutMS       int                         `json:"read_timeout_ms"`
+	StreamIdleTimeoutMS int                         `json:"stream_idle_timeout_ms"`
+	Headers             map[string]string           `json:"headers"`
 }
 
 type UserUpstreamPresetRequest struct {
@@ -47,27 +48,29 @@ type UserUpstreamPresetResponse struct {
 
 // UpdateUserUpstreamRequest 更新用户自有渠道请求，未传字段保持原值。
 type UpdateUserUpstreamRequest struct {
-	Name             *string                      `json:"name"`
-	BaseURL          *string                      `json:"base_url"`
-	APIKeys          *[]UserUpstreamAPIKeyRequest `json:"api_keys"`
-	ConnectTimeoutMS *int                         `json:"connect_timeout_ms"`
-	ReadTimeoutMS    *int                         `json:"read_timeout_ms"`
-	Headers          *map[string]string           `json:"headers"`
-	Status           *string                      `json:"status"`
+	Name                *string                      `json:"name"`
+	BaseURL             *string                      `json:"base_url"`
+	APIKeys             *[]UserUpstreamAPIKeyRequest `json:"api_keys"`
+	ConnectTimeoutMS    *int                         `json:"connect_timeout_ms"`
+	ReadTimeoutMS       *int                         `json:"read_timeout_ms"`
+	StreamIdleTimeoutMS *int                         `json:"stream_idle_timeout_ms"`
+	Headers             *map[string]string           `json:"headers"`
+	Status              *string                      `json:"status"`
 }
 
 // UserUpstreamResponse 用户自有渠道响应，不返回任何密钥明文。
 type UserUpstreamResponse struct {
-	ID               uint      `json:"id"`
-	Name             string    `json:"name"`
-	BaseURL          string    `json:"base_url"`
-	Compatible       string    `json:"compatible"`
-	Status           string    `json:"status"`
-	BillingMode      string    `json:"billing_mode"`
-	ConnectTimeoutMS int       `json:"connect_timeout_ms"`
-	ReadTimeoutMS    int       `json:"read_timeout_ms"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                  uint      `json:"id"`
+	Name                string    `json:"name"`
+	BaseURL             string    `json:"base_url"`
+	Compatible          string    `json:"compatible"`
+	Status              string    `json:"status"`
+	BillingMode         string    `json:"billing_mode"`
+	ConnectTimeoutMS    int       `json:"connect_timeout_ms"`
+	ReadTimeoutMS       int       `json:"read_timeout_ms"`
+	StreamIdleTimeoutMS int       `json:"stream_idle_timeout_ms"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // UserUpstreamListResponse 用户自有渠道列表响应。
@@ -77,16 +80,17 @@ type UserUpstreamListResponse struct {
 
 func toUserUpstreamResponse(item domainchannel.Upstream) UserUpstreamResponse {
 	return UserUpstreamResponse{
-		ID:               item.ID,
-		Name:             item.Name,
-		BaseURL:          item.BaseURL,
-		Compatible:       item.Compatible,
-		Status:           item.Status,
-		BillingMode:      item.BillingMode,
-		ConnectTimeoutMS: item.ConnectTimeoutMS,
-		ReadTimeoutMS:    item.ReadTimeoutMS,
-		CreatedAt:        item.CreatedAt,
-		UpdatedAt:        item.UpdatedAt,
+		ID:                  item.ID,
+		Name:                item.Name,
+		BaseURL:             item.BaseURL,
+		Compatible:          item.Compatible,
+		Status:              item.Status,
+		BillingMode:         item.BillingMode,
+		ConnectTimeoutMS:    item.ConnectTimeoutMS,
+		ReadTimeoutMS:       item.ReadTimeoutMS,
+		StreamIdleTimeoutMS: item.StreamIdleTimeoutMS,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
 	}
 }
 

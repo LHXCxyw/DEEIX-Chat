@@ -48,6 +48,9 @@ func (s *Service) runTemporaryGeneration(ctx context.Context, input temporaryGen
 	llmCallCount := 0
 	completedLLMCallCount := 0
 
+	// attemptObservableEvents 统计当前这次上游调用已向客户端发出的可见事件数（用量、思考、正文）。
+	// 失败的这次尝试若没有任何可见事件，就地重试不会造成重复输出；否则必须放弃重试。
+	attemptObservableEvents := 0
 	runGenerate := func(currentInput llm.GenerateInput, prepareInput bool) (*llm.GenerateOutput, error) {
 		if prepareInput {
 			currentInput, _ = fitGenerateInputToModelBudget(
@@ -64,14 +67,17 @@ func (s *Service) runTemporaryGeneration(ctx context.Context, input temporaryGen
 		var callText strings.Builder
 		var observedUsage llm.Usage
 		llmCallCount++
+		attemptObservableEvents = 0
 		output, err := s.llmClient.GenerateStream(ctx, routeConfig, currentInput, func(event llm.GenerateStreamEvent) error {
 			if event.Usage != (llm.Usage{}) {
 				observedUsage = event.Usage
+				attemptObservableEvents++
 				if emitErr := emitLLMUsageEvent(request.OnEvent, addLLMUsage(totalUsage, observedUsage)); emitErr != nil {
 					return emitErr
 				}
 			}
 			if traceRecorder != nil && event.Reasoning != nil && event.Reasoning.Text != "" {
+				attemptObservableEvents++
 				traceRecorder.appendUpstreamReasoning(event.Reasoning.Kind, event.Reasoning.Text, reasoningPayload(event.Reasoning))
 				if strings.EqualFold(strings.TrimSpace(event.Reasoning.Status), "completed") {
 					traceRecorder.completeUpstreamThink()
@@ -80,6 +86,7 @@ func (s *Service) runTemporaryGeneration(ctx context.Context, input temporaryGen
 			if event.Delta == "" {
 				return nil
 			}
+			attemptObservableEvents++
 			if firstTokenLatency == 0 {
 				firstTokenLatency = time.Since(startedAt).Milliseconds()
 			}
@@ -137,11 +144,34 @@ func (s *Service) runTemporaryGeneration(ctx context.Context, input temporaryGen
 	// 工具回灌的每次上游调用都独立计费：按已产生的用量加本次调用的预估成本校验预留，
 	// 余额不足时在发起调用前终止，已产生的用量由调用方结算。临时对话每次调用都发送完整上下文。
 	ensureFollowUpBudget := func(nextInput llm.GenerateInput) error {
-		return s.ensureUsageBudgetCoversEstimate(ctx, request.UsageAuthorization, route, initialInput.Options, followUpUsageBudgetEstimate(
-			totalUsage,
-			estimateGenerateInputTokens(nextInput),
-			initialInput.Options,
-		))
+		return retryUsageBillingOperation(ctx, func() error {
+			return s.ensureUsageBudgetCoversEstimate(ctx, request.UsageAuthorization, route, initialInput.Options, followUpUsageBudgetEstimate(
+				totalUsage,
+				estimateGenerateInputTokens(nextInput),
+				initialInput.Options,
+			))
+		})
+	}
+	// runGenerateWithRetry 为工具回灌等中途调用提供同路由自动重试：失败的这次尝试没有产生
+	// 任何可见事件且错误可重试（超时、限流、5xx、网络错误）时，按短退避重试，避免单次上游
+	// 瞬时错误让整条运行中断。重试计入 maxLLMCalls 预算。
+	runGenerateWithRetry := func(currentInput llm.GenerateInput, prepareInput bool) (*llm.GenerateOutput, error) {
+		output, err := runGenerate(currentInput, prepareInput)
+		for attempt := 1; err != nil && attempt <= followUpGenerationMaxRetries; attempt++ {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return output, err
+			}
+			if llmCallCount >= maxLLMCalls || attemptObservableEvents > 0 || !shouldRetryGenerationAttempt(err) {
+				return output, err
+			}
+			select {
+			case <-ctx.Done():
+				return output, ctx.Err()
+			case <-time.After(followUpGenerationRetryBaseBackoff * time.Duration(attempt)):
+			}
+			output, err = runGenerate(currentInput, prepareInput)
+		}
+		return output, err
 	}
 	for len(output.ToolCalls) > 0 && llmCallCount < maxLLMCalls && remainingToolCalls > 0 {
 		pending := output.ToolCalls
@@ -198,7 +228,7 @@ func (s *Service) runTemporaryGeneration(ctx context.Context, input temporaryGen
 		if err = ensureFollowUpBudget(followUp); err != nil {
 			return buildResult(), err
 		}
-		output, err = runGenerate(followUp, true)
+		output, err = runGenerateWithRetry(followUp, true)
 		if err != nil {
 			return buildResult(), err
 		}
@@ -212,7 +242,7 @@ func (s *Service) runTemporaryGeneration(ctx context.Context, input temporaryGen
 		if err = ensureFollowUpBudget(finalInput); err != nil {
 			return buildResult(), err
 		}
-		output, err = runGenerate(finalInput, true)
+		output, err = runGenerateWithRetry(finalInput, true)
 		if err != nil {
 			return buildResult(), err
 		}

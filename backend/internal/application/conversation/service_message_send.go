@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -165,6 +166,27 @@ func (s *Service) sendMessageInternal(
 	defer func() {
 		platformtracing.RecordError(sendSpan, retErr)
 		sendSpan.End()
+	}()
+
+	// 终态错误统一落日志：流式路径的 HTTP 层不记录错误，若这里也不记录，
+	// 未分类错误（internal.error）在服务端将完全不可见，无法排查。
+	defer func() {
+		if retErr == nil || errors.Is(retErr, ErrMessageGenerationCanceled) {
+			return
+		}
+		if s.logger == nil {
+			return
+		}
+		s.logger.Error("conversation_message_send_failed",
+			zap.String("trace_id", traceid.FromContext(ctx)),
+			zap.Uint("conversation_id", input.ConversationID),
+			zap.Uint("user_id", input.UserID),
+			zap.String("run_id", input.ClientRunID),
+			zap.String("request_id", input.RequestID),
+			zap.String("error_code", classifyRunErrorCode(retErr)),
+			zap.String("error_type", fmt.Sprintf("%T", retErr)),
+			zap.String("error", retErr.Error()),
+		)
 	}()
 
 	// application 层保留兜底校验，保证非 HTTP 调用路径也遵守同一 MCP 工具数量策略。
@@ -530,6 +552,9 @@ func (s *Service) sendMessageInternal(
 		return nil, err
 	}
 	if strings.TrimSpace(conversation.ProjectPublicID) == "" {
+		// 非项目会话（普通对话）：不提供内置项目文件工具，仅保留用户显式选择的
+		// MCP 工具；未选择任何工具时模型无工具可调，单轮一问一答。
+		// 项目会话不受影响：内置项目文件工具照常注入。
 		toolRuntime = toolRuntime.withoutProjectTools()
 	}
 	imageAttachmentRoutingActive := toolRuntime.attachmentProcessor != nil
@@ -834,12 +859,17 @@ func (s *Service) sendMessageInternal(
 	toolHistoryTrimmedForRun := false
 	// 工具回灌的每次上游调用都独立计费：按本条消息已产生的用量加本次调用的预估成本校验预留，
 	// 余额不足时在发起调用前终止，已产生的用量走中断结算。
+	// 工具回灌的每次上游调用都独立计费：按本条消息已产生的用量加本次调用的预估成本校验预留，
+	// 余额不足时在发起调用前终止，已产生的用量走中断结算。预估与抬高预留涉及多次数据库读写，
+	// 瞬态数据库错误（锁等待、连接抖动）会以普通错误形式中断整条运行，这里按计费口径做短暂退避重试。
 	ensureFollowUpBudget := func(nextInput llm.GenerateInput) error {
-		return s.ensureUsageBudgetCoversEstimate(ctx, input.UsageAuthorization, route, filteredOptions, followUpUsageBudgetEstimate(
-			runner.usage.billedUsage(),
-			estimateBillableInputTokens(nextInput, llmMessages),
-			filteredOptions,
-		))
+		return retryUsageBillingOperation(ctx, func() error {
+			return s.ensureUsageBudgetCoversEstimate(ctx, input.UsageAuthorization, route, filteredOptions, followUpUsageBudgetEstimate(
+				runner.usage.billedUsage(),
+				estimateBillableInputTokens(nextInput, llmMessages),
+				filteredOptions,
+			))
+		})
 	}
 
 	for len(upstreamOutput.ToolCalls) > 0 && llmCallCount < runner.maxLLMCalls && remainingToolCalls > 0 {
@@ -961,12 +991,21 @@ func (s *Service) sendMessageInternal(
 			retErr = budgetErr
 			return nil, retErr
 		}
-		nextOutput, nextErr := runner.generate(ctx, followUpInput, llmMessages)
+		nextOutput, nextErr := runner.generateWithRetry(ctx, followUpInput, llmMessages)
 		if generationCanceled(ctx, nextErr) {
 			retErr = ErrMessageGenerationCanceled
 			return nil, retErr
 		}
 		if nextErr != nil {
+			if s.logger != nil {
+				s.logger.Warn("conversation_tool_followup_failed",
+					zap.String("trace_id", traceid.FromContext(ctx)),
+					zap.Uint("conversation_id", input.ConversationID),
+					zap.String("run_id", runID),
+					zap.Int("llm_call_count", llmCallCount),
+					zap.String("error", nextErr.Error()),
+				)
+			}
 			s.routeResolver.MarkRouteFailure(ctx, route, nextErr)
 			retErr = wrapUpstreamRequestError(nextErr)
 			return nil, retErr
@@ -991,12 +1030,20 @@ func (s *Service) sendMessageInternal(
 			retErr = budgetErr
 			return nil, retErr
 		}
-		nextOutput, nextErr := runner.generate(ctx, finalInput, llmMessages)
+		nextOutput, nextErr := runner.generateWithRetry(ctx, finalInput, llmMessages)
 		if generationCanceled(ctx, nextErr) {
 			retErr = ErrMessageGenerationCanceled
 			return nil, retErr
 		}
 		if nextErr != nil {
+			if s.logger != nil {
+				s.logger.Warn("conversation_tool_final_synthesis_failed",
+					zap.String("trace_id", traceid.FromContext(ctx)),
+					zap.Uint("conversation_id", input.ConversationID),
+					zap.String("run_id", runID),
+					zap.String("error", nextErr.Error()),
+				)
+			}
 			s.routeResolver.MarkRouteFailure(ctx, route, nextErr)
 			retErr = wrapUpstreamRequestError(nextErr)
 			return nil, retErr

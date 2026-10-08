@@ -11,6 +11,7 @@ export interface UserUpstreamDTO {
   billing_mode: string;
   connect_timeout_ms: number;
   read_timeout_ms: number;
+  stream_idle_timeout_ms: number;
   created_at: string;
   updated_at: string;
 }
@@ -34,6 +35,7 @@ export interface CreateUserUpstreamPayload {
   api_keys: Array<{ key: string; status?: string; note?: string }>;
   connect_timeout_ms?: number;
   read_timeout_ms?: number;
+  stream_idle_timeout_ms?: number;
   headers?: Record<string, string>;
 }
 

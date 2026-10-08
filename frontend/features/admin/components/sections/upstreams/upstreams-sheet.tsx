@@ -820,7 +820,7 @@ export function UpstreamSheet({
                     <Input
                       id="stream-timeout"
                       type="number"
-                      placeholder="60000"
+                      placeholder="120000"
                       value={form.streamIdleTimeoutMs}
                       onChange={(e) => setField("streamIdleTimeoutMs", e.target.value)}
                     />

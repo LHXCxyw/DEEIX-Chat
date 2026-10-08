@@ -67,14 +67,15 @@ func (h *Handler) CreateUserUpstream(c *gin.Context) {
 	}
 
 	input := appchannel.CreateUserUpstreamInput{
-		PresetID:         req.PresetID,
-		Name:             req.Name,
-		BaseURL:          req.BaseURL,
-		Compatible:       req.Compatible,
-		APIKeys:          convertAPIKeyInputs(req.APIKeys),
-		ConnectTimeoutMS: req.ConnectTimeoutMS,
-		ReadTimeoutMS:    req.ReadTimeoutMS,
-		Headers:          req.Headers,
+		PresetID:            req.PresetID,
+		Name:                req.Name,
+		BaseURL:             req.BaseURL,
+		Compatible:          req.Compatible,
+		APIKeys:             convertAPIKeyInputs(req.APIKeys),
+		ConnectTimeoutMS:    req.ConnectTimeoutMS,
+		ReadTimeoutMS:       req.ReadTimeoutMS,
+		StreamIdleTimeoutMS: req.StreamIdleTimeoutMS,
+		Headers:             req.Headers,
 	}
 
 	upstream, err := h.service.CreateUserUpstream(ctx, userID, input)
@@ -166,12 +167,13 @@ func (h *Handler) UpdateUserUpstream(c *gin.Context) {
 	}
 
 	input := appchannel.UpdateUserUpstreamInput{
-		Name:             req.Name,
-		BaseURL:          req.BaseURL,
-		ConnectTimeoutMS: req.ConnectTimeoutMS,
-		ReadTimeoutMS:    req.ReadTimeoutMS,
-		Headers:          req.Headers,
-		Status:           req.Status,
+		Name:                req.Name,
+		BaseURL:             req.BaseURL,
+		ConnectTimeoutMS:    req.ConnectTimeoutMS,
+		ReadTimeoutMS:       req.ReadTimeoutMS,
+		StreamIdleTimeoutMS: req.StreamIdleTimeoutMS,
+		Headers:             req.Headers,
+		Status:              req.Status,
 	}
 	if req.APIKeys != nil {
 		converted := convertAPIKeyInputs(*req.APIKeys)

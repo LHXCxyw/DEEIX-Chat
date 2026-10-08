@@ -181,9 +181,34 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 		}
 		return marshalProjectToolResult(map[string]interface{}{"file": updatedFile, "applied_patches": len(patches)})
 	case "project_delete_file":
-		file, err := find(stringArg(args, "file"))
+		rawTarget := strings.TrimSpace(stringArg(args, "file"))
+		file, err := find(rawTarget)
 		if err != nil {
-			return "", err
+			// 目录删除兼容：模型可能传入目录路径（含尾部斜杠）。目录在列表中可能是
+			// 存储行（EntryType=directory），也可能仅由子文件路径隐式构成。
+			normalized := strings.Trim(path.Clean(strings.ReplaceAll(rawTarget, "\\", "/")), "/")
+			if normalized == "" || normalized == "." {
+				return "", err
+			}
+			prefix := normalized + "/"
+			targets := make([]model.ProjectFile, 0, 4)
+			for i := range files {
+				if files[i].RelativePath == normalized || strings.HasPrefix(files[i].RelativePath, prefix) {
+					targets = append(targets, files[i])
+				}
+			}
+			if len(targets) == 0 {
+				return "", err
+			}
+			deleted := make([]model.ProjectFile, 0, len(targets))
+			for _, target := range targets {
+				removed, delErr := s.DeleteProjectFile(ctx, input.UserID, input.ProjectPublicID, target.PublicID, AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
+				if delErr != nil {
+					return "", delErr
+				}
+				deleted = append(deleted, *removed)
+			}
+			return marshalProjectToolResult(map[string]interface{}{"deleted_count": len(deleted), "files": deleted})
 		}
 		deleted, err := s.DeleteProjectFile(ctx, input.UserID, input.ProjectPublicID, file.PublicID, AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
 		if err != nil {

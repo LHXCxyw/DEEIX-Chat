@@ -179,10 +179,34 @@ func streamErrorPayload(err error) map[string]any {
 		"message":   mapped.Message,
 		"errorCode": mapped.Code,
 	}
+	if mapped.Code == response.CodeInternal {
+		// 未分类错误对外统一为 internal.error，但自部署实例的运维需要能直接看到真实原因；
+		// detail 仅附加在内部错误上，业务错误（余额不足、上游 5xx 等）保持既有契约不变。
+		if detail := internalErrorDetail(err); detail != "" {
+			payload["detail"] = detail
+		}
+	}
 	if debug := appconversation.MessageErrorDebug(err); debug != nil {
 		payload["debug"] = debug
 	}
 	return payload
+}
+
+// internalErrorDetail 提取未分类错误的简短原文，供流式终端事件与日志对账。
+func internalErrorDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	detail := strings.TrimSpace(err.Error())
+	if detail == "" {
+		return ""
+	}
+	runes := []rune(detail)
+	const maxDetailRunes = 512
+	if len(runes) > maxDetailRunes {
+		return string(runes[:maxDetailRunes]) + "..."
+	}
+	return detail
 }
 
 // streamErrorPayloadWithResult 在错误事件中保留已持久化的消息结果，供客户端完成临时消息对账。

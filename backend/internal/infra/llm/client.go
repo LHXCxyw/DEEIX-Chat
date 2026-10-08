@@ -28,7 +28,7 @@ import (
 const (
 	defaultConnectTimeoutMS    = 10000  // TCP 建连超时 10s
 	defaultReadTimeoutMS       = 180000 // 非流式/首字节超时 180s（含 LLM 推理）
-	defaultStreamIdleTimeoutMS = 60000  // 流式 chunk 间隔超时 60s
+	defaultStreamIdleTimeoutMS = 120000 // 流式 chunk 间隔超时 120s
 	maxUpstreamBodyBytes       = 64 * 1024 * 1024
 	// maxStreamToolCallIndex 防止异常稀疏的上游索引触发无界切片扩容。
 	maxStreamToolCallIndex = 1024

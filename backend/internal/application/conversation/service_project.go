@@ -24,6 +24,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/objectstore"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 const (
@@ -499,13 +500,45 @@ func (s *Service) DeleteProjectFile(ctx context.Context, userID uint, projectPub
 	}
 	deleted, err := s.repo.DeleteProjectFile(ctx, userID, workspace.ID, strings.TrimSpace(filePublicID))
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) && s.logger != nil {
+			// 404 诊断：记录当前工作区内全部现有 PublicID，用于定位“列表 ID 与库内行不一致”。
+			existing, listErr := s.repo.ListProjectFiles(ctx, userID, workspace.ID)
+			if listErr == nil {
+				ids := make([]string, 0, len(existing))
+				for i := range existing {
+					ids = append(ids, existing[i].PublicID)
+				}
+				s.logger.Warn("project_file_delete_not_found",
+					zap.Uint("user_id", userID),
+					zap.String("project_public_id", strings.TrimSpace(projectPublicID)),
+					zap.Uint("workspace_id", workspace.ID),
+					zap.String("requested_file_id", strings.TrimSpace(filePublicID)),
+					zap.Strings("existing_file_ids", ids),
+				)
+			}
+		}
 		return nil, err
 	}
+	// 删除主体已成功；变更日志与用量统计为附属簿记，失败不回滚删除结果，
+	// 仅告警并携带具体步骤与错误（此前这两步失败会让用户看到 500，但文件其实已删）。
 	if err = s.recordProjectFileChange(ctx, userID, workspace.ID, changeCtx, deleted.RelativePath, model.ProjectFileChangeOpDelete, projectFileSnapshot(deleted), model.ProjectFileSnapshot{}); err != nil {
-		return nil, err
+		if s.logger != nil {
+			s.logger.Warn("project_file_delete_change_log_failed",
+				zap.Uint("user_id", userID),
+				zap.Uint("workspace_id", workspace.ID),
+				zap.String("file_public_id", deleted.PublicID),
+				zap.String("relative_path", deleted.RelativePath),
+				zap.Error(err),
+			)
+		}
 	}
-	if err = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, -deleted.SizeBytes, -1); err != nil {
-		return nil, err
+	if err = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, -deleted.SizeBytes, -1); err != nil && s.logger != nil {
+		s.logger.Warn("project_file_delete_usage_update_failed",
+			zap.Uint("user_id", userID),
+			zap.Uint("workspace_id", workspace.ID),
+			zap.String("file_public_id", deleted.PublicID),
+			zap.Error(err),
+		)
 	}
 	return deleted, nil
 }
