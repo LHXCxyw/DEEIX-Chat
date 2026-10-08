@@ -55,7 +55,7 @@ export type TraceStage = {
 
 export type TraceDisplayEvent = {
   event: ChatTraceEvent;
-  kind: "think" | "tool";
+  kind: "think" | "tool" | "text";
 };
 
 export function parseRAGCitations(payloadJson: string | undefined): RAGCitation[] {

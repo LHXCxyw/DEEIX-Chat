@@ -304,7 +304,8 @@ export function ChatMessageBot({
           event.phase === "tools" ||
           event.phase === "upstream_think" ||
           event.eventType === "tool" ||
-          event.eventType === "think",
+          event.eventType === "think" ||
+          event.eventType === "text",
       ),
     [traceEvents],
   );

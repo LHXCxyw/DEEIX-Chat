@@ -62,13 +62,21 @@ function isThinkTraceEvent(event: ChatTraceEvent): boolean {
   return event.stage === "think" || event.phase === "upstream_think" || event.eventType === "think";
 }
 
+// 轮次正文事件：agent 循环中间轮的正文，按 思考→正文→工具 的顺序穿插显示。
+function isTextTraceEvent(event: ChatTraceEvent): boolean {
+  return !isThinkTraceEvent(event) && !isToolTraceEvent(event) && event.eventType === "text";
+}
+
 function buildTraceDisplayEvents(events: ChatTraceEvent[]): TraceDisplayEvent[] {
   return events
-    .filter((event) => isToolTraceEvent(event) || isThinkTraceEvent(event))
+    .filter((event) => isToolTraceEvent(event) || isThinkTraceEvent(event) || isTextTraceEvent(event))
     .sort((left, right) => left.seq - right.seq)
     .map((event) => {
       if (isThinkTraceEvent(event)) {
         return { event, kind: "think" };
+      }
+      if (isTextTraceEvent(event)) {
+        return { event, kind: "text" };
       }
       return { event, kind: "tool" };
     });
@@ -132,12 +140,13 @@ type TraceRoundGroup = {
   key: string;
   seq: number;
   thinkEvents: TraceDisplayEvent[];
+  textEvents: TraceDisplayEvent[];
   toolEvents: TraceDisplayEvent[];
   thinkBlock?: ChatTraceBlock;
   toolBlock?: ChatTraceBlock;
 };
 
-function traceRoundGroupKey(event: Pick<ChatTraceEvent, "roundID" | "eventID" | "seq">, kind: "think" | "tool"): string {
+function traceRoundGroupKey(event: Pick<ChatTraceEvent, "roundID" | "eventID" | "seq">, kind: "think" | "tool" | "text"): string {
   const roundID = event.roundID?.trim() || "";
   if (roundID) {
     return `round:${roundID}`;
@@ -150,9 +159,10 @@ function traceRoundGroupKey(event: Pick<ChatTraceEvent, "roundID" | "eventID" | 
 }
 
 /**
- * Group think and tool events into agent-loop rounds so each thinking step can be
- * rendered right above the tool calls it produced. Think events key their own
- * round; tool events join the preceding think round via roundID / parentEventID
+ * Group think, round-text and tool events into agent-loop rounds so each round's
+ * thinking, body text and tool calls render in chronological order:
+ * 思考1 → 正文1 → 思考2 → 工具 → 正文2. Think events key their own round;
+ * text/tool events join the preceding think round via roundID / parentEventID
  * and keep a standalone group when the round ran without thinking.
  */
 function groupTraceDisplayEvents(
@@ -167,7 +177,7 @@ function groupTraceDisplayEvents(
   const ensureGroup = (key: string, seq: number): TraceRoundGroup => {
     let group = groups.get(key);
     if (!group) {
-      group = { key, seq, thinkEvents: [], toolEvents: [] };
+      group = { key, seq, thinkEvents: [], textEvents: [], toolEvents: [] };
       groups.set(key, group);
     } else if (seq < group.seq) {
       group.seq = seq;
@@ -190,7 +200,7 @@ function groupTraceDisplayEvents(
   }
 
   for (const item of displayEvents) {
-    if (item.kind !== "tool") {
+    if (item.kind !== "text" && item.kind !== "tool") {
       continue;
     }
     const roundID = item.event.roundID?.trim() || "";
@@ -198,8 +208,13 @@ function groupTraceDisplayEvents(
     const key =
       (roundID && thinkRoundIDToKey.get(roundID)) ||
       (parentID && thinkEventIDToKey.get(parentID)) ||
-      traceRoundGroupKey(item.event, "tool");
-    ensureGroup(key, item.event.seq).toolEvents.push(item);
+      traceRoundGroupKey(item.event, item.kind);
+    const group = ensureGroup(key, item.event.seq);
+    if (item.kind === "text") {
+      group.textEvents.push(item);
+    } else {
+      group.toolEvents.push(item);
+    }
   }
 
   // Snapshot blocks enrich their matching event round; unmatched live fallbacks are appended last.
@@ -261,7 +276,22 @@ function thinkEventDurationMS(thinkEvents: TraceDisplayEvent[]): number | undefi
 
 type TraceTimelineItem =
   | { kind: "think"; key: string; block: ChatTraceBlock; streaming: boolean; durationMS?: number }
+  | { kind: "text"; key: string; block: ChatTraceBlock }
   | { kind: "tool"; key: string; step: ToolChainStep };
+
+function TraceTextRow({ block }: { block: ChatTraceBlock }) {
+  const text = traceBlockDisplayText(block);
+  if (!text) {
+    return null;
+  }
+  return (
+    <li className="group/agent-trace-step">
+      <div className="min-w-0 py-1 pl-7 pr-1 text-[15px] leading-8 text-foreground [overflow-wrap:anywhere]">
+        <StreamdownRender content={text} />
+      </div>
+    </li>
+  );
+}
 
 function TraceThinkRow({
   block,
@@ -337,6 +367,8 @@ function AgentTraceTimeline({
               autoExpand={autoExpandThinking}
               labels={labels}
             />
+          ) : item.kind === "text" ? (
+            <TraceTextRow key={item.key} block={item.block} />
           ) : (
             <AgentToolStepRow
               key={item.key}
@@ -403,6 +435,9 @@ export function MessageAgentTrace({
             : completedDurationMS,
         });
       }
+      for (const textEvent of group.textEvents) {
+        list.push({ kind: "text", key: `${group.key}:text:${textEvent.event.eventID || textEvent.event.seq}`, block: traceEventToBlock(textEvent.event) });
+      }
       groupToolSteps[index].forEach((step) => {
         const occurrence = toolKeyOccurrences.get(step.key) || 0;
         toolKeyOccurrences.set(step.key, occurrence + 1);
@@ -429,7 +464,7 @@ export function MessageAgentTrace({
   const renderedToolSteps = items.flatMap((item) => (item.kind === "tool" ? [item.step] : []));
   const thinkRounds = items.filter((item) => item.kind === "think").length;
   const traceDurationMS = sumDurationsMS(
-    items.map((item) => (item.kind === "think" ? item.durationMS : item.step.latencyMS)),
+    items.map((item) => (item.kind === "think" ? item.durationMS : item.kind === "tool" ? item.step.latencyMS : 0)),
   );
   const durationText = traceRunActive ? undefined : formatDurationMS(traceDurationMS);
 

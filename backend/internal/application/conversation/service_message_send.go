@@ -873,6 +873,12 @@ func (s *Service) sendMessageInternal(
 	}
 
 	for len(upstreamOutput.ToolCalls) > 0 && llmCallCount < runner.maxLLMCalls && remainingToolCalls > 0 {
+		// 本轮以工具调用结束（中间轮）：把本轮正文移入轨迹（思考→正文→工具 按轮穿插），
+		// 主正文只保留最终轮文本；同时下发空正文快照让客户端从下一轮重新累积。
+		if strings.TrimSpace(assistantText) != "" && traceRecorder != nil {
+			traceRecorder.recordRoundText(assistantText)
+			runner.streamedText.Reset()
+		}
 		pendingToolCalls := upstreamOutput.ToolCalls
 		if len(pendingToolCalls) > remainingToolCalls {
 			pendingToolCalls = pendingToolCalls[:remainingToolCalls]
