@@ -3,14 +3,6 @@
 
 import { Sparkles } from "lucide-react";
 import * as React from "react";
-import { ChevronDown } from "@/components/animate-ui/icons/chevron-down";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Marker, MarkerContent } from "@/components/ui/marker";
 import {
   AgentToolStepRow,
   buildToolGroupSteps,
@@ -390,7 +382,6 @@ export function MessageAgentTrace({
   activeToolBlock,
   activeThinkBlock,
   messageStreaming,
-  autoCollapseReady,
   autoExpandThinking = true,
   autoExpandToolCalls = true,
   runID,
@@ -400,7 +391,7 @@ export function MessageAgentTrace({
   activeToolBlock?: ChatTraceBlock;
   activeThinkBlock?: ChatTraceBlock;
   messageStreaming: boolean;
-  autoCollapseReady: boolean;
+  autoCollapseReady?: boolean;
   autoExpandThinking?: boolean;
   autoExpandToolCalls?: boolean;
   runID?: string;
@@ -447,89 +438,22 @@ export function MessageAgentTrace({
     return list;
   }, [groupToolSteps, groups, messageStreaming]);
 
-  const hasActiveStep = items.some((item) =>
-    item.kind === "think" ? item.streaming : item.kind === "tool" ? isToolChainStepActive(item.step) : false,
-  );
-  const traceRunActive = messageStreaming && (hasActiveStep || !autoCollapseReady);
-  const { open, onOpenChange } = useAutoExpandDisclosure({
-    active: traceRunActive,
-    autoExpand: true,
-    collapseReady: autoCollapseReady || !messageStreaming,
-  });
-
   if (items.length === 0) {
     return null;
   }
 
-  const renderedToolSteps = items.flatMap((item) => (item.kind === "tool" ? [item.step] : []));
-  const thinkRounds = items.filter((item) => item.kind === "think").length;
-  const traceDurationMS = sumDurationsMS(
-    items.map((item) => (item.kind === "think" ? item.durationMS : item.kind === "tool" ? item.step.latencyMS : 0)),
-  );
-  const durationText = traceRunActive ? undefined : formatDurationMS(traceDurationMS);
-
-  const subtitleParts: string[] = [];
-  if (thinkRounds > 0) {
-    subtitleParts.push(labels.run.thinkRounds(thinkRounds));
-  }
-  if (renderedToolSteps.length > 0) {
-    subtitleParts.push(labels.run.toolCalls(renderedToolSteps.length));
-  }
-  if (durationText) {
-    subtitleParts.push(labels.run.duration(durationText));
-  }
-  const subtitle = subtitleParts.join(labels.run.labelSeparator);
-
-  const title = traceRunActive ? labels.run.titleActive : labels.run.titleDone;
+  // 不再使用外层折叠面板：思考、正文、工具调用每条独立展开/收起，
+  // 按时间顺序直接铺在消息流里。
   return (
     <div className={TRACE_ROOT_CLASS}>
-      <Accordion
-        type="single"
-        collapsible
-        value={open ? "message-trace-timeline" : ""}
-        onValueChange={(value) => onOpenChange(value === "message-trace-timeline")}
-        className="w-full"
-      >
-        <AccordionItem value="message-trace-timeline" className="border-b-0">
-          <AccordionTrigger
-            iconPosition="none"
-            className="group/trace min-h-0 items-start justify-between gap-1.5 py-0.5 text-left no-underline hover:no-underline"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <Marker
-                  render={<span />}
-                  className={cn(
-                    "inline-flex min-h-0 w-auto text-[13px] font-medium transition-colors",
-                    !traceRunActive && "text-muted-foreground group-hover/trace:text-foreground",
-                  )}
-                >
-                  <MarkerContent className={cn("min-w-0", traceRunActive && "shimmer")}>{title}</MarkerContent>
-                </Marker>
-              </div>
-              {subtitle ? (
-                <div className="mt-0.5 truncate text-[11px] font-normal leading-4 text-muted-foreground/62">{subtitle}</div>
-              ) : null}
-            </div>
-            <ChevronDown
-              className={cn(
-                "mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:text-foreground",
-                open && "rotate-180",
-              )}
-            />
-          </AccordionTrigger>
-          <AccordionContent className="px-0 pb-0 pt-1.5 duration-[350ms] ease-in-out">
-            <AgentTraceTimeline
-              items={items}
-              labels={labels}
-              autoExpandThinking={autoExpandThinking}
-              autoExpandToolCalls={autoExpandToolCalls}
-              runID={runID}
-              allowFullToolResults={allowFullToolResults}
-            />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+      <AgentTraceTimeline
+        items={items}
+        labels={labels}
+        autoExpandThinking={autoExpandThinking}
+        autoExpandToolCalls={autoExpandToolCalls}
+        runID={runID}
+        allowFullToolResults={allowFullToolResults}
+      />
     </div>
   );
 }
