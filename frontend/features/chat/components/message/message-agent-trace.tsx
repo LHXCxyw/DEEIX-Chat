@@ -283,11 +283,9 @@ function TraceTextRow({ block }: { block: ChatTraceBlock }) {
     return null;
   }
   return (
-    <li className="group/agent-trace-step">
-      <div className="min-w-0 py-1 pl-7 pr-1 text-[15px] leading-8 text-foreground [overflow-wrap:anywhere]">
-        <StreamdownRender content={text} />
-      </div>
-    </li>
+    <div className="min-w-0 py-1 pl-6 pr-1 text-[15px] leading-8 text-foreground [overflow-wrap:anywhere]">
+      <StreamdownRender content={text} />
+    </div>
   );
 }
 
@@ -313,7 +311,7 @@ function TraceThinkRow({
   const durationText = formatDurationMS(streaming ? liveDurationMS : durationMS);
 
   return (
-    <li className="group/agent-trace-step">
+    <div className="group/agent-trace-step">
       <AgentTraceStep
         icon={
           <Sparkles
@@ -332,7 +330,7 @@ function TraceThinkRow({
       >
         <StreamdownRender content={block.contentMarkdown} streaming={streaming} variant="thinking" />
       </AgentTraceStep>
-    </li>
+    </div>
   );
 }
 
@@ -352,33 +350,30 @@ function AgentTraceTimeline({
   allowFullToolResults: boolean;
 }) {
   return (
-    <div className="relative">
-      <span aria-hidden className="absolute bottom-2 left-[6px] top-2 w-px bg-border/36" />
-      <ol>
-        {items.map((item) =>
-          item.kind === "think" ? (
-            <TraceThinkRow
-              key={item.key}
-              block={item.block}
-              streaming={item.streaming}
-              durationMS={item.durationMS}
-              autoExpand={autoExpandThinking}
-              labels={labels}
-            />
-          ) : item.kind === "text" ? (
-            <TraceTextRow key={item.key} block={item.block} />
-          ) : (
-            <AgentToolStepRow
-              key={item.key}
-              step={item.step}
-              labels={labels}
-              autoExpand={autoExpandToolCalls}
-              runID={runID}
-              allowFullResult={allowFullToolResults}
-            />
-          ),
-        )}
-      </ol>
+    <div className="flex flex-col items-stretch">
+      {items.map((item) =>
+        item.kind === "think" ? (
+          <TraceThinkRow
+            key={item.key}
+            block={item.block}
+            streaming={item.streaming}
+            durationMS={item.durationMS}
+            autoExpand={autoExpandThinking}
+            labels={labels}
+          />
+        ) : item.kind === "text" ? (
+          <TraceTextRow key={item.key} block={item.block} />
+        ) : (
+          <AgentToolStepRow
+            key={item.key}
+            step={item.step}
+            labels={labels}
+            autoExpand={autoExpandToolCalls}
+            runID={runID}
+            allowFullResult={allowFullToolResults}
+          />
+        ),
+      )}
     </div>
   );
 }

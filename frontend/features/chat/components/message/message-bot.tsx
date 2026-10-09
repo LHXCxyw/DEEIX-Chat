@@ -398,6 +398,19 @@ export function ChatMessageBot({
         autoCollapseReady={processAutoCollapseReady}
       />
 
+      {/* 思考/轮次正文/工具调用按消息原始顺序渲染为独立兄弟元素（在最前），最终回答正文在最后。 */}
+      <MessageAgentTrace
+        events={postProcessEvents}
+        activeToolBlock={toolTrace}
+        activeThinkBlock={upstreamThink}
+        messageStreaming={messageStreaming}
+        autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
+        autoExpandThinking={autoExpandThinking}
+        autoExpandToolCalls={autoExpandToolCalls}
+        runID={item.runID}
+        allowFullToolResults={allowFullToolResults && !messageStreaming}
+      />
+
       <div
         data-chat-assistant-content=""
         className="w-full min-w-0 max-w-none overflow-hidden text-[15px] leading-8 text-foreground [overflow-wrap:anywhere]"
@@ -438,19 +451,6 @@ export function ChatMessageBot({
           <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{item.content}</p>
         ) : null}
       </div>
-
-      {/* 思考/工具轮次跟随对话顺序：置于正文之后，不再置顶遮挡回答。 */}
-      <MessageAgentTrace
-        events={postProcessEvents}
-        activeToolBlock={toolTrace}
-        activeThinkBlock={upstreamThink}
-        messageStreaming={messageStreaming}
-        autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
-        autoExpandThinking={autoExpandThinking}
-        autoExpandToolCalls={autoExpandToolCalls}
-        runID={item.runID}
-        allowFullToolResults={allowFullToolResults && !messageStreaming}
-      />
 
       {changes.length > 0 && onOpenProjectChange ? (
         <div className="my-3 w-full max-w-[34rem] space-y-1.5 rounded-lg border border-border/70 bg-muted/20 p-2.5">
