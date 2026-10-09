@@ -640,19 +640,24 @@ func (s *Service) UpdateModel(ctx context.Context, modelID uint, input UpdateMod
 		} else if err != nil {
 			return err
 		}
-		selected := defaultTaskTypes
-		if selected == nil {
-			preserved := make([]string, 0)
-			for _, taskType := range defaultTaskTypeOrder {
-				if routes[taskType] == current.PlatformModelName {
-					preserved = append(preserved, taskType)
-				}
-			}
-			selected = &preserved
-		}
 		finalStatus := current.Status
 		if update.Status != nil {
 			finalStatus = *update.Status
+		}
+		selected := defaultTaskTypes
+		if selected == nil {
+			preserved := make([]string, 0)
+			// 请求未显式指定默认任务时，仅对启用状态的模型保留既有默认路由；
+			// 模型被停用/归档时自动解除其默认任务指派（停用模型不能继续担任默认路由），
+			// 而不是让整个更新被"invalid model kinds"拒绝。
+			if finalStatus == "active" {
+				for _, taskType := range defaultTaskTypeOrder {
+					if routes[taskType] == current.PlatformModelName {
+						preserved = append(preserved, taskType)
+					}
+				}
+			}
+			selected = &preserved
 		}
 		finalKindsJSON := current.KindsJSON
 		if update.KindsJSON != nil {
