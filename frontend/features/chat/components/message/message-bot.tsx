@@ -403,6 +403,7 @@ export function ChatMessageBot({
         events={postProcessEvents}
         activeToolBlock={toolTrace}
         activeThinkBlock={upstreamThink}
+        activeThinkBlocks={processTrace?.thinkBlocks}
         messageStreaming={messageStreaming}
         autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
         autoExpandThinking={autoExpandThinking}

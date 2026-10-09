@@ -109,6 +109,8 @@ export type ChatMessageProcessTrace = {
   process?: ChatTraceBlock;
   tools?: ChatTraceBlock;
   upstreamThink?: ChatTraceBlock;
+  // 实时流式期间的思考轮次列表（含历史轮与当前轮），按 roundID 去重合并。
+  thinkBlocks?: ChatTraceBlock[];
   promptTrace?: ChatPromptTrace;
   events?: ChatTraceEvent[];
 };

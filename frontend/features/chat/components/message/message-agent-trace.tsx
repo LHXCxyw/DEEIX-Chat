@@ -266,6 +266,47 @@ function groupTraceDisplayEvents(
   return [...groups.values()].sort((left, right) => left.seq - right.seq);
 }
 
+/**
+ * groupTraceDisplayEvents 的多思考块变体：实时流式期间每轮思考是独立块
+ * （upstream-think-store 按轮保留），按 roundID 归入对应轮次组；未匹配的
+ * （通常是当前正在流式的轮次）按稳定顺序追加在末尾。
+ */
+function groupTraceDisplayEventsWithThinkBlocks(
+  displayEvents: TraceDisplayEvent[],
+  activeThinkBlocks: ChatTraceBlock[] | undefined,
+  activeThinkBlock: ChatTraceBlock | undefined,
+  activeToolBlock: ChatTraceBlock | undefined,
+): TraceRoundGroup[] {
+  const groups = new Map<string, TraceRoundGroup>();
+  for (const group of groupTraceDisplayEvents(displayEvents, activeThinkBlock, activeToolBlock)) {
+    groups.set(group.key, group);
+  }
+  for (const block of activeThinkBlocks ?? []) {
+    if (!block) {
+      continue;
+    }
+    if (activeThinkBlock && block === activeThinkBlock) {
+      continue;
+    }
+    const roundID = block.roundID?.trim() || "";
+    const existing = roundID
+      ? [...groups.values()].find((group) => group.thinkEvents.some((item) => item.event.roundID?.trim() === roundID))
+      : undefined;
+    if (existing) {
+      existing.thinkBlock = block;
+      continue;
+    }
+    const key = roundID ? `round:${roundID}` : `active:think:${groups.size}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, seq: Number.MAX_SAFE_INTEGER, thinkEvents: [], textEvents: [], toolEvents: [] };
+      groups.set(key, group);
+    }
+    group.thinkBlock = block;
+  }
+  return [...groups.values()].sort((left, right) => left.seq - right.seq);
+}
+
 function thinkEventDurationMS(thinkEvents: TraceDisplayEvent[]): number | undefined {
   return sumDurationsMS(
     thinkEvents.map(({ event }) => durationBetweenMS(event.startedAt, event.endedAt)),
@@ -382,6 +423,7 @@ export function MessageAgentTrace({
   events: traceEvents,
   activeToolBlock,
   activeThinkBlock,
+  activeThinkBlocks,
   messageStreaming,
   autoExpandThinking = true,
   autoExpandToolCalls = true,
@@ -391,6 +433,7 @@ export function MessageAgentTrace({
   events: ChatTraceEvent[];
   activeToolBlock?: ChatTraceBlock;
   activeThinkBlock?: ChatTraceBlock;
+  activeThinkBlocks?: ChatTraceBlock[];
   messageStreaming: boolean;
   autoCollapseReady?: boolean;
   autoExpandThinking?: boolean;
@@ -401,8 +444,8 @@ export function MessageAgentTrace({
   const labels = useChatTraceLabels();
   const displayEvents = React.useMemo(() => buildTraceDisplayEvents(traceEvents), [traceEvents]);
   const groups = React.useMemo(
-    () => groupTraceDisplayEvents(displayEvents, activeThinkBlock, activeToolBlock),
-    [activeThinkBlock, activeToolBlock, displayEvents],
+    () => groupTraceDisplayEventsWithThinkBlocks(displayEvents, activeThinkBlocks, activeThinkBlock, activeToolBlock),
+    [activeThinkBlocks, activeThinkBlock, activeToolBlock, displayEvents],
   );
   const groupToolSteps = React.useMemo(
     () => groups.map((group) => buildToolGroupSteps(group.toolEvents, group.toolBlock, labels)),
