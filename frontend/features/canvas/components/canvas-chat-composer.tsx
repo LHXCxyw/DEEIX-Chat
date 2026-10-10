@@ -4,11 +4,12 @@ import { ArrowUp, ImagePlus, Loader2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
+import { canvasModelKey } from "@/features/canvas/model/canvas-image-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
 
-// 移动端对话输入条：叠加在无限画布底部（lg 以下显示）。
-// 画布的拖动/捏合缩放/节点交互保持原样，任务经此创建后结果作为输出节点直接出现在画布上。
+// 对话输入条：叠加在无限画布底部。画布的拖动/捏合缩放/节点交互保持原样，
+// 任务经此创建后结果作为输出节点直接出现在画布上。
 // 与桌面节点图共用同一 store 与生成管线，来回切换不丢数据。
 
 export type ChatTaskInput = {
@@ -19,39 +20,44 @@ export type ChatTaskInput = {
 
 export function CanvasChatComposer({
   imageModels,
-  restoredModelName,
+  restoredModelKey,
   generatingCount,
   onAddTask,
 }: {
   imageModels: ChatModelOption[];
-  restoredModelName: string | null;
+  // 上次选中的模型身份键（区分接口重名模型；兼容旧版纯名称值）
+  restoredModelKey: string | null;
   generatingCount: number;
   onAddTask: (input: ChatTaskInput) => void;
 }) {
   const t = useTranslations("canvas");
   const [prompt, setPrompt] = React.useState("");
   const [pendingFiles, setPendingFiles] = React.useState<{ id: string; file: File; previewURL: string }[]>([]);
-  const [selectedModelName, setSelectedModelName] = React.useState<string>("");
+  const [selectedModelKey, setSelectedModelKey] = React.useState<string>("");
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const selectedModel = React.useMemo(() => {
-    const byName = imageModels.find((item) => item.platformModelName === selectedModelName)
-      ?? imageModels.find((item) => item.platformModelName === restoredModelName);
-    return byName ?? imageModels[0] ?? null;
-  }, [imageModels, restoredModelName, selectedModelName]);
+    return (
+      imageModels.find((item) => canvasModelKey(item) === selectedModelKey)
+      ?? imageModels.find((item) => canvasModelKey(item) === restoredModelKey)
+      ?? imageModels.find((item) => item.platformModelName === restoredModelKey)
+      ?? imageModels[0]
+      ?? null
+    );
+  }, [imageModels, restoredModelKey, selectedModelKey]);
   // 视频模型必须携带提示词（上游 prompt 必填）
   const isVideoModel = selectedModel?.kinds.includes("video_gen") ?? false;
 
   // 初始模型到位后回填默认选择
   React.useEffect(() => {
-    if (!selectedModelName && imageModels.length > 0) {
-      setSelectedModelName(
-        (restoredModelName && imageModels.some((item) => item.platformModelName === restoredModelName)
-          ? restoredModelName
-          : imageModels[0].platformModelName),
+    if (!selectedModelKey && imageModels.length > 0) {
+      setSelectedModelKey(
+        (restoredModelKey && imageModels.some((item) => canvasModelKey(item) === restoredModelKey)
+          ? restoredModelKey
+          : canvasModelKey(imageModels[0])),
       );
     }
-  }, [imageModels, restoredModelName, selectedModelName]);
+  }, [imageModels, restoredModelKey, selectedModelKey]);
 
   const addFiles = React.useCallback((files: File[]) => {
     const images = files.filter((file) => file.type.startsWith("image/"));
@@ -96,7 +102,6 @@ export function CanvasChatComposer({
     setPendingFiles([]);
     setPrompt("");
   }, [canSend, onAddTask, pendingFiles, prompt, selectedModel]);
-
   return (
     <div
       data-canvas-ui="chat-composer"
@@ -171,9 +176,9 @@ export function CanvasChatComposer({
       </div>
       <div className="mt-2 flex items-center gap-2">
         <CanvasModelSelect
-          imageModels={imageModels}
+          models={imageModels}
           selectedModel={selectedModel}
-          onSelect={setSelectedModelName}
+          onSelect={(model) => setSelectedModelKey(canvasModelKey(model))}
           className="h-8 max-w-[14rem] flex-1"
         />
         {generatingCount > 0 ? (

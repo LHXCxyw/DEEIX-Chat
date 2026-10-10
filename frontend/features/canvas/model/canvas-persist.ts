@@ -40,6 +40,7 @@ export function toPersistedGraphNodes(nodes: ReadonlyArray<GraphNode>): Persiste
         return {
           ...meta, kind: "generate", mediaType: node.mediaType ?? "image", model: node.model, options: node.options,
           resultCount: node.resultCount, operation: node.operation, maskReference: node.maskReference ?? null,
+          modelScope: node.modelScope === "user" ? "user" : "platform", userModelID: node.userModelID,
           errorMessage: node.errorMessage, errorDetail: node.errorDetail,
           conversationID: node.conversationID, runID: node.runID,
         };
@@ -50,6 +51,8 @@ export function toPersistedGraphNodes(nodes: ReadonlyArray<GraphNode>): Persiste
           model: node.model, sourceGenerateID: node.sourceGenerateID ?? null, errorMessage: node.errorMessage,
           errorDetail: node.errorDetail, completedAt: node.completedAt, durationMs: node.durationMs,
           durationSeconds: node.durationSeconds, pendingRetry: node.pendingRetry,
+          // 运行中任务的恢复引用（仅运行期间存在）；状态文案/进度/预览为瞬态字段不落盘
+          conversationID: node.conversationID, runID: node.runID,
         };
     }
   });
@@ -104,12 +107,17 @@ export function graphNode(value: unknown): PersistedGraphNode | null {
       options: options(v.options) ?? {},
       resultCount: Math.min(4, Math.max(1, Math.round(finite(v.resultCount, 1)))),
       operation: operationOf(v.operation), maskReference: reference(v.maskReference),
+      modelScope: v.modelScope === "user" ? "user" as const : "platform" as const,
+      userModelID: finite(v.userModelID) || undefined,
       errorMessage: text(v.errorMessage) || undefined, errorDetail: text(v.errorDetail) || undefined,
       conversationID: text(v.conversationID) || undefined, runID: text(v.runID) || undefined,
     };
   }
   if (kind === "output") {
-    const status = v.status === "done" && text(v.fileID) ? "done" : v.status === "error" ? "error" : "empty";
+    // running 为运行中任务的合法持久化状态：恢复时若无任务引用则降级为空节点
+    const status = v.status === "running"
+      ? "running"
+      : v.status === "done" && text(v.fileID) ? "done" : v.status === "error" ? "error" : "empty";
     return {
       ...meta, kind: "output", mediaType: mediaTypeOf(v.mediaType), status,
       fileID: text(v.fileID) || undefined, fileName: text(v.fileName) || undefined,
@@ -222,11 +230,15 @@ export function parseCanvasState(raw: string): PersistedCanvasState | null {
     }
     const activeCanvasID = canvases.some((x) => x.id === v.activeCanvasID) ? text(v.activeCanvasID) : canvases[0].id;
     const active = canvases.find((x) => x.id === activeCanvasID) ?? canvases[0];
+    const viewMode = v.viewMode === "chat" ? "chat" as const : v.viewMode === "graph" ? "graph" as const : undefined;
     return {
       version: 4, projectName: text(v.projectName, "Untitled project"), activeCanvasID, canvases,
       versions: Array.isArray(v.versions) ? v.versions.flatMap((x) => { const item = version(x); return item ? [item] : []; }).slice(0, 20) : [],
       conversationID: null, selectedModelName: text(v.selectedModelName) || null,
-      selectedVideoModelName: text(v.selectedVideoModelName) || null, pointerMode,
+      selectedVideoModelName: text(v.selectedVideoModelName) || null,
+      selectedModelKey: text(v.selectedModelKey) || null,
+      selectedVideoModelKey: text(v.selectedVideoModelKey) || null, pointerMode,
+      viewMode,
       viewport: active.viewport, nodes: active.nodes, graphNodes: active.graphNodes ?? [], edges: active.edges ?? [],
       decorations: active.decorations, bookmarks: active.bookmarks, imageOptions: imageOptions(v.imageOptions),
     };
@@ -265,6 +277,7 @@ export function restoreGraphNodes(items: ReadonlyArray<PersistedGraphNode>): Gra
         return {
           ...meta, kind: "generate", mediaType: item.mediaType ?? "image", model: item.model, options: item.options ?? {},
           resultCount: item.resultCount, operation: item.operation, maskReference: item.maskReference ?? null,
+          modelScope: item.modelScope === "user" ? "user" : "platform", userModelID: item.userModelID,
           // 运行中任务（持久化了会话与运行 ID 且无错误）恢复为待恢复态，由恢复引擎接管；
           // 错误节点保留运行 ID 供「重新查询」手动回查，其余节点回到空闲态
           runStatus: item.runID && item.conversationID && !item.errorMessage ? "pending" : "idle",
@@ -273,12 +286,16 @@ export function restoreGraphNodes(items: ReadonlyArray<PersistedGraphNode>): Gra
         } satisfies GenerateGraphNode;
       case "output":
         return {
-          ...meta, kind: "output", mediaType: item.mediaType, status: item.status, fileID: item.fileID,
+          ...meta, kind: "output", mediaType: item.mediaType,
+          // 运行中输出节点：有任务引用时保持 running 由恢复引擎接管，否则降级为空节点
+          status: item.status === "running" && item.runID && item.conversationID ? "running" : item.status === "running" ? "empty" : item.status,
+          fileID: item.fileID,
           fileName: item.fileName, mimeType: item.mimeType ?? (item.mediaType === "video" ? "video/mp4" : "image/png"),
           sizeBytes: item.sizeBytes, prompt: item.prompt, model: item.model,
           sourceGenerateID: item.sourceGenerateID ?? null, errorMessage: item.errorMessage,
           errorDetail: item.errorDetail, completedAt: item.completedAt, durationMs: item.durationMs,
           durationSeconds: item.durationSeconds, pendingRetry: item.pendingRetry,
+          conversationID: item.conversationID, runID: item.runID,
         } satisfies OutputGraphNode;
     }
   });

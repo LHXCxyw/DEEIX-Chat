@@ -6,7 +6,10 @@ import * as React from "react";
 
 import { Input } from "@/components/ui/input";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
-import { resolveCanvasRoute } from "@/features/canvas/model/canvas-image-options";
+import {
+  canvasModelKey,
+  resolveCanvasRoute,
+} from "@/features/canvas/model/canvas-image-options";
 import type { ImageGraphNode, OutputGraphNode } from "@/features/canvas/model/canvas-types";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
@@ -73,8 +76,8 @@ export function CanvasImageEditor({
     () => imageModels.filter((model) => resolveCanvasRoute(model, true).route !== null),
     [imageModels],
   );
-  const [selectedModelName, setSelectedModelName] = React.useState("");
-  const selectedModel = editableModels.find((model) => model.platformModelName === selectedModelName)
+  const [selectedModelKey, setSelectedModelKey] = React.useState("");
+  const selectedModel = editableModels.find((model) => canvasModelKey(model) === selectedModelKey)
     ?? editableModels.find((model) => model.platformModelName === (node?.kind === "output" ? node.model : undefined))
     ?? (defaultModel && resolveCanvasRoute(defaultModel, true).route !== null ? defaultModel : null)
     ?? editableModels[0]
@@ -102,11 +105,13 @@ export function CanvasImageEditor({
 
   React.useEffect(() => {
     if (!node) {
-      setSelectedModelName("");
+      setSelectedModelKey("");
       return;
     }
     const originalModel = editableModels.find((model) => model.platformModelName === (node.kind === "output" ? node.model : undefined));
-    setSelectedModelName(originalModel?.platformModelName ?? defaultModel?.platformModelName ?? editableModels[0]?.platformModelName ?? "");
+    setSelectedModelKey(
+      canvasModelKey(originalModel ?? defaultModel ?? editableModels[0]) ?? "",
+    );
   }, [defaultModel, editableModels, node]);
 
   React.useEffect(() => {
@@ -343,9 +348,9 @@ export function CanvasImageEditor({
             </div>
           )}
           <CanvasModelSelect
-            imageModels={editableModels}
+            models={editableModels}
             selectedModel={selectedModel}
-            onSelect={setSelectedModelName}
+            onSelect={(model) => setSelectedModelKey(canvasModelKey(model))}
             disabled={busy}
           />
           <Input value={prompt} name="canvas-editor-prompt" aria-label={t("editorPromptPlaceholder")} autoComplete="off" onChange={(event) => setPrompt(event.target.value)} placeholder={t("editorPromptPlaceholder")} className="h-10 min-w-0 flex-1 text-sm sm:min-w-52" />

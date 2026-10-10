@@ -57,6 +57,8 @@ export type GraphNodeActionHandlers = {
   onRunNode: (nodeID: string) => void;
   onCancelNode: (nodeID: string) => void;
   onRequeryNode: (nodeID: string) => void;
+  // 输出节点任务重查：任务绑定随输出节点走，失败的视频输出节点自治回查上游结果
+  onRequeryOutputNode: (nodeID: string) => void;
   // 输出节点产物保存重试（保存待重试时输出节点自治重新保存）
   onRetryOutputSave: (nodeID: string) => void;
   onPreviewNode: (node: OutputGraphNode) => void;
@@ -452,10 +454,20 @@ function GenerateGraphNodeView({
     [imageModels, isVideo],
   );
   const model = React.useMemo(
-    () => candidateModels.find((item) => item.platformModelName === node.model) ?? null,
-    [candidateModels, node.model],
+    () =>
+      // 以作用域 + 用户模型 ID + 名称匹配：同一名称可能存在于多个接口（用户模型按上游重复）
+      candidateModels.find((item) =>
+        (node.modelScope === "user"
+          ? item.modelScope === "user" && item.userModelID === node.userModelID
+          : (item.modelScope ?? "platform") === (node.modelScope ?? "platform"))
+        && item.platformModelName === node.model)
+      // 旧版节点未保存作用域：按名称回退匹配
+      ?? (node.model ? candidateModels.find((item) => item.platformModelName === node.model) : null)
+      ?? null,
+    [candidateModels, node.model, node.modelScope, node.userModelID],
   );
-  const running = node.runStatus === "pending" || node.runStatus === "streaming";
+  // 兼容旧数据：遗留运行状态仍记录在生成节点上
+  const legacyRunning = node.runStatus === "pending" || node.runStatus === "streaming";
 
   return (
     <GraphNodeShell
@@ -497,14 +509,16 @@ function GenerateGraphNodeView({
         {/* 模型与参数 */}
         <div data-canvas-selectable className="shrink-0 space-y-1.5">
           <CanvasModelSelect
-            imageModels={candidateModels}
+            models={candidateModels}
             selectedModel={model}
-            onSelect={(modelName) => {
-              const nextModel = candidateModels.find((item) => item.platformModelName === modelName) ?? null;
-              // 节点媒体类型跟随所选模型（视频模型 -> 视频节点，图像模型 -> 图像节点）
+            onSelect={(nextModel) => {
+              // 节点媒体类型跟随所选模型（视频模型 -> 视频节点，图像模型 -> 图像节点）；
+              // 同时记录作用域与用户模型 ID，同名模型可区分来源接口
               handlers.onUpdateNode(node.id, {
-                model: modelName,
-                mediaType: nextModel?.kinds.includes("video_gen") ? "video" : "image",
+                model: nextModel.platformModelName,
+                modelScope: nextModel.modelScope === "user" ? "user" : "platform",
+                userModelID: nextModel.modelScope === "user" ? nextModel.userModelID : undefined,
+                mediaType: nextModel.kinds.includes("video_gen") ? "video" : "image",
               });
             }}
             className="w-full justify-between"
@@ -520,9 +534,10 @@ function GenerateGraphNodeView({
           />
         </div>
 
-        {/* 运行状态区 */}
+        {/* 运行状态区：任务创建即转交输出节点，等待/进度在输出节点上呈现；
+            兼容旧数据的生成节点运行态仍在此展示 */}
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border/50 bg-muted/25">
-          {running ? (
+          {legacyRunning ? (
             node.previewURL ? (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -636,27 +651,30 @@ function GenerateGraphNodeView({
           )}
         </div>
 
-        {/* 运行按钮 */}
+        {/* 运行按钮：生成节点不继承输出节点的运行状态，可连续点击发起多次生成；
+            等待/取消在各自输出节点上。仅遗留数据（运行态记录在生成节点上）显示取消 */}
         <button
           type="button"
           data-canvas-selectable
           disabled={!model}
           className={cn(
             "pointer-events-auto flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg text-xs font-semibold text-primary-foreground shadow-sm transition-all",
-            isVideo ? "bg-violet-600 hover:bg-violet-600/90 active:scale-[0.98]" : "bg-primary hover:bg-primary/90 active:scale-[0.98]",
+            legacyRunning
+              ? "bg-amber-600 hover:bg-amber-600/90 active:scale-[0.98]"
+              : isVideo ? "bg-violet-600 hover:bg-violet-600/90 active:scale-[0.98]" : "bg-primary hover:bg-primary/90 active:scale-[0.98]",
             "disabled:pointer-events-none disabled:opacity-50",
           )}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
-            if (running) {
+            if (legacyRunning) {
               handlers.onCancelNode(node.id);
             } else {
               handlers.onRunNode(node.id);
             }
           }}
         >
-          {running ? (
+          {legacyRunning ? (
             <>
               <Square className="size-3.5" strokeWidth={2} />
               {t("nodeCancel")}
@@ -690,7 +708,10 @@ function OutputGraphNodeView({
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
   const [imageLoaded, setImageLoaded] = React.useState(false);
+  const [detailOpen, setDetailOpen] = React.useState(false);
   const isVideo = (node.mediaType ?? (node.mimeType?.startsWith("video/") ? "video" : "image")) === "video";
+  // 运行中任务的取消目标：运行控制器按 runID 登记（并发多次生成互不影响）
+  const cancelTargetID = node.status === "running" ? node.runID ?? node.sourceGenerateID ?? null : null;
   const displaySource = node.status === "done" ? node.objectURL : undefined;
 
   React.useEffect(() => {
@@ -727,7 +748,76 @@ function OutputGraphNodeView({
     >
       <div className="flex h-full flex-col gap-1.5 p-2.5">
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border/50 bg-muted/25">
-          {node.status === "error" && node.pendingRetry ? (
+          {node.status === "running" ? (
+            // 任务已转交本节点：等待/流式响应/进度/取消都在输出节点上呈现
+            node.previewURL ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img alt="" src={node.previewURL} className="size-full object-contain" draggable={false} />
+                <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-background/80 px-2 py-1 backdrop-blur-sm">
+                  <span className="size-3 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+                  <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                    {node.statusLabel || t("nodePreparing")}
+                  </span>
+                  {cancelTargetID ? (
+                    <button
+                      type="button"
+                      data-canvas-selectable
+                      aria-label={t("nodeCancel")}
+                      className="shrink-0 rounded-sm px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handlers.onCancelNode(cancelTargetID);
+                      }}
+                    >
+                      {t("nodeCancel")}
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="flex size-full flex-col items-center justify-center gap-2">
+                <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-muted/50 via-transparent to-muted/50" />
+                <span className={cn(
+                  "relative size-6 animate-spin rounded-full border-2 border-primary/25",
+                  isVideo ? "border-t-violet-500" : "border-t-primary",
+                )} />
+                <p className="relative max-w-[85%] truncate text-[11px] text-muted-foreground">
+                  {node.statusLabel || t("nodePreparing")}
+                </p>
+                {/* 视频任务的粒度进度（后端 progress 事件） */}
+                {isVideo && typeof node.progress === "number" ? (
+                  <div className="relative flex w-[70%] items-center gap-2">
+                    <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-violet-500 transition-[width] duration-500"
+                        style={{ width: `${Math.min(100, Math.max(0, node.progress))}%` }}
+                      />
+                    </div>
+                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                      {Math.min(100, Math.max(0, node.progress))}%
+                    </span>
+                  </div>
+                ) : null}
+                {cancelTargetID ? (
+                  <button
+                    type="button"
+                    data-canvas-selectable
+                    className="pointer-events-auto relative inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handlers.onCancelNode(cancelTargetID);
+                    }}
+                  >
+                    <Square className="size-3" strokeWidth={1.8} />
+                    {t("nodeCancel")}
+                  </button>
+                ) : null}
+              </div>
+            )
+          ) : node.status === "error" && node.pendingRetry ? (
             // 生成已成功、保存待重试：重试职责归本输出节点，不占用生成节点
             <div className="flex size-full flex-col items-center justify-center gap-1.5 p-2 text-center">
               {node.retrySaving ? (
@@ -759,10 +849,65 @@ function OutputGraphNodeView({
             </div>
           ) : node.status === "error" ? (
             <div className="flex size-full flex-col items-center justify-center gap-1.5 p-2 text-center">
-              <AlertTriangle className="size-5 shrink-0 text-destructive/80" strokeWidth={1.6} />
-              <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
-                {node.errorMessage || t("generateFailed")}
-              </p>
+              {/* 重查进行中（错误态节点带 statusLabel）：显示加载状态并隐藏重查按钮 */}
+              {node.statusLabel ? (
+                <div className="flex flex-col items-center gap-1.5">
+                  <span className={cn(
+                    "size-5 animate-spin rounded-full border-2 border-primary/25",
+                    isVideo ? "border-t-violet-500" : "border-t-primary",
+                  )} />
+                  <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
+                    {node.statusLabel}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <AlertTriangle className="size-5 shrink-0 text-destructive/80" strokeWidth={1.6} />
+                  <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
+                    {node.errorMessage || t("generateFailed")}
+                  </p>
+                  {/* 任务绑定在输出节点上：失败的视频任务可直接在本节点重查上游结果 */}
+                  {node.runID && isVideo ? (
+                    <button
+                      type="button"
+                      data-canvas-selectable
+                      className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handlers.onRequeryOutputNode(node.id);
+                      }}
+                    >
+                      <Search className="size-3" strokeWidth={1.8} />
+                      {t("nodeRequery")}
+                    </button>
+                  ) : null}
+                </>
+              )}
+              {node.errorDetail ? (
+                <div className="w-full">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDetailOpen((current) => !current);
+                    }}
+                  >
+                    <ChevronDown className={cn("size-3 transition-transform", detailOpen && "rotate-180")} strokeWidth={1.8} />
+                    {t("nodeErrorRawResponse")}
+                  </button>
+                  {detailOpen ? (
+                    <pre
+                      data-canvas-selectable
+                      className="mt-1 max-h-28 w-full overflow-auto rounded-md bg-muted/60 p-1.5 text-left font-mono text-[9px] leading-relaxed whitespace-pre-wrap break-words text-muted-foreground select-text"
+                    >
+                      {node.errorDetail}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : node.status === "done" && isVideo && displaySource ? (
             <>

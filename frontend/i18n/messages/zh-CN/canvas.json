@@ -118,6 +118,10 @@
   "moderationBlocked": "内容已被安全策略拦截。",
   "modelSelectPlaceholder": "选择模型",
   "modelEditCapable": "可编辑",
+  "viewModeChat": "切换到对话模式",
+  "viewModeGraph": "切换到节点图模式",
+  "toolbarViewModeChat": "对话",
+  "toolbarViewModeGraph": "节点图",
   "projects": "画布项目",
   "templates": "模板",
   "history": "版本历史",
@@ -258,5 +262,9 @@
   "artifactRetrySaving": "正在重新保存生成结果",
   "artifactRetryFailed": "保存生成结果失败，请稍后重试",
   "artifactRecovered": "已重新保存生成结果",
-  "artifactExpired": "保存结果已过期，请重新生成"
+  "artifactExpired": "保存结果已过期，请重新生成",
+  "modelScopePlatform": "系统模型",
+  "modelScopeUser": "用户模型",
+  "modelGroup": "分组",
+  "modelGroupEmpty": "该分组暂无可用模型"
 }

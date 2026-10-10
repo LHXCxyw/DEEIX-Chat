@@ -258,5 +258,13 @@
   "artifactRetrySaving": "Re-saving the generated result",
   "artifactRetryFailed": "Failed to save the generated result. Try again later.",
   "artifactRecovered": "Generated result saved",
-  "artifactExpired": "The result reference has expired. Regenerate to retry."
+  "artifactExpired": "The result reference has expired. Regenerate to retry.",
+  "viewModeChat": "Switch to chat mode",
+  "viewModeGraph": "Switch to node graph mode",
+  "toolbarViewModeChat": "Chat",
+  "toolbarViewModeGraph": "Nodes",
+  "modelScopePlatform": "System models",
+  "modelScopeUser": "User models",
+  "modelGroup": "Groups",
+  "modelGroupEmpty": "No models in this group"
 }

@@ -174,6 +174,7 @@ export function CanvasViewport({
   onRunNode,
   onCancelNode,
   onRequeryNode,
+  onRequeryOutputNode,
   onRetryOutputSave,
   onConnectNodes,
   onRemoveEdge,
@@ -213,6 +214,8 @@ export function CanvasViewport({
   onRunNode: (nodeID: string) => void;
   onCancelNode: (nodeID: string) => void;
   onRequeryNode: (nodeID: string) => void;
+  // 输出节点任务重查：任务绑定随输出节点走，失败的视频输出节点自治回查上游结果
+  onRequeryOutputNode: (nodeID: string) => void;
   onRetryOutputSave: (nodeID: string) => void;
   onConnectNodes: (attempt: { fromNodeID: string; fromPort: "out"; toNodeID: string; toPort: "prompt" | "image" | "result" }) => boolean;
   onRemoveEdge: (edgeID: string) => void;
@@ -1190,6 +1193,7 @@ export function CanvasViewport({
     onRunNode,
     onCancelNode,
     onRequeryNode,
+    onRequeryOutputNode,
     onRetryOutputSave,
     onPreviewNode,
     onDownloadNode,
@@ -1197,16 +1201,23 @@ export function CanvasViewport({
     onEditReferenceNode,
     onUseAsReference,
     uploadReferenceFile,
-  }), [onCancelNode, onDownloadNode, onEditNode, onEditReferenceNode, onEnsureNodePreview, onPreviewNode, onRemoveNode, onRequeryNode, onRetryOutputSave, onRunNode, onUpdateNode, onUseAsReference, uploadReferenceFile]);
+  }), [onCancelNode, onDownloadNode, onEditNode, onEditReferenceNode, onEnsureNodePreview, onPreviewNode, onRemoveNode, onRequeryNode, onRequeryOutputNode, onRetryOutputSave, onRunNode, onUpdateNode, onUseAsReference, uploadReferenceFile]);
 
   // 原生文本选择由 mousedown 默认行为启动。在非交互内容上阻止它，
   // 拖动画布 / 节点 / 装饰时就不会选中节点内文本；
   // textarea、input、pre（错误详情）等可编辑/可复制内容保持原生选择。
+  // 注意：弹层（模型选择器等 data-canvas-ui 覆盖层）经 Portal 渲染到 body，
+  // 但 React 事件仍会沿 React 树冒泡到这里——必须豁免，否则 preventDefault
+  // 会阻止弹层内控件获得焦点，状态切换移除焦点元素时 Radix 判定
+  // focusOutside 会直接把弹层收起（表现为点「用户模型」Tab 弹层收缩关闭）。
   const handleMouseDownCapture = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
       return;
     }
     const target = event.target as HTMLElement;
+    if (isCanvasOverlayTarget(target)) {
+      return;
+    }
     if (target.closest("textarea, input, pre, [data-canvas-selectable]") || target.isContentEditable) {
       return;
     }

@@ -5,6 +5,25 @@ import type { ConversationOptions } from "@/shared/api/conversation.types";
 // 画布请求路由：media 图像生成 / media 图像编辑 / chat 路由图像模型 / media 视频生成
 export type CanvasRoute = "image_generation" | "image_edit" | "chat" | "video_generation";
 
+// ---------------------------------------------------------------------------
+// 模型身份键：同一模型名可能存在于多个接口（用户模型按上游渠道重复），
+// 选择与解析都以身份键为准，避免同名模型无法区分来源接口
+// ---------------------------------------------------------------------------
+export function canvasModelKey(model: Pick<ChatModelOption, "platformModelName" | "modelScope" | "userModelID" | "upstreamID">): string {
+  return model.modelScope === "user"
+    ? `user:${model.userModelID ?? model.upstreamID ?? model.platformModelName}`
+    : `platform:${model.platformModelName}`;
+}
+
+// 身份键解析：还原作用域与用户模型 ID（模型名单独存放在节点/状态字段中）
+export function parseCanvasModelKey(key: string | null | undefined): { scope: "platform" | "user"; userModelID?: number } {
+  if (key && key.startsWith("user:")) {
+    const id = Number(key.slice(5));
+    return { scope: "user", userModelID: Number.isFinite(id) && id > 0 ? id : undefined };
+  }
+  return { scope: "platform" };
+}
+
 export type CanvasRouteBlockReason =
   | "edit_reference_required"
   | "image_unsupported"

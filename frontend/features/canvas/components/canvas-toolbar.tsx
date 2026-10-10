@@ -12,7 +12,7 @@ import {
   GalleryVerticalEnd,
   Group,
   Hand,
-  History,ImageIcon, 
+  History,ImageIcon,
   Images,
   Layers,
   Lock,
@@ -29,6 +29,7 @@ import {
   Trash2,
   Undo2,
   Ungroup,
+  Workflow,
   X
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -40,6 +41,7 @@ import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
   type CanvasPointerMode,
+  type CanvasViewMode,
   type CanvasViewport,
   type GraphNodeKind,
 } from "@/features/canvas/model/canvas-types";
@@ -92,6 +94,8 @@ export function CanvasToolbar({
   generatingCount,
   pointerMode,
   onPointerModeChange,
+  viewMode,
+  onViewModeChange,
   onZoom,
   onReset,
   canUndo,
@@ -122,6 +126,9 @@ export function CanvasToolbar({
   generatingCount: number;
   pointerMode: CanvasPointerMode;
   onPointerModeChange: (mode: CanvasPointerMode) => void;
+  // 使用模式（对话/节点图）：PC 与移动端均可自选
+  viewMode: CanvasViewMode;
+  onViewModeChange: (mode: CanvasViewMode) => void;
   onZoom: (direction: "in" | "out") => void;
   onReset: () => void;
   canUndo: boolean;
@@ -236,6 +243,25 @@ export function CanvasToolbar({
       </button>
 
       <div className="pointer-events-auto flex min-w-0 max-w-[calc(100vw-4rem)] items-center gap-1 overflow-x-auto overscroll-x-contain sm:max-w-[calc(100vw-5rem)] sm:gap-2">
+        {/* 使用模式切换：对话 / 节点图（PC 与移动端均可自选，移动端默认对话） */}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border/70 bg-background/80 p-1.5 shadow-sm backdrop-blur-xl">
+          <ToolbarButton
+            label={t("viewModeChat")}
+            description={t("toolbarViewModeChat")}
+            active={viewMode === "chat"}
+            onClick={() => onViewModeChange("chat")}
+          >
+            <MessageSquareText className="size-4" strokeWidth={1.8} />
+          </ToolbarButton>
+          <ToolbarButton
+            label={t("viewModeGraph")}
+            description={t("toolbarViewModeGraph")}
+            active={viewMode === "graph"}
+            onClick={() => onViewModeChange("graph")}
+          >
+            <Workflow className="size-4" strokeWidth={1.8} />
+          </ToolbarButton>
+        </div>
         {/* 节点添加组 */}
         <div className="hidden items-center gap-0.5 rounded-xl border border-border/70 bg-background/80 px-1.5 py-1.5 shadow-sm backdrop-blur-xl lg:flex">
           {renderNodeActions("sm")}

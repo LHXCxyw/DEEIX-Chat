@@ -518,6 +518,7 @@ export function CanvasWorkspace() {
         onRunNode={(nodeID) => void canvas.runGenerateNode(nodeID)}
         onCancelNode={canvas.cancelNode}
         onRequeryNode={(nodeID) => void canvas.requeryGenerateNode(nodeID)}
+        onRequeryOutputNode={(nodeID) => void canvas.requeryOutputNode(nodeID)}
         onRetryOutputSave={(nodeID) => void canvas.retryOutputNodeSave(nodeID)}
         onConnectNodes={canvas.connectGraphNodes}
         onRemoveEdge={canvas.removeEdge}
@@ -535,6 +536,8 @@ export function CanvasWorkspace() {
           generatingCount={canvas.generatingCount}
           pointerMode={canvas.pointerMode}
           onPointerModeChange={canvas.setPointerMode}
+          viewMode={canvas.viewMode}
+          onViewModeChange={canvas.setViewMode}
           onZoom={handleZoom}
           onReset={canvas.resetViewport}
           canUndo={canvas.canUndo}
@@ -623,15 +626,25 @@ export function CanvasWorkspace() {
           />
         </div>
 
-        {/* 移动端对话输入条：保留无限画布交互，任务结果作为节点出现在画布上 */}
-        <div className="lg:hidden">
+        {/* 对话输入条：移动端默认显示；节点图模式下移动端保留、PC 隐藏。
+            PC 与移动端均可通过工具栏在使用模式（对话/节点图）间自选切换 */}
+        {canvas.viewMode === "chat" ? (
           <CanvasChatComposer
             imageModels={mediaModels}
-            restoredModelName={canvas.restoredModelName}
+            restoredModelKey={canvas.restoredModelKey}
             generatingCount={canvas.generatingCount}
             onAddTask={(input) => void handleChatTask(input)}
           />
-        </div>
+        ) : (
+          <div className="lg:hidden">
+            <CanvasChatComposer
+              imageModels={mediaModels}
+              restoredModelKey={canvas.restoredModelKey}
+              generatingCount={canvas.generatingCount}
+              onAddTask={(input) => void handleChatTask(input)}
+            />
+          </div>
+        )}
       </CanvasViewport>
 
       {/* 图片放大查看 */}
