@@ -566,6 +566,14 @@ func consumeOpenAIGenerateStream(
 			data := line[len("data:"):]
 			data = strings.TrimPrefix(data, " ")
 			dataLines = append(dataLines, data)
+			continue
+		}
+		// 无 SSE 前缀的续行：部分上游会以 pretty-print 多行 JSON 发送事件，
+		// 后续行没有 data: 前缀。按 SSE 规范它们应被忽略，但那样会把一个完整
+		// 事件裁成非法 JSON（例如流内 error 对象被裁成 "{"）。这里把续行拼回
+		// 当前 data 事件，保证多行负载完整解析。
+		if len(dataLines) > 0 {
+			dataLines[len(dataLines)-1] += "\n" + line
 		}
 	}
 

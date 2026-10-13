@@ -17,6 +17,7 @@ var (
 	errInvalidConversationID                   = apperr.New("conversation.invalid_id", "invalid conversation id")
 	errInvalidConversationProjectID            = apperr.New("conversation_project.invalid_id", "invalid conversation project id")
 	errInvalidFileID                           = apperr.New("file.invalid_id", "invalid file id")
+	errInvalidFileSignature                    = apperr.New("file.invalid_signature", "invalid file signature")
 	errInvalidFile                             = apperr.New("request.invalid_file", "invalid file")
 	errInvalidFileReference                    = apperr.New("file.invalid_reference", "invalid file reference")
 	errInvalidFileStream                       = apperr.New("file.invalid_stream", "invalid file stream")

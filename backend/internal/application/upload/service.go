@@ -23,9 +23,11 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/filetype"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/objectstorage"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/filelink"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/pagination"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 var errLocalFileTooLarge = errors.New("local file too large")
@@ -58,6 +60,8 @@ type Service struct {
 	storeProvider    appstorage.Provider
 	uploadGatesMu    sync.Mutex
 	uploadGates      map[string]*uploadContentGate
+	lastTouch        sync.Map
+	thumbFlight      singleflight.Group
 }
 
 // uploadContentGate 同一内容（用户+SHA+大小）上传的互斥闸门：token 为容量 1 的许可通道，users 记录等待者数量用于回收。
@@ -351,6 +355,8 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 		fileItem.ExtractStatus = "none"
 	}
 
+	s.prewarmThumbnailVariants(*fileItem)
+
 	return &UploadFileResult{
 		File:   *fileItem,
 		Quota:  *quota,
@@ -434,6 +440,7 @@ func (s *Service) tryReuseExistingFile(
 						zap.Error(rmErr),
 					)
 				}
+				s.deleteThumbnailVariants(ctx, store, deletedFile.StoragePath)
 			}
 			continue
 		}
@@ -532,6 +539,8 @@ func (s *Service) deleteFile(ctx context.Context, userID uint, fileID string, op
 				zap.String("path", deletedFile.StoragePath),
 				zap.Error(rmErr),
 			)
+		} else {
+			s.deleteThumbnailVariants(ctx, store, deletedFile.StoragePath)
 		}
 	}
 
@@ -596,6 +605,22 @@ func (s *Service) ValidateImageFile(ctx context.Context, userID uint, fileID str
 	return s.errMIMEBlocked()
 }
 
+// StatFileContent 仅读取文件对象元数据（不打开存储、不触碰访问时间），供 304 重验证快路径使用。
+func (s *Service) StatFileContent(ctx context.Context, userID uint, fileID string) (*domainconversation.FileObject, error) {
+	normalizedFileID := strings.TrimSpace(fileID)
+	if normalizedFileID == "" {
+		return nil, s.errInvalidFileReference()
+	}
+	item, err := s.repo.GetActiveFileObjectByID(ctx, userID, normalizedFileID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) || errors.Is(err, repository.ErrFileNotFound) {
+			return nil, s.errFileNotFound()
+		}
+		return nil, err
+	}
+	return item, nil
+}
+
 // OpenFileContent 打开当前用户的文件内容。
 func (s *Service) OpenFileContent(ctx context.Context, userID uint, fileID string) (*FileContentResult, error) {
 	normalizedFileID := strings.TrimSpace(fileID)
@@ -642,7 +667,6 @@ func (s *Service) OpenFileContent(ctx context.Context, userID uint, fileID strin
 			zap.Error(touchErr),
 		)
 	}
-
 	return &FileContentResult{
 		File:        *item,
 		Reader:      reader,
@@ -682,6 +706,25 @@ func (s *Service) snapshot() config.Config {
 		return config.Config{}
 	}
 	return s.cfg.Snapshot()
+}
+
+// BuildSignedFileContentURL 构建文件内容的限时签名访问 URL，供无登录态的上游按 URL 回源拉取；
+// 未配置公网 API 地址或签名密钥时返回空串，调用方应回退为内联传输文件字节。
+func (s *Service) BuildSignedFileContentURL(userID uint, fileID string) string {
+	cfg := s.snapshot()
+	return filelink.BuildContentURL(cfg.PublicAPIBaseURL, cfg.JWTSecret, userID, fileID, time.Now())
+}
+
+// SignedContentPath 返回生成媒体签名直连的相对路径；签名密钥未配置时返回空串。
+func (s *Service) SignedContentPath(userID uint, fileID string) string {
+	cfg := s.snapshot()
+	return filelink.BuildSignedContentPath(cfg.JWTSecret, userID, fileID, time.Now())
+}
+
+// SignedThumbnailPath 返回缩略图变体签名直连的相对路径。
+func (s *Service) SignedThumbnailPath(userID uint, fileID string, variant string) string {
+	cfg := s.snapshot()
+	return filelink.BuildSignedThumbnailPath(cfg.JWTSecret, userID, fileID, variant, time.Now())
 }
 
 func (s *Service) initializeUploadedFile(ctx context.Context, file *domainconversation.FileObject) error {

@@ -73,4 +73,7 @@ func (m *Module) RegisterPublicRoutes(public *gin.RouterGroup, gate middleware.F
 	sharing := public.Group("", gate.Require("sharing"))
 	sharing.GET("/shared-conversations/:share_id", m.Handler.GetPublicSharedConversation)
 	sharing.GET("/shared-conversations/:share_id/files/:file_id/content", m.Handler.GetPublicSharedFileContent)
+	// 签名 URL 自带用户与时效鉴权，供无登录态上游与浏览器媒体直连访问。
+	public.GET("/files/:file_id/signed-content", m.Handler.GetSignedFileContent)
+	public.GET("/files/:file_id/signed-thumbnail", m.Handler.GetSignedFileThumbnail)
 }
