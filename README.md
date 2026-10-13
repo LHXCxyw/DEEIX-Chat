@@ -30,6 +30,26 @@ DEEIX Chat is an open-source, deployable AI platform for individuals, teams, and
 
 The system is designed around simple deployment, efficient static delivery, and a low runtime resource footprint: lightweight without feeling limited, restrained without losing capability, and open without becoming disorderly.
 
+## Personal Fork and Secondary Development
+
+This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat), maintained independently and not an official DEEIX Chat release. It is currently rebased on upstream v0.4.4 and keeps the upstream layout and upgrade path while re-applying and extending the customisations listed below. For the exact set of changes, refer to this repository's commit history.
+
+Personal upstream channels (BYOK), user model management, and user model routing are natively covered by the upstream personal provider system, so this fork no longer maintains its own implementations of those parts.
+
+### Customisation Highlights
+
+- **Visual creation canvas**: a zoomable and pannable infinite canvas that organises image and video generation, editing, and result flow as a node graph, with prompt / reference / generation / output node connections, generation tasks handing off to output nodes so runs can overlap, and cross-device persistence.
+- **Canvas node type registry**: node sizes, ports, connection rules, accent colours, and toolbar entries are all derived from a single registry, so a new node type only needs one registry entry.
+- **Canvas HTML preview node**: write HTML/CSS/JS directly inside the canvas with a live preview that runs in a restricted iframe with no access to application data.
+- **Canvas context injection**: attach a summary of the current canvas nodes and connections to the chat composer with one toggle, submitted alongside the prompt.
+- **AI project workspace**: a project conversation is a file workspace where the AI creates, reads, searches, patches, deletes, and archives files through dedicated project tools instead of printing code into the conversation, with archives delivered as one-click download cards.
+- **IDE-style resource manager**: a persistent sidebar with a collapsible file tree, multi-select actions, localised context menus, manual file editing, ZIP import and download, and path-aware drag-and-drop import that drops files into the hovered folder.
+- **In-conversation code editing**: opened files appear as tabs next to chat threads, powered by CodeMirror with syntax highlighting, language-service completion, word wrapping, and localised context menus, alongside per-round change cards that show a cumulative merged diff for repeated edits to the same file.
+- **Sandboxed HTML preview in the workspace**: HTML/SVG files preview live in an isolated iframe, workspace-relative assets are inlined automatically, and preview scripts cannot reach application data.
+- **Message rewind**: rewind a conversation to any earlier point and restore the project workspace file state from that point's snapshot.
+- **Media requery and artifact retry**: requery unsettled media artifacts and retry them, reducing cases where a generation succeeds but its output is lost.
+- **Channel and model protocol presets**: the admin console and personal upstream channels share one list of compatible-protocol and model-protocol presets, which constrains the selectable capability kinds per protocol.
+
 ![DEEIX Chat workspace](./docs/assets/screenshots/DEEIX-Chat.jpg)
 
 ## Features
