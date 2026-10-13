@@ -30,12 +30,15 @@ type Conversation struct {
 	LastCompactedAt       *time.Time
 	LastResponseID        string
 	LastPromptFingerprint string
-	ShareStatus           string
-	ShareID               string
-	SharedAt              *time.Time
-	LastShareAccessedAt   *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	// ActiveTipMessageID / ActiveTipMessagePublicID 记录消息回退（rewind）后的活跃续聊锚点；0/空表示未回退过。
+	ActiveTipMessageID       uint
+	ActiveTipMessagePublicID string
+	ShareStatus              string
+	ShareID                  string
+	SharedAt                 *time.Time
+	LastShareAccessedAt      *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 // ConversationProject 表示用户会话项目分组。
@@ -431,11 +434,13 @@ type Run struct {
 	ModelVendor        string
 	ModelIcon          string
 	UpstreamModelName  string
-	InputTokens        int64
-	OutputTokens       int64
-	CacheReadTokens    int64
-	CacheWriteTokens   int64
-	ReasoningTokens    int64
+	// UpstreamTaskID 是异步媒体任务在上游的任务编号，供失败后任务重查定位上游结果；同步协议为空。
+	UpstreamTaskID   string
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	ReasoningTokens  int64
 	// ReasoningEffort 是本次运行最终路由上生效的规范推理档位；模型无推理能力时为 nil。
 	ReasoningEffort          *string
 	ToolCallsCount           int

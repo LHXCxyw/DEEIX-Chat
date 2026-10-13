@@ -832,6 +832,40 @@ func (r *Repo) UpdateConversationCompactedAt(ctx context.Context, conversationID
 		Error)
 }
 
+// UpdateConversationActiveTip 更新回退后的续聊锚点；messageID=0 清空锚点。
+func (r *Repo) UpdateConversationActiveTip(ctx context.Context, conversationID uint, messageID uint, publicID string) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.Conversation{}).
+		Where("id = ?", conversationID).
+		Updates(map[string]any{
+			"active_tip_message_id":        messageID,
+			"active_tip_message_public_id": strings.TrimSpace(publicID),
+		})
+	if result.Error != nil {
+		return dberror.Translate(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return repository.ErrNotFound
+	}
+	return nil
+}
+
+// HasPendingMessageInConversation 判断会话内是否存在未完成的 pending 消息（活跃生成）。
+// 只统计 recently（2 分钟内）有更新的 pending 行：正常生成期间用量/计费回写会
+// 持续 bump updated_at；进程崩溃或断连残留的僵死 pending 行不再推进，
+// 若不加窗口会永久阻塞会话的回退/重试。
+func (r *Repo) HasPendingMessageInConversation(ctx context.Context, conversationID uint) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&models.Message{}).
+		Where("conversation_id = ? AND status = ? AND updated_at >= ?", conversationID, "pending", time.Now().Add(-2*time.Minute)).
+		Count(&count).Error
+	if err != nil {
+		return false, dberror.Translate(err)
+	}
+	return count > 0, nil
+}
+
 // UpdateConversationLastResponseID 更新会话最近响应 ID。
 func (r *Repo) UpdateConversationLastResponseID(ctx context.Context, conversationID uint, responseID string) error {
 	updates := map[string]any{"last_response_id": responseID}
@@ -1787,6 +1821,7 @@ func (r *Repo) UpdateConversationRun(ctx context.Context, item *domainconversati
 			"model_vendor",
 			"model_icon",
 			"upstream_model_name",
+			"upstream_task_id",
 			"input_tokens",
 			"output_tokens",
 			"cache_read_tokens",
@@ -2222,6 +2257,39 @@ func (r *Repo) GetMessageByID(ctx context.Context, conversationID uint, messageI
 	item = single[0]
 	result := toMessageDomain(item)
 	return &result, nil
+}
+
+// GetConversationRunByRunID 按运行 ID 读取当前用户的运行记录。
+func (r *Repo) GetConversationRunByRunID(ctx context.Context, userID uint, runID string) (*domainconversation.Run, error) {
+	runID = strings.TrimSpace(runID)
+	if userID == 0 || runID == "" {
+		return nil, repository.ErrInvalidInput
+	}
+	var item models.ConversationRun
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND run_id = ?", userID, runID).
+		First(&item).Error; err != nil {
+		return nil, dberror.Translate(err)
+	}
+	domain := toConversationRunDomain(item)
+	return &domain, nil
+}
+
+// FindAssistantMessageIDByRunID 定位当前用户某次运行中的 assistant 消息。
+func (r *Repo) FindAssistantMessageIDByRunID(ctx context.Context, userID uint, runID string) (uint, error) {
+	runID = strings.TrimSpace(runID)
+	if userID == 0 || runID == "" {
+		return 0, repository.ErrInvalidInput
+	}
+	var row models.Message
+	if err := r.db.WithContext(ctx).
+		Select("id").
+		Where("user_id = ? AND run_id = ? AND role = ?", userID, runID, "assistant").
+		Order("id ASC").
+		First(&row).Error; err != nil {
+		return 0, dberror.Translate(err)
+	}
+	return row.ID, nil
 }
 
 // ListMessageAncestors 从指定消息向上遍历 parent_message_id 链，返回祖先消息（根到叶排列）。
@@ -3830,26 +3898,28 @@ func toConversationDomain(item models.Conversation) domainconversation.Conversat
 		labelsJSON = "[]"
 	}
 	return domainconversation.Conversation{
-		ID:                    item.ID,
-		UserID:                item.UserID,
-		ProjectID:             item.ProjectID,
-		PublicID:              item.PublicID,
-		Title:                 item.Title,
-		LabelsJSON:            labelsJSON,
-		LabelsManuallyManaged: item.LabelsManuallyManaged,
-		Model:                 item.Model,
-		Provider:              item.Provider,
-		SessionKey:            item.SessionKey,
-		IsStarred:             item.IsStarred,
-		StarredAt:             item.StarredAt,
-		MessageCount:          item.MessageCount,
-		Status:                item.Status,
-		ContextPolicy:         item.ContextPolicy,
-		LastCompactedAt:       item.LastCompactedAt,
-		LastResponseID:        item.LastResponseID,
-		LastPromptFingerprint: item.LastPromptFingerprint,
-		CreatedAt:             item.CreatedAt,
-		UpdatedAt:             item.UpdatedAt,
+		ID:                       item.ID,
+		UserID:                   item.UserID,
+		ProjectID:                item.ProjectID,
+		PublicID:                 item.PublicID,
+		Title:                    item.Title,
+		LabelsJSON:               labelsJSON,
+		LabelsManuallyManaged:    item.LabelsManuallyManaged,
+		Model:                    item.Model,
+		Provider:                 item.Provider,
+		SessionKey:               item.SessionKey,
+		IsStarred:                item.IsStarred,
+		StarredAt:                item.StarredAt,
+		MessageCount:             item.MessageCount,
+		Status:                   item.Status,
+		ContextPolicy:            item.ContextPolicy,
+		LastCompactedAt:          item.LastCompactedAt,
+		LastResponseID:           item.LastResponseID,
+		LastPromptFingerprint:    item.LastPromptFingerprint,
+		ActiveTipMessageID:       item.ActiveTipMessageID,
+		ActiveTipMessagePublicID: item.ActiveTipMessagePublicID,
+		CreatedAt:                item.CreatedAt,
+		UpdatedAt:                item.UpdatedAt,
 	}
 }
 
@@ -3889,23 +3959,25 @@ func toConversationModel(item *domainconversation.Conversation) models.Conversat
 		labelsJSON = "[]"
 	}
 	return models.Conversation{
-		UserID:                item.UserID,
-		ProjectID:             item.ProjectID,
-		PublicID:              item.PublicID,
-		Title:                 item.Title,
-		LabelsJSON:            labelsJSON,
-		LabelsManuallyManaged: item.LabelsManuallyManaged,
-		Model:                 item.Model,
-		Provider:              item.Provider,
-		SessionKey:            item.SessionKey,
-		IsStarred:             item.IsStarred,
-		StarredAt:             item.StarredAt,
-		MessageCount:          item.MessageCount,
-		Status:                item.Status,
-		ContextPolicy:         item.ContextPolicy,
-		LastCompactedAt:       item.LastCompactedAt,
-		LastResponseID:        item.LastResponseID,
-		LastPromptFingerprint: item.LastPromptFingerprint,
+		UserID:                   item.UserID,
+		ProjectID:                item.ProjectID,
+		PublicID:                 item.PublicID,
+		Title:                    item.Title,
+		LabelsJSON:               labelsJSON,
+		LabelsManuallyManaged:    item.LabelsManuallyManaged,
+		Model:                    item.Model,
+		Provider:                 item.Provider,
+		SessionKey:               item.SessionKey,
+		IsStarred:                item.IsStarred,
+		StarredAt:                item.StarredAt,
+		MessageCount:             item.MessageCount,
+		Status:                   item.Status,
+		ContextPolicy:            item.ContextPolicy,
+		LastCompactedAt:          item.LastCompactedAt,
+		LastResponseID:           item.LastResponseID,
+		LastPromptFingerprint:    item.LastPromptFingerprint,
+		ActiveTipMessageID:       item.ActiveTipMessageID,
+		ActiveTipMessagePublicID: item.ActiveTipMessagePublicID,
 	}
 }
 
@@ -4092,6 +4164,7 @@ func toConversationRunDomain(item models.ConversationRun) domainconversation.Run
 		ModelVendor:              item.ModelVendor,
 		ModelIcon:                item.ModelIcon,
 		UpstreamModelName:        item.UpstreamModelName,
+		UpstreamTaskID:           item.UpstreamTaskID,
 		InputTokens:              item.InputTokens,
 		OutputTokens:             item.OutputTokens,
 		CacheReadTokens:          item.CacheReadTokens,
@@ -4189,6 +4262,7 @@ func toConversationRunModel(item *domainconversation.Run) models.ConversationRun
 		ModelVendor:              item.ModelVendor,
 		ModelIcon:                item.ModelIcon,
 		UpstreamModelName:        item.UpstreamModelName,
+		UpstreamTaskID:           item.UpstreamTaskID,
 		InputTokens:              item.InputTokens,
 		OutputTokens:             item.OutputTokens,
 		CacheReadTokens:          item.CacheReadTokens,

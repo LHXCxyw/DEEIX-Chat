@@ -23,7 +23,7 @@ type NavigationCommandItem = NavigationItemBase & {
 };
 
 type NavigationLinkItem = NavigationItemBase & {
-  id: "recent" | "files" | "knowledgeBases" | "library";
+  id: "recent" | "files" | "knowledgeBases" | "library" | "canvas";
   kind: "link";
   href: string;
 };

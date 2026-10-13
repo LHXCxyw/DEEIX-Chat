@@ -2,6 +2,7 @@ package schema
 
 import (
 	"errors"
+	"fmt"
 
 	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
 	domainuicomponent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/uicomponent"
@@ -70,6 +71,10 @@ func Models() []any {
 		&models.ConversationProjectMCPTool{},
 		&models.ConversationProjectSkill{},
 		&models.ConversationProjectKnowledgeBase{},
+		&models.ProjectWorkspace{},
+		&models.ProjectFile{},
+		&models.ProjectImport{},
+		&models.ProjectFileChange{},
 		&models.SystemSetting{},
 		&models.UserSetting{},
 		&models.FileChunk{},
@@ -186,7 +191,32 @@ func Migrate(db *gorm.DB) error {
 	if err := backfillContextArtifactMessageIDs(db); err != nil {
 		return err
 	}
-	return backfillUsageLedgerBillingAt(db)
+	if err := backfillUsageLedgerBillingAt(db); err != nil {
+		return err
+	}
+	return verifyBaselineTables(db)
+}
+
+// requiredProjectWorkspaceTables 是"项目工作区 + 消息回退（rewind）"能力落地所依赖的关键表。
+// 部署镜像/数据库迁移滞后时会缺失这些表，导致运行期 SQLSTATE 42P01（relation does not exist）；
+// 因此在启动期直接 fail-fast，让问题在启动日志而非首次请求时暴露。
+// 本仓库未内置 backend/migrations/ 迁移执行器，升级要求：数据库侧需先执行与当前代码版本匹配的
+// 迁移（或直接使用与代码同版本的最新镜像）后再启动，否则此处会返回中文校验错误。
+var requiredProjectWorkspaceTables = []string{
+	"project_workspaces",
+	"project_files",
+	"project_file_changes",
+	"chat_conversation_projects",
+}
+
+// verifyBaselineTables 在迁移完成后校验关键表已存在，缺失时返回带表名的中文错误。
+func verifyBaselineTables(db *gorm.DB) error {
+	for _, table := range requiredProjectWorkspaceTables {
+		if !db.Migrator().HasTable(table) {
+			return fmt.Errorf("数据库缺少必需的表 %q，请检查数据库迁移/镜像版本是否与当前代码版本一致后重试", table)
+		}
+	}
+	return nil
 }
 
 // invalidateUnsignedFileEmbeddings 使旧版向量进入现有的重建索引流程。

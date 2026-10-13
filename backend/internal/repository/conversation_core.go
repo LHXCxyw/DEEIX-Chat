@@ -112,6 +112,8 @@ type ConversationMetadataRepository interface {
 	UpdateConversationModel(ctx context.Context, conversationID uint, platformModelName string, provider string) error
 	ListAllConversationsAfterID(ctx context.Context, afterID uint, limit int) ([]domainconversation.Conversation, error)
 	ListUserConversationsAfterID(ctx context.Context, userID uint, afterID uint, limit int) ([]domainconversation.Conversation, error)
+	// UpdateConversationActiveTip 更新回退后的续聊锚点；messageID=0 清空锚点。
+	UpdateConversationActiveTip(ctx context.Context, conversationID uint, messageID uint, publicID string) error
 }
 
 // MessageRepository 封装消息读写能力。
@@ -139,6 +141,8 @@ type MessageRepository interface {
 	ListMessageAncestors(ctx context.Context, conversationID uint, leafMessageID uint, maxDepth int) ([]domainconversation.Message, error)
 	ListLatestBranchPreviewMessages(ctx context.Context, conversationID uint, maxDepth int, limit int) ([]domainconversation.Message, error)
 	DeleteMessageAndReparentChildren(ctx context.Context, userID uint, conversationID uint, messageID uint) (int64, error)
+	// HasPendingMessageInConversation 判断会话内是否存在未完成的 pending 消息（活跃生成）。
+	HasPendingMessageInConversation(ctx context.Context, conversationID uint) (bool, error)
 }
 
 // MessageFeedbackRepository 封装消息反馈能力。
@@ -165,6 +169,10 @@ type ConversationTraceRepository interface {
 	CreateConversationRun(ctx context.Context, item *domainconversation.Run) error
 	// UpdateConversationRun 更新已占用的运行快照，且不允许转移运行归属。
 	UpdateConversationRun(ctx context.Context, item *domainconversation.Run) error
+	// GetConversationRunByRunID 按运行 ID 读取当前用户的运行记录；不存在返回 ErrNotFound。
+	GetConversationRunByRunID(ctx context.Context, userID uint, runID string) (*domainconversation.Run, error)
+	// FindAssistantMessageIDByRunID 定位当前用户某次运行中的 assistant 消息；不存在返回 ErrNotFound。
+	FindAssistantMessageIDByRunID(ctx context.Context, userID uint, runID string) (uint, error)
 	UpsertConversationMessageTrace(ctx context.Context, item *domainconversation.MessageTrace) error
 	ListConversationMessageTracesByMessageIDs(ctx context.Context, messageIDs []uint) ([]domainconversation.MessageTrace, error)
 	UpsertConversationMessageTraceEvent(ctx context.Context, item *domainconversation.MessageTraceEventRow) error

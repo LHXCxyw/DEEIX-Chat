@@ -19,6 +19,7 @@ const FEATURE_DOMAINS = {
   admin: "admin",
   announcements: "announcement",
   auth: "auth",
+  canvas: "canvas",
   chat: "chat",
   desktop: "desktop",
   files: "file",

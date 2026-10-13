@@ -1,6 +1,6 @@
 "use client";
 
-import { Glasses } from "lucide-react";
+import { FileCode2, Glasses, MessageSquare, PanelRightOpen, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import * as React from "react";
@@ -21,6 +21,16 @@ import { ChatArtifactWorkspace } from "@/features/chat/components/sections/chat-
 import { ChatUIBlockPanel } from "@/features/chat/components/sections/chat-ui-block-panel";
 import { ChatEmptyState } from "@/features/chat/components/sections/chat-empty";
 import { ChatInput } from "@/features/chat/components/sections/chat-input";
+import {
+  ChatProjectWorkspace,
+  collectProjectFileChanges,
+  type ProjectChange,
+  ProjectFileEditor,
+  type ProjectFileTab,
+  type ProjectWorkspaceHandle,
+  reconstructProjectFileInitial,
+} from "@/features/chat/components/sections/chat-project-workspace";
+import { ChatRewindDialog } from "@/features/chat/components/sections/chat-rewind-dialog";
 import { ChatScreenshotPreviewDialog } from "@/features/chat/components/sections/chat-screenshot-preview-dialog";
 import { TemporaryChatModeControl } from "@/features/chat/components/sections/chat-temporary-mode-control";
 import { useChatSession } from "@/features/chat/context/chat-session-context";
@@ -59,20 +69,44 @@ import type {
 import type { ChatAreaMessage, } from "@/features/chat/types/messages";
 import { useSettingsChatPreferences } from "@/features/settings";
 import { cn } from "@/lib/utils";
-import type { ConversationDTO, ConversationOptions } from "@/shared/api/conversation-types";
+import { Button } from "@/components/ui/button";
+import {
+  deleteProjectFile,
+  downloadProjectArchive,
+  fetchProjectFileContent,
+  getProjectWorkspace,
+  saveProjectFile,
+} from "@/shared/api/conversation";
+import type {
+  ConversationDTO,
+  ConversationOptions,
+  ProjectWorkspaceFileDTO,
+} from "@/shared/api/conversation-types";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { DeleteFilesOption } from "@/entities/file";
 import { hasMultipleImageAttachmentProcessors, normalizeImageAttachmentProcessorSelection } from "@/entities/mcp";
 import { resolveChatContentWidthClassName } from "@/entities/user-settings";
+import { useIsMobile } from "@/shared/hooks/use-mobile";
 
 const EMPTY_CONVERSATION_OPTIONS: ConversationOptions = {};
 const EMPTY_LIST: never[] = [];
 const TOP_LOAD_OLDER_MESSAGES_THRESHOLD_PX = 48;
+// 项目工作区面板的持久化状态键：开合与宽度。
+const PROJECT_PANEL_OPEN_KEY = "deeix-chat:project-panel-open";
+const PROJECT_PANEL_WIDTH_KEY = "deeix-chat:project-panel-width";
+
+// 按标签键插入或替换文件标签页，保持已打开顺序。
+function upsertIn(previous: ProjectFileTab[], tab: ProjectFileTab): ProjectFileTab[] {
+  const index = previous.findIndex((item) => item.key === tab.key);
+  return index < 0 ? [...previous, tab] : previous.map((item) => (item.key === tab.key ? tab : item));
+}
 
 export function AppChatArea() {
   const t = useTranslations("chat");
   const tRecent = useTranslations("recent");
   const tScreenshot = useTranslations("chat.screenshot");
+  const tWorkspace = useTranslations("chat.workspace");
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthSession();
@@ -495,6 +529,27 @@ export function AppChatArea() {
   });
   const generating = sending;
   const uploadDropDisabled = loading || uploading;
+
+  // 消息回退（rewind）：先在确认弹窗中拉取文件影响清单，确认后截断会话并恢复项目文件。
+  const [rewindTarget, setRewindTarget] = React.useState<ChatAreaMessage | null>(null);
+  const handleRewindMessage = React.useCallback((message: ChatAreaMessage) => {
+    setRewindTarget(message);
+  }, []);
+  const handleRewindClosed = React.useCallback(() => {
+    setRewindTarget(null);
+  }, []);
+  const handleRewound = React.useCallback(
+    (tipPublicID: string) => {
+      setRewindTarget(null);
+      // 后端已把活跃续聊锚点切到目标消息，本地同步会话 DTO 使默认可见路径立即生效。
+      if (conversationID && tipPublicID) {
+        touchByPublicID(conversationID, { activeTipMessagePublicID: tipPublicID });
+      }
+      reload();
+      projectWorkspaceRef.current?.refresh();
+    },
+    [conversationID, reload, touchByPublicID],
+  );
   const onStopActiveMessage = React.useCallback(() => {
     const visibleRunID = currentLeafMessage?.runID?.trim() || "";
     if (resumingRunID && visibleRunID === resumingRunID) {
@@ -700,9 +755,224 @@ export function AppChatArea() {
     />
   ) : null;
   const hasInlineArtifact = Boolean((artifactWorkspace.activeArtifact || activeBlock) && artifactWorkspace.isInlineViewport);
+  const projectWorkspaceRef = React.useRef<ProjectWorkspaceHandle | null>(null);
+  const [projectPanelOpen, setProjectPanelOpen] = React.useState(true);
+  const [projectPanelWidth, setProjectPanelWidth] = React.useState(360);
+  React.useEffect(() => {
+    setProjectPanelOpen(window.localStorage.getItem(PROJECT_PANEL_OPEN_KEY) !== "false");
+    const storedWidth = Number(window.localStorage.getItem(PROJECT_PANEL_WIDTH_KEY));
+    if (Number.isFinite(storedWidth)) setProjectPanelWidth(Math.min(720, Math.max(280, storedWidth)));
+    const openProjectPanel = () => setProjectPanelOpen(true);
+    window.addEventListener("deeix-chat:open-project-panel", openProjectPanel);
+    return () => window.removeEventListener("deeix-chat:open-project-panel", openProjectPanel);
+  }, []);
+  const setProjectPanelVisibility = React.useCallback((open: boolean) => {
+    setProjectPanelOpen(open);
+    window.localStorage.setItem(PROJECT_PANEL_OPEN_KEY, String(open));
+  }, []);
+  const workspaceProjectID = currentConversation?.projectID || routeProjectID || "";
+  const isMobileViewport = useIsMobile();
+  // 聊天区文件标签页：第一个固定为聊天，其余为打开的项目文件。
+  const [projectFileTabs, setProjectFileTabs] = React.useState<ProjectFileTab[]>([]);
+  const [activeProjectTabKey, setActiveProjectTabKey] = React.useState("");
+  const [projectFileBusy, setProjectFileBusy] = React.useState(false);
+
+  // 切换项目后清空所有文件标签页并回到聊天页。
+  React.useEffect(() => {
+    setProjectFileTabs([]);
+    setActiveProjectTabKey("");
+  }, [workspaceProjectID]);
+
+  // 活动标签页被关闭后自动回到聊天页。
+  React.useEffect(() => {
+    if (activeProjectTabKey && !projectFileTabs.some((tab) => tab.key === activeProjectTabKey)) {
+      setActiveProjectTabKey("");
+    }
+  }, [projectFileTabs, activeProjectTabKey]);
+
+  // 从资源管理器打开项目文件：拉取完整内容并激活对应标签页。
+  const openProjectFile = React.useCallback(async (file: ProjectWorkspaceFileDTO) => {
+    setProjectFileBusy(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error(tWorkspace("sessionExpired"));
+      const content = await fetchProjectFileContent(token, workspaceProjectID, file.PublicID);
+      setProjectFileTabs((previous) => {
+        const existing = previous.find((item) => item.key === file.RelativePath);
+        const tab: ProjectFileTab = existing
+          ? { ...existing, fileID: file.PublicID, content, savedContent: content, diff: existing.diff ? { ...existing.diff, next: content } : null, note: "", deleted: false }
+          : { key: file.RelativePath, path: file.RelativePath, fileID: file.PublicID, content, savedContent: content, diff: null, note: "", deleted: false };
+        return upsertIn(previous, tab);
+      });
+      setActiveProjectTabKey(file.RelativePath);
+    } catch (error) { toast.error(error instanceof Error ? error.message : tWorkspace("openFileFailed")); }
+    finally { setProjectFileBusy(false); }
+  }, [tWorkspace, workspaceProjectID]);
+
+  // 点击消息卡片或每轮变更：打开对应文件的 Diff 视图、下载归档或显示删除提示。
+  const openProjectChange = React.useCallback(async (change: ProjectChange) => {
+    if (change.name === "project_create_archive") {
+      setProjectFileBusy(true);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) throw new Error(tWorkspace("sessionExpired"));
+        const { blob, fileName } = await downloadProjectArchive(token, workspaceProjectID);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      } catch (error) { toast.error(error instanceof Error ? error.message : tWorkspace("downloadFailed")); }
+      finally { setProjectFileBusy(false); }
+      return;
+    }
+    setProjectPanelVisibility(true);
+    setProjectFileBusy(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error(tWorkspace("sessionExpired"));
+      // 优先读取工作区中的实际文件内容（完整无截断），trace 明细仅作兜底。
+      let file: ProjectWorkspaceFileDTO | undefined;
+      let fetched = "";
+      try {
+        const view = await getProjectWorkspace(token, workspaceProjectID);
+        file = (view.Files ?? []).find((item) => item.RelativePath === change.path);
+        if (file && change.name !== "project_delete_file") {
+          fetched = await fetchProjectFileContent(token, workspaceProjectID, file.PublicID);
+        }
+      } catch { /* 工作区查询失败时回退到 trace 内容 */ }
+      if (change.name === "project_delete_file") {
+        const tab: ProjectFileTab = {
+          key: change.path,
+          path: change.path,
+          fileID: file?.PublicID ?? "",
+          content: fetched,
+          savedContent: fetched,
+          diff: null,
+          note: tWorkspace("deleteFile"),
+          deleted: true,
+        };
+        setProjectFileTabs((previous) => upsertIn(previous, tab));
+        setActiveProjectTabKey(change.path);
+        return;
+      }
+      // 同一文件的多次修改合并为累计 Diff：跨轮次收集原子变更，从当前内容逆序还原初始内容。
+      const finalContent = fetched || change.newContent || "";
+      const atomics = collectProjectFileChanges(displayMessages, change.path);
+      let initial = atomics.length > 0
+        ? reconstructProjectFileInitial(finalContent, atomics)
+        : change.name === "project_write_file" ? "" : change.oldContent ?? "";
+      // 还原失败（片段在当前内容中已不存在）时回退到首个变更的原始片段。
+      if (initial === finalContent && atomics.length > 0) {
+        initial = atomics[0].name === "project_write_file" ? "" : atomics[0].oldContent ?? "";
+      }
+      const tab: ProjectFileTab = {
+        key: change.path,
+        path: change.path,
+        fileID: file?.PublicID ?? "",
+        content: finalContent,
+        savedContent: fetched,
+        diff: { old: initial, next: finalContent },
+        note: atomics.length > 1 ? tWorkspace("mergedDiff", { count: atomics.length }) : "",
+        deleted: false,
+      };
+      setProjectFileTabs((previous) => upsertIn(previous, tab));
+      setActiveProjectTabKey(change.path);
+    } catch (error) { toast.error(error instanceof Error ? error.message : tWorkspace("openFileFailed")); }
+    finally { setProjectFileBusy(false); }
+  }, [displayMessages, tWorkspace, workspaceProjectID, setProjectPanelVisibility]);
+
+  const onOpenProjectChange = React.useCallback((change: ProjectChange) => {
+    setProjectPanelVisibility(true);
+    void openProjectChange(change);
+  }, [openProjectChange, setProjectPanelVisibility]);
+
+  // 新建文件标签页：目录参数作为路径前缀，自动生成不重名的 untitled 文件。
+  const createProjectFile = React.useCallback((directory: string) => {
+    const prefix = directory.trim().replace(/^\/+|\/+$/g, "");
+    const base = prefix ? `${prefix}/untitled` : "untitled";
+    let path = `${base}.ts`;
+    let index = 1;
+    while (projectFileTabs.some((tab) => tab.path === path || tab.key === path)) {
+      index += 1;
+      path = `${base}-${index}.ts`;
+    }
+    const tab: ProjectFileTab = { key: path, path, fileID: "", content: "", savedContent: "", diff: null, note: "", deleted: false };
+    setProjectFileTabs((previous) => [...previous, tab]);
+    setActiveProjectTabKey(path);
+    setProjectPanelVisibility(true);
+  }, [projectFileTabs, setProjectPanelVisibility]);
+
+  const closeProjectTab = React.useCallback((key: string) => {
+    setProjectFileTabs((previous) => previous.filter((tab) => tab.key !== key));
+  }, []);
+
+  // 资源管理器批量删除后，同步关闭命中的文件标签页（含目录前缀匹配）。
+  const onProjectFilesDeleted = React.useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    setProjectFileTabs((previous) => previous.filter((tab) => !paths.some((path) => path !== "" && (tab.path === path || tab.path.startsWith(`${path}/`)))));
+  }, []);
+
+  const activeProjectTab = projectFileTabs.find((tab) => tab.key === activeProjectTabKey) ?? null;
+
+  const updateActiveProjectTab = React.useCallback((patch: Partial<ProjectFileTab>) => {
+    setProjectFileTabs((previous) => previous.map((tab) => (tab.key === activeProjectTabKey ? { ...tab, ...patch } : tab)));
+  }, [activeProjectTabKey]);
+
+  // 保存当前标签页文件：新文件按输入路径创建，已存在文件覆盖更新。
+  const saveActiveProjectTab = React.useCallback(async () => {
+    const tab = projectFileTabs.find((item) => item.key === activeProjectTabKey);
+    if (!tab?.path.trim()) return;
+    setProjectFileBusy(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error(tWorkspace("sessionExpired"));
+      const nextPath = tab.path.trim();
+      await saveProjectFile(token, workspaceProjectID, nextPath, tab.content);
+      // 保存接口只返回空响应，回读工作区清单以取得新文件的公开 ID（用于后续删除）。
+      const files = (await getProjectWorkspace(token, workspaceProjectID).catch(() => null))?.Files ?? [];
+      const savedFileID = files.find((item) => item.RelativePath === nextPath)?.PublicID ?? tab.fileID;
+      setProjectFileTabs((previous) => previous
+        .filter((item) => item.key === nextPath || item.key === tab.key)
+        .map((item) => (item.key === tab.key ? { ...item, key: nextPath, path: nextPath, fileID: savedFileID, savedContent: item.content, diff: null, deleted: false, note: "" } : item)));
+      setActiveProjectTabKey(nextPath);
+      projectWorkspaceRef.current?.refresh();
+      toast.success(tWorkspace("fileSaved"));
+    } catch (error) { toast.error(error instanceof Error ? error.message : tWorkspace("saveFailed")); }
+    finally { setProjectFileBusy(false); }
+  }, [activeProjectTabKey, projectFileTabs, tWorkspace, workspaceProjectID]);
+
+  // 删除当前标签页文件：新文件仅关闭标签页，已保存文件调用删除接口。
+  const deleteActiveProjectTab = React.useCallback(async () => {
+    const tab = projectFileTabs.find((item) => item.key === activeProjectTabKey);
+    if (!tab) return;
+    if (!tab.fileID) {
+      closeProjectTab(tab.key);
+      return;
+    }
+    setProjectFileBusy(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) throw new Error(tWorkspace("sessionExpired"));
+      await deleteProjectFile(token, workspaceProjectID, tab.fileID);
+      closeProjectTab(tab.key);
+      projectWorkspaceRef.current?.refresh();
+      toast.success(tWorkspace("fileDeleted"));
+    } catch (error) { toast.error(error instanceof Error ? error.message : tWorkspace("deleteFailed")); }
+    finally { setProjectFileBusy(false); }
+  }, [activeProjectTabKey, closeProjectTab, projectFileTabs, tWorkspace, workspaceProjectID]);
+
+  // 移动端面板为全宽抽屉：网格退化为单列，避免固定像素的第二列把聊天区挤到一边。
   const workspaceGridColumns = hasInlineArtifact
     ? `minmax(0, ${1 - artifactWorkspace.artifactRatio}fr) minmax(0, ${artifactWorkspace.artifactRatio}fr)`
-    : "minmax(0, 1fr) minmax(0, 0fr)";
+    : isMobileViewport
+      ? "minmax(0, 1fr)"
+      : workspaceProjectID && projectPanelOpen
+        ? `minmax(0, 1fr) ${projectPanelWidth}px`
+        : "minmax(0, 1fr) minmax(0, 0fr)";
 
   const selectedModelDefaultOptions = modelOptionPolicyDisabled
     ? EMPTY_CONVERSATION_OPTIONS
@@ -820,7 +1090,58 @@ export function AppChatArea() {
   const isConversationLoading = !temporaryMode && Boolean(conversationID) && loading && visibleMessageCount === 0 && displayMessages.length === 0;
   const isConversationLoadFailed = !temporaryMode && Boolean(conversationID) && !loading && errorMsg.trim().length > 0 && visibleMessageCount === 0;
   const shouldUseCenteredComposer =
-    !isConversationLoading && !isConversationLoadFailed && !composerConversationMode && displayMessages.length === 0;
+    !workspaceProjectID && !isConversationLoading && !isConversationLoadFailed && !composerConversationMode && displayMessages.length === 0;
+
+  // 聊天区标签条：第一个固定为聊天，其后为已打开的项目文件，可自由切换。
+  const projectTabStrip = workspaceProjectID && projectFileTabs.length > 0 ? (
+    <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b bg-muted/30 px-2">
+      <button
+        type="button"
+        onClick={() => setActiveProjectTabKey("")}
+        className={cn(
+          "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
+          activeProjectTabKey === "" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted",
+        )}
+      >
+        <MessageSquare className="size-3.5 shrink-0" />
+        <span className="shrink-0">{tWorkspace("chatTab")}</span>
+      </button>
+      {projectFileTabs.map((tab) => (
+        <div
+          key={tab.key}
+          className={cn(
+            "group flex h-7 shrink-0 items-center gap-1.5 rounded-md pl-2 pr-1 text-xs transition-colors",
+            activeProjectTabKey === tab.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => setActiveProjectTabKey(tab.key)}
+            className="flex min-w-0 items-center gap-1.5"
+            title={tab.path}
+          >
+            <FileCode2 className="size-3.5 shrink-0" />
+            <span className="max-w-[180px] truncate">{tab.path.split("/").at(-1) ?? tab.path}</span>
+            {!tab.diff && !tab.deleted && tab.content !== tab.savedContent ? (
+              <span
+                role="img"
+                aria-label={tWorkspace("unsavedDot")}
+                className="size-1.5 shrink-0 rounded-full bg-primary"
+              />
+            ) : null}
+          </button>
+          <button
+            type="button"
+            aria-label={tWorkspace("closeTab")}
+            className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-muted-foreground/20"
+            onClick={() => closeProjectTab(tab.key)}
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  ) : null;
 
   return (
     <UIBlockRegistryProvider components={uiComponents}>
@@ -832,7 +1153,22 @@ export function AppChatArea() {
       onDragLeave={onFileDragLeave}
       onDrop={onFileDrop}
     >
-      {!conversationID ? (
+      {workspaceProjectID && !projectPanelOpen ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          title={tWorkspace("openIDE")}
+          aria-label={tWorkspace("openIDE")}
+          // 移动端为抽屉入口按钮（底部悬浮），桌面为右缘贴边按钮。
+          className="absolute bottom-4 right-4 z-30 inline-flex rounded-lg border shadow-sm md:bottom-auto md:right-0 md:top-1/2 md:-translate-y-1/2 md:rounded-l-lg md:rounded-r-none md:border-r-0"
+          onClick={() => setProjectPanelVisibility(true)}
+        >
+          <PanelRightOpen className="size-4" />
+        </Button>
+      ) : null}
+      {/* 项目对话不显示临时对话控件：避免与右侧 IDE 按钮区域重叠，且项目会话不适用临时模式 */}
+      {!conversationID && !workspaceProjectID ? (
         <TemporaryChatModeControl
           active={temporaryMode}
           requiresExitConfirmation={temporaryRuntime.sending || temporaryRuntime.messages.length > 0}
@@ -869,7 +1205,20 @@ export function AppChatArea() {
           style={{ gridTemplateColumns: workspaceGridColumns }}
         >
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {projectTabStrip}
+            {activeProjectTab ? (
+              <ProjectFileEditor
+                key={activeProjectTab.key}
+                tab={activeProjectTab}
+                busy={projectFileBusy}
+                projectID={workspaceProjectID}
+                onPathChange={(path) => updateActiveProjectTab({ path })}
+                onContentChange={(content) => updateActiveProjectTab({ content })}
+                onSave={() => void saveActiveProjectTab()}
+                onDelete={() => void deleteActiveProjectTab()}
+              />
+            ) : null}
+            <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", activeProjectTab && "hidden")}>
               {isConversationLoading ? (
                 <ChatAreaSkeleton contentWidthClassName={chatContentWidthClassName} />
               ) : isConversationLoadFailed ? (
@@ -893,6 +1242,7 @@ export function AppChatArea() {
                   onEditAssistantMessage={temporaryMode ? temporaryRuntime.onEditAssistantMessage : onEditAssistantMessage}
                   onEditUserMessage={temporaryMode ? temporaryRuntime.onEditUserMessage : onEditUserMessage}
                   onForkMessage={temporaryMode ? undefined : onForkMessage}
+                  onRewindMessage={temporaryMode || !workspaceProjectID ? undefined : handleRewindMessage}
                   onDeleteMessage={temporaryMode ? undefined : onDeleteMessage}
                   regenerateReasoning={regenerateReasoning}
                   modelOptions={modelOptions}
@@ -903,6 +1253,7 @@ export function AppChatArea() {
                   onExtendVideoAttachment={onExtendGeneratedVideoAttachment}
                   onOpenCodeArtifact={artifactWorkspace.openArtifact}
                   onOpenUIBlock={artifactWorkspace.openBlock}
+                  onOpenProjectChange={workspaceProjectID ? onOpenProjectChange : undefined}
                   onCycleMessageBranch={onCycleMessageBranch}
                   onToggleStar={temporaryMode ? undefined : onToggleActiveConversationStar}
                   onRename={temporaryMode ? undefined : onRenameActiveConversation}
@@ -959,16 +1310,83 @@ export function AppChatArea() {
             ) : null}
           </div>
 
-          <ChatArtifactWorkspace
-            artifact={artifactWorkspace.activeArtifact}
-            blockPanel={blockPanel}
-            artifacts={artifactWorkspace.artifacts}
-            isInlineViewport={artifactWorkspace.isInlineViewport}
-            onArtifactChange={artifactWorkspace.selectArtifact}
-            onClose={artifactWorkspace.closeArtifact}
-            onResizeReset={artifactWorkspace.resetArtifactRatio}
-            onResizeStart={onArtifactResizeStart}
-          />
+          {hasInlineArtifact || activeBlock ? (
+            <ChatArtifactWorkspace
+              artifact={artifactWorkspace.activeArtifact}
+              blockPanel={blockPanel}
+              artifacts={artifactWorkspace.artifacts}
+              isInlineViewport={artifactWorkspace.isInlineViewport}
+              onArtifactChange={artifactWorkspace.selectArtifact}
+              onClose={artifactWorkspace.closeArtifact}
+              onResizeReset={artifactWorkspace.resetArtifactRatio}
+              onResizeStart={onArtifactResizeStart}
+            />
+          ) : workspaceProjectID && projectPanelOpen ? (
+            <div className={cn("relative h-full min-h-0", isMobileViewport && "static")}>
+              {/* 移动端遮罩：点击抽屉外区域关闭项目资源管理器。 */}
+              {isMobileViewport ? (
+                <button
+                  type="button"
+                  aria-label={tWorkspace("closeExplorer")}
+                  className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                  onClick={() => setProjectPanelVisibility(false)}
+                />
+              ) : null}
+              <button
+                type="button"
+                aria-label={tWorkspace("resizeIDEWidth")}
+                // 移动端抽屉为全宽，无拖拽意义；仅桌面显示。
+                className="absolute -left-1 top-0 z-20 hidden h-full w-2 cursor-col-resize touch-none md:block"
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  const startX = event.clientX;
+                  const startWidth = projectPanelWidth;
+                  const handle = event.currentTarget;
+                  let nextWidth = startWidth;
+                  const move = (moveEvent: PointerEvent) => {
+                    nextWidth = Math.min(720, Math.max(280, startWidth - (moveEvent.clientX - startX)));
+                    setProjectPanelWidth(nextWidth);
+                  };
+                  const stop = () => {
+                    window.localStorage.setItem(PROJECT_PANEL_WIDTH_KEY, String(nextWidth));
+                    handle.removeEventListener("pointermove", move);
+                    handle.removeEventListener("pointerup", stop);
+                    handle.removeEventListener("pointercancel", stop);
+                  };
+                  handle.addEventListener("pointermove", move);
+                  handle.addEventListener("pointerup", stop);
+                  handle.addEventListener("pointercancel", stop);
+                }}
+              />
+              <ChatProjectWorkspace
+                ref={projectWorkspaceRef}
+                projectID={workspaceProjectID}
+                messages={displayMessages}
+                width={isMobileViewport ? 0 : projectPanelWidth}
+                isDrawer={isMobileViewport}
+                generationActive={composerSending}
+                onClose={() => setProjectPanelVisibility(false)}
+                activeTabPath={activeProjectTabKey}
+                // 移动端打开文件后收起抽屉，露出聊天区的文件标签页。
+                onOpenFile={(file) => { void openProjectFile(file); if (isMobileViewport) setProjectPanelVisibility(false); }}
+                onOpenChange={(change) => { void openProjectChange(change); if (isMobileViewport) setProjectPanelVisibility(false); }}
+                onNewFile={createProjectFile}
+                onFilesDeleted={onProjectFilesDeleted}
+              />
+            </div>
+          ) : (
+            <ChatArtifactWorkspace
+              artifact={artifactWorkspace.activeArtifact}
+              blockPanel={blockPanel}
+              artifacts={artifactWorkspace.artifacts}
+              isInlineViewport={artifactWorkspace.isInlineViewport}
+              onArtifactChange={artifactWorkspace.selectArtifact}
+              onClose={artifactWorkspace.closeArtifact}
+              onResizeReset={artifactWorkspace.resetArtifactRatio}
+              onResizeStart={onArtifactResizeStart}
+            />
+          )}
         </div>
       )}
 
@@ -983,6 +1401,13 @@ export function AppChatArea() {
         clipboardSupported={screenshot.clipboardSupported}
         onDownload={screenshot.downloadPreview}
         onCopy={screenshot.copyPreviewToClipboard}
+      />
+
+      <ChatRewindDialog
+        message={rewindTarget}
+        conversationID={conversationID ?? ""}
+        onClose={handleRewindClosed}
+        onRewound={handleRewound}
       />
 
       {canOperateConversation ? (

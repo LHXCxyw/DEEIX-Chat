@@ -26,6 +26,7 @@ import {
   ChatMessagePositionRail,
   chatMessageScrollerID,
 } from "@/features/chat/components/sections/chat-message-position-rail";
+import type { ProjectChange } from "@/features/chat/components/sections/chat-project-workspace";
 import { ChatResponseOutlineRail } from "@/features/chat/components/sections/chat-response-outline-rail";
 import { ChatScreenshotSelectionBar } from "@/features/chat/components/sections/chat-screenshot-selection-bar";
 import { useChatMessageFeedback } from "@/features/chat/hooks/use-chat-message-feedback";
@@ -111,6 +112,7 @@ type ChatAreaProps = {
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string, mode: UserMessageEditMode) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onRewindMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   // Levels offered by "Regenerate with…" for the composer's model; null hides the submenu.
   regenerateReasoning?: ChatRegenerateReasoningOptions | null;
@@ -124,6 +126,7 @@ type ChatAreaProps = {
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   // Opens an interactive block of the message in the side panel.
   onOpenUIBlock?: (message: ChatAreaMessage, blockKey: string) => void;
+  onOpenProjectChange?: (change: ProjectChange) => void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onToggleStar?: () => void | Promise<void>;
   onRename?: (title: string) => void | Promise<void>;
@@ -288,6 +291,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onEditAssistantMessage,
   onEditUserMessage,
   onForkMessage,
+  onRewindMessage,
   onDeleteMessage,
   regenerateReasoning = null,
   modelOptions,
@@ -301,6 +305,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onReactAssistantMessage,
   onOpenCodeArtifact,
   onOpenUIBlock,
+  onOpenProjectChange,
   markdownRender,
   autoExpandThinking,
   autoExpandToolCalls,
@@ -329,6 +334,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string, mode: UserMessageEditMode) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onRewindMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   // Levels offered by "Regenerate with…" for the composer's model; null hides the submenu.
   regenerateReasoning?: ChatRegenerateReasoningOptions | null;
@@ -343,6 +349,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   onOpenUIBlock?: (message: ChatAreaMessage, blockKey: string) => void;
+  onOpenProjectChange?: (change: ProjectChange) => void;
   markdownRender: boolean;
   autoExpandThinking: boolean;
   autoExpandToolCalls: boolean;
@@ -448,6 +455,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onContinueAssistantMessage={onContinueAssistantMessage}
         onEditAssistantMessage={onEditAssistantMessage}
         onForkMessage={onForkMessage}
+        onRewindMessage={onRewindMessage}
         onDeleteMessage={onDeleteMessage}
         onCycleMessageBranch={onCycleMessageBranch}
         onReactAssistantMessage={onReactAssistantMessage}
@@ -458,6 +466,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onExtendVideoAttachment={
           sourceSupportsVideoExtension ? onExtendVideoAttachment : undefined
         }
+        onOpenProjectChange={onOpenProjectChange}
         artifactActions={artifactActions}
         uiBlockState={uiBlockStateBinding}
         markdownRender={markdownRender}
@@ -522,6 +531,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   previous.onExtendVideoAttachment === next.onExtendVideoAttachment &&
   previous.onOpenCodeArtifact === next.onOpenCodeArtifact &&
   previous.onOpenUIBlock === next.onOpenUIBlock &&
+  previous.onOpenProjectChange === next.onOpenProjectChange &&
   areChatAreaMessagesRenderEqual(previous.item, next.item)
 ));
 
@@ -542,6 +552,7 @@ export function ChatArea({
   onEditAssistantMessage,
   onEditUserMessage,
   onForkMessage,
+  onRewindMessage,
   onDeleteMessage,
   regenerateReasoning = null,
   modelOptions,
@@ -553,6 +564,7 @@ export function ChatArea({
   onExtendVideoAttachment,
   onOpenCodeArtifact,
   onOpenUIBlock,
+  onOpenProjectChange,
   onCycleMessageBranch,
   onToggleStar,
   onRename,
@@ -591,6 +603,7 @@ export function ChatArea({
   const stableOnEditAssistantMessage = useStableEvent(onEditAssistantMessage);
   const stableOnEditUserMessage = useStableEvent(onEditUserMessage);
   const stableOnForkMessage = useStableEvent(onForkMessage ?? ((): undefined => undefined));
+  const stableOnRewindMessage = useStableEvent(onRewindMessage ?? ((): undefined => undefined));
   const stableOnDeleteMessage = useStableEvent(onDeleteMessage ?? ((): undefined => undefined));
   const stableOnModelChange = useStableEvent(onModelChange);
   const stableOnModelCatalogRefresh = useStableEvent(onModelCatalogRefresh ?? ((): undefined => undefined));
@@ -744,6 +757,7 @@ export function ChatArea({
                       onEditAssistantMessage={stableOnEditAssistantMessage}
                       onEditUserMessage={stableOnEditUserMessage}
                       onForkMessage={onForkMessage ? stableOnForkMessage : undefined}
+                      onRewindMessage={onRewindMessage ? stableOnRewindMessage : undefined}
                       onDeleteMessage={onDeleteMessage ? stableOnDeleteMessage : undefined}
                       regenerateReasoning={regenerateReasoning}
                       modelOptions={modelOptions}
@@ -757,6 +771,7 @@ export function ChatArea({
                       onReactAssistantMessage={stableOnReactAssistantMessage}
                       onOpenCodeArtifact={onOpenCodeArtifact}
                       onOpenUIBlock={onOpenUIBlock}
+                      onOpenProjectChange={onOpenProjectChange}
                       markdownRender={markdownRender}
                       autoExpandThinking={autoExpandThinking}
                       autoExpandToolCalls={autoExpandToolCalls}

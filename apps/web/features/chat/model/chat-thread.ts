@@ -324,7 +324,11 @@ export function buildChildrenIndex(messages: ChatAreaMessage[]) {
   return children;
 }
 
-export function reconcileBranchSelections(messages: ChatAreaMessage[], previous: Record<string, string>) {
+export function reconcileBranchSelections(
+  messages: ChatAreaMessage[],
+  previous: Record<string, string>,
+  activeTipPublicID?: string | null,
+) {
   const next: Record<string, string> = {};
   const children = buildChildrenIndex(messages);
   const messagesByPublicID = new Map<string, ChatAreaMessage>();
@@ -338,8 +342,13 @@ export function reconcileBranchSelections(messages: ChatAreaMessage[], previous:
     }
   }
 
+  // 消息回退后的续聊锚点优先：默认可见路径沿 root→锚点，而不是最新消息所在分支；
+  // 锚点失效（消息不在列表中）时退回按最新消息回溯的既有行为。
+  const tipPublicID = activeTipPublicID?.trim() || "";
+  const startPublicID = tipPublicID && messagesByPublicID.has(tipPublicID) ? tipPublicID : latestPublicID;
+
   const visited = new Set<string>();
-  let current = latestPublicID ? messagesByPublicID.get(latestPublicID) ?? null : null;
+  let current = startPublicID ? messagesByPublicID.get(startPublicID) ?? null : null;
 
   while (current) {
     const publicID = current.publicID.trim();
@@ -373,9 +382,10 @@ export function reconcileBranchSelections(messages: ChatAreaMessage[], previous:
 export function buildVisibleMessages(
   messages: ChatAreaMessage[],
   selections: Record<string, string>,
+  activeTipPublicID?: string | null,
 ): ChatAreaMessage[] {
   const children = buildChildrenIndex(messages);
-  const reconciledSelections = reconcileBranchSelections(messages, selections);
+  const reconciledSelections = reconcileBranchSelections(messages, selections, activeTipPublicID);
   let visible: ChatAreaMessage[] = [];
   const visited = new Set<string>();
   let parentKey = ROOT_BRANCH_KEY;

@@ -9,6 +9,12 @@ type CreateConversationRequest struct {
 	ProjectID string `json:"projectID,omitempty" binding:"omitempty,max=32"`
 }
 
+// WriteProjectFileRequest 手动创建或覆盖项目文件请求。
+type WriteProjectFileRequest struct {
+	Path    string `json:"path" binding:"required,max=1024"`
+	Content string `json:"content" binding:"max=20971520"`
+}
+
 // CreateConversationProjectRequest 创建会话项目请求。
 type CreateConversationProjectRequest struct {
 	Name                    string   `json:"name" binding:"required,max=80"`

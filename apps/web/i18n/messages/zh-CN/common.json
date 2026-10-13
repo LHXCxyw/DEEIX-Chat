@@ -49,6 +49,7 @@
     "files": "文件",
     "knowledgeBases": "知识库",
     "library": "指令库",
+    "canvas": "创作画布",
     "searchTitle": "搜索",
     "searchDescription": "搜索对话标题、标签、项目和消息正文",
     "searchPlaceholder": "搜索对话或消息内容",

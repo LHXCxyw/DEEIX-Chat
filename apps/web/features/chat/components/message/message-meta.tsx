@@ -12,6 +12,7 @@ import {
   DatabaseZap,
   FilePenLine,
   Forward,
+  History,
   TicketSlash,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -1094,6 +1095,7 @@ export function AssistantMessageMeta({
   onEdit,
   onCopy,
   onFork,
+  onRewind,
   onDelete,
   copySucceeded = false,
   onReact,
@@ -1119,6 +1121,7 @@ export function AssistantMessageMeta({
   onEdit?: () => void;
   onCopy: () => void;
   onFork?: () => Promise<void> | void;
+  onRewind?: () => Promise<void> | void;
   onDelete?: () => Promise<void> | void;
   copySucceeded?: boolean;
   onReact: (value: AssistantReaction) => void;
@@ -1145,6 +1148,7 @@ export function AssistantMessageMeta({
   const canEdit = Boolean(canRetry && !busy && onEdit);
   const canContinue = Boolean(canRetry && !busy && item.status === "interrupted");
   const canFork = Boolean(canRetry && onFork);
+  const canRewind = Boolean(canRetry && !busy && onRewind);
   // The backend forbids deleting the root message (empty parentPublicID), so the UI doesn't show the entry at all.
   const canDelete = Boolean(canRetry && !busy && onDelete && item.parentPublicID);
   const canShowBranchNavigator = Boolean(showBranchNavigator && item.branchNavigator);
@@ -1277,6 +1281,14 @@ export function AssistantMessageMeta({
                     label={t("forkMessage")}
                     onFork={onFork}
                   />
+                ) : null}
+                {canRewind && onRewind ? (
+                  <MetaIconButton
+                    label={t("rewindMessage")}
+                    onClick={() => void onRewind()}
+                  >
+                    <History strokeWidth={1.8} />
+                  </MetaIconButton>
                 ) : null}
                 <QuickMemoryPin disabled={messagePending} />
               </>

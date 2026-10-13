@@ -126,6 +126,9 @@ type GenerateInput struct {
 	ImageEditMask *ContentPart
 	// VideoExtensionSource 仅供视频扩展 adapter 使用，表示待扩展的源视频。
 	VideoExtensionSource *ContentPart
+	// OnTaskStarted 供异步媒体 adapter 在上游任务提交成功后回调任务编号；
+	// 调用方据此持久化上游任务 ID，支持失败后的任务重查。可为 nil。
+	OnTaskStarted func(upstreamTaskID string)
 }
 
 // ToolDefinition 是模型可调用工具的统一声明。
@@ -255,6 +258,16 @@ type GenerateOutput struct {
 	GeneratedVideos     []GeneratedVideo
 	RawJSON             string
 	Debug               *UpstreamDebugSnapshot `json:"-"`
+}
+
+// VideoTaskRetrieval 描述一次异步媒体任务回查的结果状态。
+type VideoTaskRetrieval struct {
+	// Status 为 "pending" | "completed" | "failed"。
+	Status string
+	// Output 在 completed 时携带生成产物（含下载 URL）；其余情况为 nil。
+	Output *GenerateOutput
+	// Message 是 failed/pending 时的人类可读说明。
+	Message string
 }
 
 // GeneratedImage 表示图片生成/编辑接口返回的一张图片。

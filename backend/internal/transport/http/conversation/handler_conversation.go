@@ -678,3 +678,139 @@ func (h *Handler) ForkConversationFromMessage(c *gin.Context) {
 
 	response.Success(c, toConversationResponse(result))
 }
+
+// PreviewConversationRewind godoc
+// @Summary 预览回退到指定消息的影响
+// @Description 计算回退到指定消息将产生的文件影响清单（恢复/重建/删除），不做任何变更
+// @Tags chat
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "会话 public_id"
+// @Param message_id path string true "消息 public_id"
+// @Success 200 {object} ConversationRewindPreviewResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 401 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /conversations/{id}/messages/{message_id}/rewind/preview [post]
+func (h *Handler) PreviewConversationRewind(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	conversationID, err := stringParam(c, "id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidConversationID)
+		return
+	}
+	messageID, err := stringParam(c, "message_id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidMessageID)
+		return
+	}
+
+	result, err := h.service.PreviewConversationRewind(c.Request.Context(), userID, conversationID, messageID)
+	if err != nil {
+		if mapRewindError(c, err) {
+			return
+		}
+		response.InternalError(c, err)
+		return
+	}
+	response.Success(c, toConversationRewindPreviewResponse(result))
+}
+
+// RewindConversationToMessage godoc
+// @Summary 回退到指定消息
+// @Description 将会话截断到指定消息（其后消息保留为非当前分支），并把项目工作区文件恢复到该消息完成时的状态；回退前请先调用 preview 获取影响清单
+// @Tags chat
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "会话 public_id"
+// @Param message_id path string true "消息 public_id"
+// @Success 200 {object} ConversationRewindResultResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 401 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /conversations/{id}/messages/{message_id}/rewind [post]
+func (h *Handler) RewindConversationToMessage(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	conversationID, err := stringParam(c, "id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidConversationID)
+		return
+	}
+	messageID, err := stringParam(c, "message_id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidMessageID)
+		return
+	}
+
+	result, err := h.service.RewindConversationToMessage(c.Request.Context(), userID, conversationID, messageID)
+	if err != nil {
+		if mapRewindError(c, err) {
+			return
+		}
+		response.InternalError(c, err)
+		return
+	}
+
+	h.recordAudit(c, "rewind_conversation",
+		"conversation",
+		conversationID,
+		map[string]any{
+			"target_message_id":   messageID,
+			"active_tip":          result.TipPublicID,
+			"affected_file_count": len(result.Items),
+		},
+	)
+
+	response.Success(c, toConversationRewindResultResponse(result))
+}
+
+// mapRewindError 把回退链路上的应用层哨兵映射为稳定 HTTP 状态；未命中返回 false 交由调用方兜底。
+func mapRewindError(c *gin.Context, err error) bool {
+	switch {
+	case errors.Is(err, appconversation.ErrConversationNotFound),
+		errors.Is(err, appconversation.ErrMessageNotFound):
+		response.ErrorFrom(c, http.StatusNotFound, err)
+	case errors.Is(err, appconversation.ErrMessageRewindStateInvalid),
+		errors.Is(err, appconversation.ErrMessageRewindHistoryIncomplete):
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+	default:
+		return false
+	}
+	return true
+}
+
+// ConversationRewindPreviewResponseDoc 回退预览响应文档占位类型。
+type ConversationRewindPreviewResponseDoc struct {
+	MessagePublicID string                                          `json:"messagePublicID"`
+	HasProjectFiles bool                                            `json:"hasProjectFiles"`
+	Items           []appconversation.ConversationRewindPreviewItem `json:"items"`
+}
+
+// ConversationRewindResultResponseDoc 回退结果响应文档占位类型。
+type ConversationRewindResultResponseDoc struct {
+	Items       []appconversation.ConversationRewindPreviewItem `json:"items"`
+	TipPublicID string                                          `json:"activeTipMessagePublicID"`
+}
+
+func toConversationRewindPreviewResponse(result *appconversation.ConversationRewindPreview) *ConversationRewindPreviewResponseDoc {
+	if result == nil {
+		return nil
+	}
+	return &ConversationRewindPreviewResponseDoc{
+		MessagePublicID: result.MessagePublicID,
+		HasProjectFiles: result.HasProjectFiles,
+		Items:           result.Items,
+	}
+}
+
+func toConversationRewindResultResponse(result *appconversation.ConversationRewindResult) *ConversationRewindResultResponseDoc {
+	if result == nil {
+		return nil
+	}
+	return &ConversationRewindResultResponseDoc{
+		Items:       result.Items,
+		TipPublicID: result.TipPublicID,
+	}
+}

@@ -95,23 +95,30 @@ func (s *Service) resolveMessageBranch(
 		return nil, ErrInvalidMessageBranch
 	}
 
-	// 当没有指定 parent 和 source 时，从最近成功上下文里选择默认续聊锚点。
-	// 不直接使用最新 DB 行，避免 pending/error 消息或分支 sibling 把上下文带偏。
+	// 当没有指定 parent 和 source 时，优先使用回退（rewind）后的活跃续聊锚点；
+	// 无锚点再退回到最近成功上下文，避免 pending/error 消息或分支 sibling 把上下文带偏。
 	if parentMessage == nil && sourceMessage == nil {
-		recent, latestErr := s.repo.ListLatestBranchPreviewMessages(
-			ctx,
-			conversationID,
-			defaultBranchPreviewDepth,
-			defaultBranchPreviewLimit,
-		)
-		if latestErr == nil {
-			parentMessage = selectLatestDefaultParentCandidate(recent)
-		} else {
-			s.logger.Warn("list_branch_preview_for_default_branch_failed",
-				zap.String("trace_id", traceid.FromContext(ctx)),
-				zap.Uint("conversation_id", conversationID),
-				zap.Error(latestErr),
+		if conversation, convErr := s.repo.GetConversationByUser(ctx, conversationID, userID); convErr == nil && conversation.ActiveTipMessageID > 0 {
+			if tipMessage, tipErr := s.repo.GetMessageByID(ctx, conversationID, conversation.ActiveTipMessageID); tipErr == nil && isContextMessage(tipMessage) {
+				parentMessage = tipMessage
+			}
+		}
+		if parentMessage == nil {
+			recent, latestErr := s.repo.ListLatestBranchPreviewMessages(
+				ctx,
+				conversationID,
+				defaultBranchPreviewDepth,
+				defaultBranchPreviewLimit,
 			)
+			if latestErr == nil {
+				parentMessage = selectLatestDefaultParentCandidate(recent)
+			} else {
+				s.logger.Warn("list_branch_preview_for_default_branch_failed",
+					zap.String("trace_id", traceid.FromContext(ctx)),
+					zap.Uint("conversation_id", conversationID),
+					zap.Error(latestErr),
+				)
+			}
 		}
 	}
 

@@ -902,6 +902,7 @@ func (s *Service) sendMessageInternal(
 		toolResult := s.executeAssistantToolCalls(toolCtx, executeAssistantToolCallsInput{
 			UserID:            input.UserID,
 			ConversationID:    input.ConversationID,
+			ProjectPublicID:   input.ProjectPublicID,
 			MessageID:         assistantMessage.ID,
 			RequestID:         input.RequestID,
 			RunID:             runID,

@@ -67,7 +67,7 @@ export type JsonEditorController = {
 const LINT_DELAY_MS = 300;
 const LINT_PARSE_BUDGET_MS = 100;
 const INDENT = "  ";
-const MONO_FONT_FAMILY = "var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+export const MONO_FONT_FAMILY = "var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 // Marks programmatic document replacements so they are not echoed back as user edits.
@@ -222,7 +222,7 @@ const indentGuides = ViewPlugin.fromClass(
 );
 
 // Layout and neutral chrome follow the app's CSS variables, which already switch with the theme.
-const baseTheme = EditorView.theme({
+export const baseTheme = EditorView.theme({
   "&": {
     height: "100%",
     backgroundColor: "transparent",
@@ -410,11 +410,11 @@ function chromeTheme(theme: JsonEditorTheme): Extension {
   ];
 }
 
-function fontSizeTheme(fontSize: number): Extension {
+export function fontSizeTheme(fontSize: number): Extension {
   return EditorView.theme({ "&": { fontSize: `${fontSize}px` } });
 }
 
-function readOnlyExtension(readOnly: boolean): Extension {
+export function readOnlyExtension(readOnly: boolean): Extension {
   // Read-only keeps the editor focusable so selection, search and keyboard navigation still work.
   return EditorState.readOnly.of(readOnly);
 }

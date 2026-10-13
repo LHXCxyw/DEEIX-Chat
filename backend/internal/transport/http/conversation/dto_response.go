@@ -17,28 +17,30 @@ import (
 
 // ConversationResponse 对外会话响应 DTO。
 type ConversationResponse struct {
-	PublicID            string     `json:"publicID"`
-	UserID              uint       `json:"userID"`
-	ProjectID           string     `json:"projectID"`
-	ProjectName         string     `json:"projectName"`
-	Title               string     `json:"title"`
-	LabelsJSON          string     `json:"labelsJSON"`
-	Model               string     `json:"model"`
-	Provider            string     `json:"provider"`
-	SessionKey          string     `json:"sessionKey"`
-	IsStarred           bool       `json:"isStarred"`
-	StarredAt           *time.Time `json:"starredAt" extensions:"x-nullable,!x-omitempty"`
-	MessageCount        int        `json:"messageCount"`
-	Status              string     `json:"status"`
-	ContextPolicy       string     `json:"contextPolicyJSON"`
-	LastCompactedAt     *time.Time `json:"lastCompactedAt" extensions:"x-nullable,!x-omitempty"`
-	LastResponseID      string     `json:"lastResponseID"`
-	ShareStatus         string     `json:"shareStatus"`
-	ShareID             string     `json:"shareID"`
-	SharedAt            *time.Time `json:"sharedAt" extensions:"x-nullable,!x-omitempty"`
-	LastShareAccessedAt *time.Time `json:"lastShareAccessedAt" extensions:"x-nullable,!x-omitempty"`
-	CreatedAt           time.Time  `json:"createdAt"`
-	UpdatedAt           time.Time  `json:"updatedAt"`
+	PublicID        string     `json:"publicID"`
+	UserID          uint       `json:"userID"`
+	ProjectID       string     `json:"projectID"`
+	ProjectName     string     `json:"projectName"`
+	Title           string     `json:"title"`
+	LabelsJSON      string     `json:"labelsJSON"`
+	Model           string     `json:"model"`
+	Provider        string     `json:"provider"`
+	SessionKey      string     `json:"sessionKey"`
+	IsStarred       bool       `json:"isStarred"`
+	StarredAt       *time.Time `json:"starredAt" extensions:"x-nullable,!x-omitempty"`
+	MessageCount    int        `json:"messageCount"`
+	Status          string     `json:"status"`
+	ContextPolicy   string     `json:"contextPolicyJSON"`
+	LastCompactedAt *time.Time `json:"lastCompactedAt" extensions:"x-nullable,!x-omitempty"`
+	LastResponseID  string     `json:"lastResponseID"`
+	// ActiveTipMessagePublicID 回退后的续聊锚点消息公开ID；空表示未回退过。
+	ActiveTipMessagePublicID string     `json:"activeTipMessagePublicID"`
+	ShareStatus              string     `json:"shareStatus"`
+	ShareID                  string     `json:"shareID"`
+	SharedAt                 *time.Time `json:"sharedAt" extensions:"x-nullable,!x-omitempty"`
+	LastShareAccessedAt      *time.Time `json:"lastShareAccessedAt" extensions:"x-nullable,!x-omitempty"`
+	CreatedAt                time.Time  `json:"createdAt"`
+	UpdatedAt                time.Time  `json:"updatedAt"`
 }
 
 // ConversationSearchResultResponse 会话搜索结果 DTO。
@@ -103,28 +105,29 @@ func toConversationResponse(item *model.Conversation) ConversationResponse {
 		shareStatus = "none"
 	}
 	return ConversationResponse{
-		PublicID:            item.PublicID,
-		UserID:              item.UserID,
-		ProjectID:           item.ProjectPublicID,
-		ProjectName:         item.ProjectName,
-		Title:               item.Title,
-		LabelsJSON:          labelsJSON,
-		Model:               item.Model,
-		Provider:            item.Provider,
-		SessionKey:          item.SessionKey,
-		IsStarred:           item.IsStarred,
-		StarredAt:           item.StarredAt,
-		MessageCount:        item.MessageCount,
-		Status:              item.Status,
-		ContextPolicy:       item.ContextPolicy,
-		LastCompactedAt:     item.LastCompactedAt,
-		LastResponseID:      item.LastResponseID,
-		ShareStatus:         shareStatus,
-		ShareID:             item.ShareID,
-		SharedAt:            item.SharedAt,
-		LastShareAccessedAt: item.LastShareAccessedAt,
-		CreatedAt:           item.CreatedAt,
-		UpdatedAt:           item.UpdatedAt,
+		PublicID:                 item.PublicID,
+		UserID:                   item.UserID,
+		ProjectID:                item.ProjectPublicID,
+		ProjectName:              item.ProjectName,
+		Title:                    item.Title,
+		LabelsJSON:               labelsJSON,
+		Model:                    item.Model,
+		Provider:                 item.Provider,
+		SessionKey:               item.SessionKey,
+		IsStarred:                item.IsStarred,
+		StarredAt:                item.StarredAt,
+		MessageCount:             item.MessageCount,
+		Status:                   item.Status,
+		ContextPolicy:            item.ContextPolicy,
+		LastCompactedAt:          item.LastCompactedAt,
+		LastResponseID:           item.LastResponseID,
+		ActiveTipMessagePublicID: item.ActiveTipMessagePublicID,
+		ShareStatus:              shareStatus,
+		ShareID:                  item.ShareID,
+		SharedAt:                 item.SharedAt,
+		LastShareAccessedAt:      item.LastShareAccessedAt,
+		CreatedAt:                item.CreatedAt,
+		UpdatedAt:                item.UpdatedAt,
 	}
 }
 
@@ -1265,6 +1268,36 @@ type SendMessageResponse struct {
 
 type CancelMessageGenerationResponse struct {
 	Canceled bool `json:"canceled"`
+}
+
+type RequeryMediaVideoAttachmentResponse struct {
+	FileID          string `json:"fileID"`
+	FileName        string `json:"fileName"`
+	MimeType        string `json:"mimeType"`
+	SizeBytes       int64  `json:"sizeBytes"`
+	DurationSeconds int64  `json:"durationSeconds,omitempty"`
+}
+
+type RequeryMediaVideoRunResponse struct {
+	Status      string                                `json:"status"`
+	RunID       string                                `json:"runID"`
+	Message     *string                               `json:"message,omitempty"`
+	Attachments []RequeryMediaVideoAttachmentResponse `json:"attachments,omitempty"`
+}
+
+type RetryMediaImageArtifactResponse struct {
+	Status     string                                   `json:"status"`
+	RunID      string                                   `json:"runID"`
+	Index      int                                      `json:"index"`
+	Message    *string                                  `json:"message,omitempty"`
+	Attachment *RetryMediaImageArtifactAttachmentResult `json:"attachment,omitempty"`
+}
+
+type RetryMediaImageArtifactAttachmentResult struct {
+	FileID    string `json:"fileID"`
+	FileName  string `json:"fileName"`
+	MimeType  string `json:"mimeType"`
+	SizeBytes int64  `json:"sizeBytes"`
 }
 
 type ActiveMessageGenerationResponse struct {

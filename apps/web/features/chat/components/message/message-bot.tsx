@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, CircleAlert, Film, GalleryHorizontalEnd, Hash } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, FileCode2, FileDiff, Film, FolderArchive, GalleryHorizontalEnd, Hash, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import * as React from "react";
@@ -17,6 +17,7 @@ import { MessageKnowledgeSources } from "@/features/chat/components/message/mess
 import type { AssistantReaction } from "@/features/chat/components/message/message-meta";
 import { AssistantMessageMeta } from "@/features/chat/components/message/message-meta";
 import { MessageAgentTrace, MessageProcessTrace } from "@/features/chat/components/message/message-process-trace";
+import { type ProjectChange, projectChanges } from "@/features/chat/components/sections/chat-project-workspace";
 import { UpstreamExchangeDetails } from "@/features/chat/components/message/message-upstream-debug";
 import { useChatInlineVideoSource } from "@/features/chat/hooks/use-chat-inline-video-source";
 import type { ChatRegenerateReasoningOptions } from "@/features/chat/model/chat-reasoning-effort";
@@ -144,6 +145,7 @@ type ChatMessageBotProps = {
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onRewindMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
@@ -164,6 +166,7 @@ type ChatMessageBotProps = {
   attachmentContentLoader?: FileContentLoader;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onExtendVideoAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
+  onOpenProjectChange?: (change: ProjectChange) => void;
   artifactActions?: MarkdownArtifactActions;
   // Persisted state of the interactive component blocks in this reply.
   uiBlockState?: UIBlockStateBinding;
@@ -181,6 +184,7 @@ export function ChatMessageBot({
   onContinueAssistantMessage,
   onEditAssistantMessage,
   onForkMessage,
+  onRewindMessage,
   onDeleteMessage,
   onCycleMessageBranch,
   onReactAssistantMessage,
@@ -201,6 +205,7 @@ export function ChatMessageBot({
   attachmentContentLoader,
   onEditImageAttachment,
   onExtendVideoAttachment,
+  onOpenProjectChange,
   artifactActions,
   uiBlockState,
   showBranchNavigator = true,
@@ -209,6 +214,7 @@ export function ChatMessageBot({
 }: ChatMessageBotProps) {
   const tCommon = useTranslations("common.actions");
   const submitT = useTranslations("chat.submit");
+  const workspaceT = useTranslations("chat.workspace");
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingValue, setEditingValue] = React.useState(item.content);
   const onRetry = React.useCallback(() => {
@@ -223,6 +229,10 @@ export function ChatMessageBot({
   const onFork = React.useCallback(
     () => onForkMessage?.(item),
     [item, onForkMessage],
+  );
+  const onRewind = React.useCallback(
+    () => onRewindMessage?.(item),
+    [item, onRewindMessage],
   );
   const onDelete = React.useCallback(
     () => onDeleteMessage?.(item),
@@ -341,6 +351,8 @@ export function ChatMessageBot({
     readOnly,
   ]);
   const processAutoCollapseReady = Boolean(hasTraceBlocks || hasStreamdownContent || item.inlineAlert);
+  // 本条回复触发的项目文件变更（写入/删除/归档），供 Diff 卡片点击后在工作区打开对应文件。
+  const changes = React.useMemo(() => projectChanges([item]), [item]);
 
   if (!readOnly && isEditing) {
     const nextContent = editingValue.trim();
@@ -442,6 +454,41 @@ export function ChatMessageBot({
         ) : null}
       </div>
 
+      {changes.length > 0 && onOpenProjectChange ? (
+        <div className="my-3 w-full max-w-[34rem] space-y-1.5 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+          <div className="flex items-center gap-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <FileDiff className="size-3.5" />
+            <span>{workspaceT("changesTitle")}</span>
+          </div>
+          {changes.map((change) => (
+            <button
+              key={change.key}
+              type="button"
+              onClick={() => onOpenProjectChange(change)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted"
+            >
+              {change.name === "project_delete_file" ? (
+                <Trash2 className="size-3.5 text-destructive" />
+              ) : change.name === "project_create_archive" ? (
+                <FolderArchive className="size-3.5 text-muted-foreground" />
+              ) : (
+                <FileCode2 className="size-3.5 text-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1 truncate">
+                {change.name === "project_create_archive"
+                  ? `${workspaceT("archiveEntry")} · ${workspaceT("archiveClickDownload")}`
+                  : change.path}
+              </span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {change.parts && change.parts.length > 1
+                  ? workspaceT("mergedDiff", { count: change.parts.length })
+                  : change.name.replace("project_", "")}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {inlineVideoAttachment ? (
         <MessageInlineVideoPreview
           attachment={inlineVideoAttachment}
@@ -489,6 +536,7 @@ export function ChatMessageBot({
         onEdit={() => setIsEditing(true)}
         onCopy={onCopy}
         onFork={onForkMessage ? onFork : undefined}
+        onRewind={onRewindMessage ? onRewind : undefined}
         onDelete={onDeleteMessage ? onDelete : undefined}
         copySucceeded={copySucceeded}
         onReact={(value) => onReactAssistantMessage(item.publicID, value)}

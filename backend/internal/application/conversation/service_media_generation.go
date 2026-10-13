@@ -453,10 +453,22 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	uploaded := make([]model.FileObject, 0, len(output.GeneratedImages))
 	attachmentRows := make([]model.Attachment, 0, len(output.GeneratedImages))
 	generatedBytesByFileID := make(map[string][]byte, len(output.GeneratedImages))
+	// 待保存产物：下载瞬时失败时保留上游 URL 引用，保存职责移交输出节点逐个重试
+	pendingArtifacts := make([]pendingImageArtifact, 0)
 	now := time.Now()
 	for i, image := range output.GeneratedImages {
-		data, mimeType, readErr := s.readGeneratedImage(ctx, image, mediaArtifactSourceFor(route))
+		source := mediaArtifactSourceFor(route)
+		data, mimeType, readErr := s.readGeneratedImage(ctx, image, source)
+		if readErr != nil && isRetryableGeneratedMediaDownload(readErr) {
+			// 下载类瞬时故障自动重试一次，多数网络抖动在此消化
+			data, mimeType, readErr = s.readGeneratedImage(ctx, image, source)
+		}
 		if readErr != nil {
+			if url := strings.TrimSpace(image.URL); url != "" && isRetryableGeneratedMediaDownload(readErr) {
+				// 生成已成功：登记待保存引用，交由输出节点重试下载，不占用生成任务状态
+				pendingArtifacts = append(pendingArtifacts, pendingImageArtifact{URL: url, MimeType: mimeType, Index: i})
+				continue
+			}
 			retErr = s.finalizeGeneratedMediaArtifactFailure(ctx, run, assistantMessage.ID, i+1, len(output.GeneratedImages), readErr)
 			return buildBillableFailure(retErr, output.Usage), retErr
 		}
@@ -491,6 +503,21 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 			Status:         "active",
 			UploadedAt:     now,
 		})
+	}
+	if len(pendingArtifacts) > 0 {
+		s.pendingArtifacts.Register(run.RunID, pendingArtifacts)
+		indexes := make([]int, 0, len(pendingArtifacts))
+		for _, artifact := range pendingArtifacts {
+			indexes = append(indexes, artifact.Index)
+		}
+		emitMediaArtifactPendingEvent(input.OnEvent, run.RunID, "image", indexes)
+	}
+	if hasGeneratedImages && len(attachmentRows) == 0 {
+		// 产物全部待重试：生成已成功（计费保留），流以 completed 结束；
+		// 消息标记待重试错误态，输出节点重试成功后由补写路径恢复。
+		retErr = ErrMediaArtifactPending
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), textutil.TruncateTrimmed(messageErrorSummary(retErr), 255))
+		return buildBillableFailure(retErr, output.Usage), nil
 	}
 	usage := output.Usage
 	if reuseUserMessage {

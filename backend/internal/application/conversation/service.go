@@ -39,6 +39,8 @@ const (
 
 type routeResolver interface {
 	ResolveRoute(ctx context.Context, input channel.ResolveRouteInput) (*channel.ResolvedRoute, error)
+	// BuildRouteForUpstream 按上游 ID 定点重建路由，供异步媒体任务重查使用。
+	BuildRouteForUpstream(ctx context.Context, upstreamID uint, protocol string, upstreamModel string) (*channel.ResolvedRoute, error)
 	MarkRouteFailure(ctx context.Context, route *channel.ResolvedRoute, cause error)
 	MarkRouteSuccess(ctx context.Context, route *channel.ResolvedRoute)
 }
@@ -121,6 +123,8 @@ type llmGateway interface {
 	GenerateStream(ctx context.Context, route llm.RouteConfig, input llm.GenerateInput, onEvent func(llm.GenerateStreamEvent) error) (*llm.GenerateOutput, error)
 	RetrieveOpenAIResponse(ctx context.Context, route llm.RouteConfig, responseID string) (*llm.GenerateOutput, error)
 	CancelOpenAIResponse(ctx context.Context, route llm.RouteConfig, responseID string) (*llm.GenerateOutput, error)
+	// RetrieveVideoTask 回查一次异步媒体任务（视频生成）的上游状态，供失败任务重查使用。
+	RetrieveVideoTask(ctx context.Context, route llm.RouteConfig, taskID string) (*llm.VideoTaskRetrieval, error)
 }
 
 // Service 封装会话业务能力。
@@ -148,13 +152,15 @@ type Service struct {
 	billingSvc               *appbilling.Service
 	auditWriter              auditWriter
 	storeProvider            appstorage.Provider
-	logger                   *zap.Logger
-	moderationSvc            *appcm.Service
-	toolLimiters             sync.Map
-	generationStreams        *generationStreamRegistry
-	snapshotCache            sync.Map // conversationID (uint) → *cachedSnapshot
-	userMemCache             sync.Map // userID (uint) → *cachedUserMemories
-	imageContextCache        *preparedConversationImageCache
+	// pendingArtifacts 暂存上游已生成但保存失败的产物 URL 引用，供输出节点重试回收。
+	pendingArtifacts  *pendingArtifactStore
+	logger            *zap.Logger
+	moderationSvc     *appcm.Service
+	toolLimiters      sync.Map
+	generationStreams *generationStreamRegistry
+	snapshotCache     sync.Map // conversationID (uint) → *cachedSnapshot
+	userMemCache      sync.Map // userID (uint) → *cachedUserMemories
+	imageContextCache *preparedConversationImageCache
 }
 
 func (s *Service) llmAttribution() (string, string) {
@@ -227,6 +233,8 @@ type SendMessageInput struct {
 	UsageAuthorization *domainbilling.UsageAuthorization
 	// OnEvent 用于向调用方推送中间事件（如 rag_search），流式场景使用。
 	OnEvent func(eventType string, payload map[string]any) error
+	// ProjectPublicID 是会话所属项目的公开 ID；项目文件工具（project_*）依赖它做授权边界。
+	ProjectPublicID string
 }
 
 // SetSkillResolver 注入会话技能解析器。
@@ -327,6 +335,7 @@ func NewServiceWithRuntime(deps Dependencies) *Service {
 		extractSvc:               deps.ExtractService,
 		ragSvc:                   deps.RAGService,
 		logger:                   deps.Logger,
+		pendingArtifacts:         newPendingArtifactStore(),
 		generationStreams:        newGenerationStreamRegistry(deps.Cache, defaultGenerationStreamOptions()),
 		imageContextCache:        defaultPreparedConversationImageCache(),
 	}

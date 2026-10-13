@@ -23,6 +23,7 @@ type ConversationRepository interface {
 	UploadRepository
 	FileEmbeddingArtifactsRepository
 	ConversationSettingsRepository
+	ProjectWorkspaceRepository
 	// 文件处理状态只在读取附件状态与复制分享文件时用到这两项，不嵌入处理流水线的完整仓储接口。
 	GetFileObjectProcessingByObjectID(ctx context.Context, fileObjID uint) (*domainconversation.FileObjectProcessing, error)
 	CloneFileObjectProcessingState(ctx context.Context, sourceFileObjID uint, targetFileObjID uint, userID uint) error

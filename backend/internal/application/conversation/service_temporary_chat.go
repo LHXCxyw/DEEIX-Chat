@@ -125,8 +125,8 @@ func (s *Service) StreamTemporaryChat(
 		return nil, err
 	}
 	// 附件处理器依赖持久化的文件 ID。请求作用域的临时
-	// 附件改为直接注入模型上下文。
-	toolRuntime = toolRuntime.withoutAttachmentProcessor()
+	// 附件改为直接注入模型上下文；临时聊天没有项目上下文，项目文件工具一并移除。
+	toolRuntime = toolRuntime.withoutAttachmentProcessor().withoutProjectTools()
 	skillPrompts, err := s.resolveSkillPrompts(ctx, SendMessageInput{
 		UserID:   input.UserID,
 		SkillIDs: input.SkillIDs,

@@ -121,6 +121,10 @@ func (c *Client) generateXAIVideo(ctx context.Context, route portllm.RouteConfig
 	if err != nil {
 		return nil, acceptedXAIVideoResponseError(err, upstreamDebugSnapshot(req, debugBody, resp, body))
 	}
+	// 任务提交成功即回调任务编号：轮询失败时仍可凭此回查上游结果。
+	if input.OnTaskStarted != nil {
+		input.OnTaskStarted(requestID)
+	}
 	return c.pollXAIVideoResult(requestCtx, route, requestID, generatedMediaDurationSeconds(requestBody["duration"]))
 }
 

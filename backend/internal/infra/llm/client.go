@@ -653,6 +653,59 @@ func (c *Client) Generate(ctx context.Context, route portllm.RouteConfig, input 
 	return adapter.Generate(ctx, route, input)
 }
 
+// RetrieveVideoTask 回查一次异步媒体任务（如视频生成）的上游状态，不重新提交任务。
+// 仅支持具备异步任务 ID 的 xAI 视频协议。
+func (c *Client) RetrieveVideoTask(ctx context.Context, route portllm.RouteConfig, taskID string) (*portllm.VideoTaskRetrieval, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, fmt.Errorf("empty upstream task id")
+	}
+	adapterName := portllm.NormalizeAdapter(route.Protocol)
+	var requestURL string
+	switch adapterName {
+	case portllm.AdapterXAIVideo, portllm.AdapterXAIVideoExtensions:
+		requestURL = buildXAIVideoResultURL(route.BaseURL, taskID)
+	default:
+		return nil, fmt.Errorf("%w: %s does not support async task requery", portllm.ErrUnsupportedAdapter, adapterName)
+	}
+	if requestURL == "" {
+		return nil, fmt.Errorf("invalid upstream task url")
+	}
+
+	requestCtx, cancel := context.WithTimeout(ctx, resolveReadTimeout(route.ReadTimeoutMS))
+	defer cancel()
+	req, err := newXAIMediaRequest(requestCtx, http.MethodGet, requestURL, nil, route)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.doRouteRequest(route, req)
+	if err != nil {
+		return nil, err
+	}
+	body, readErr := readUpstreamBody(resp.Body)
+	_ = resp.Body.Close()
+	debug := upstreamDebugSnapshot(req, nil, resp, body)
+	if readErr != nil {
+		return nil, readErr
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return nil, parseUpstreamError(resp.StatusCode, body, debug)
+	}
+
+	output, pending, err := parseXAIVideoResult(body, taskID, 0)
+	if err != nil {
+		// 上游明确上报 failed 时转成 failed 状态，而不是传输错误
+		if strings.HasPrefix(err.Error(), "xAI video generation failed:") {
+			return &portllm.VideoTaskRetrieval{Status: "failed", Message: err.Error()}, nil
+		}
+		return nil, err
+	}
+	if pending {
+		return &portllm.VideoTaskRetrieval{Status: "pending"}, nil
+	}
+	return &portllm.VideoTaskRetrieval{Status: "completed", Output: output}, nil
+}
+
 // GenerateStream 调用上游适配器并实时回传增量文本。
 func (c *Client) GenerateStream(
 	ctx context.Context,

@@ -52,7 +52,10 @@ import type {
 } from "@deeix/api-contract";
 import type { UserStorageQuotaDTO } from "@/shared/api/file-types";
 
-export type ConversationDTO = ConversationResponse;
+// 回退（rewind）后的续聊锚点消息公开ID；后端响应已返回该字段，契约包暂未收录，此处本地补充。
+export type ConversationDTO = ConversationResponse & {
+  activeTipMessagePublicID?: string;
+};
 
 export type MessageDeleteDTO = MessageDeleteResponse;
 
@@ -389,3 +392,44 @@ export type StreamMessageEvent =
       debug?: UpstreamDebugInfo;
       data?: SendMessageResult;
     };
+
+// 项目工作区文件节点。后端 Go 结构体无 json tag，按 PascalCase 序列化。
+export type ProjectWorkspaceFileDTO = {
+  PublicID: string;
+  RelativePath: string;
+  FileName: string;
+  EntryType: string;
+  SizeBytes: number;
+  MimeType: string;
+};
+
+export type ProjectWorkspaceDTO = {
+  PublicID: string;
+  StorageBytes: number;
+  FileCount: number;
+};
+
+export type ProjectWorkspaceViewDTO = {
+  Workspace: ProjectWorkspaceDTO;
+  Files: ProjectWorkspaceFileDTO[];
+};
+
+// 回退预览条目。后端应用层类型无 json tag（PascalCase），读取时在 API 边界归一化为 camelCase。
+export type ConversationRewindPreviewItemDTO = {
+  relativePath: string;
+  action: string;
+  currentVersion?: number;
+  targetVersion?: number;
+  targetSizeBytes?: number;
+};
+
+export type ConversationRewindPreviewDTO = {
+  messagePublicID: string;
+  hasProjectFiles: boolean;
+  items: ConversationRewindPreviewItemDTO[];
+};
+
+export type ConversationRewindResultDTO = {
+  items: ConversationRewindPreviewItemDTO[];
+  activeTipMessagePublicID: string;
+};

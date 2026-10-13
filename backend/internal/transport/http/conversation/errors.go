@@ -25,6 +25,8 @@ var (
 	errInvalidRunID                            = apperr.New("run.invalid_id", "invalid run id")
 	errInvalidRunIDs                           = apperr.New("request.invalid_run_ids", "invalid run ids")
 	errInvalidShareID                          = apperr.New("share.invalid_id", "invalid share id")
+	errInvalidProjectArchive                   = apperr.New("project.archive_invalid", "invalid project archive")
+	errProjectFileNotFound                     = apperr.New("project.file_not_found", "project file not found")
 	errInvalidTemporaryChatMessages            = apperr.New("request.invalid_temporary_chat_messages", "invalid temporary chat messages")
 	errInvalidToolCallID                       = apperr.New("tool_call.invalid_id", "invalid tool call id")
 	errLabelsRequired                          = apperr.New("request.required", "labels are required")

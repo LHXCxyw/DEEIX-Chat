@@ -15,6 +15,9 @@ import type {
   ConversationProjectDTO,
   ConversationProjectFilter,
   ConversationProjectStatusFilter,
+  ConversationRewindPreviewDTO,
+  ConversationRewindPreviewItemDTO,
+  ConversationRewindResultDTO,
   ConversationRunDTO,
   ConversationSearchPageDTO,
   ConversationShareDTO,
@@ -38,6 +41,7 @@ import type {
   PromptTraceDTO,
   PromptTraceSourceDTO,
   PublicSharedConversationDTO,
+  ProjectWorkspaceViewDTO,
   RenameConversationRequest,
   ReorderConversationProjectsRequest,
   RevokeConversationSharesRequest,
@@ -1178,6 +1182,64 @@ export async function resumeMessageGenerationStream(
   return completed;
 }
 
+export type MediaVideoRequeryResult = {
+  status: "completed" | "pending" | "failed";
+  runID: string;
+  message?: string;
+  attachments?: {
+    fileID: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    durationSeconds?: number;
+  }[];
+};
+
+// 任务重查：对失败的视频生成运行按上游任务 ID 回查一次，completed 时返回回收的产物附件。
+export async function requeryMediaVideoRun(
+  accessToken: string,
+  runID: string,
+): Promise<MediaVideoRequeryResult> {
+  return authedRequest<MediaVideoRequeryResult>(
+    `/api/v1/conversation-runs/${pathParam(runID)}/media/requery`,
+    {
+      method: "POST",
+      accessToken,
+    },
+    true,
+  );
+}
+
+export type MediaImageArtifactRetryResult = {
+  status: "recovered" | "expired" | string;
+  runID: string;
+  index: number;
+  message?: string;
+  attachment?: {
+    fileID: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  };
+};
+
+// 制品重试：对待保存的图像产物按 runID + 序号重试一次保存（重新下载并上传）。
+export async function retryMediaImageArtifact(
+  accessToken: string,
+  runID: string,
+  index: number,
+): Promise<MediaImageArtifactRetryResult> {
+  return authedRequest<MediaImageArtifactRetryResult>(
+    `/api/v1/conversation-runs/${pathParam(runID)}/media/artifact-retry`,
+    {
+      method: "POST",
+      accessToken,
+      body: { index },
+    },
+    true,
+  );
+}
+
 export async function setMessageFeedback(
   accessToken: string,
   messagePublicID: string,
@@ -1524,4 +1586,192 @@ export async function streamVideoExtension(
     payload,
     options,
   );
+}
+
+// 从 Content-Disposition 解析归档下载文件名；缺失时回退默认名。
+function parseArchiveFileName(header: string | null): string {
+  if (!header) {
+    return "";
+  }
+  // 优先 RFC 5987 的 filename*=UTF-8''...，其次普通 filename="..."。
+  const extended = /filename\*\s*=\s*utf-8''([^;]+)/i.exec(header);
+  if (extended?.[1]) {
+    try {
+      return decodeURIComponent(extended[1].trim().replace(/^"|"$/g, ""));
+    } catch {
+      return extended[1].trim().replace(/^"|"$/g, "");
+    }
+  }
+  const plain = /filename\s*=\s*"([^"]*)"/i.exec(header) ?? /filename\s*=\s*([^;]+)/i.exec(header);
+  return plain?.[1]?.trim() ?? "";
+}
+
+// 按多个候选键读取字符串（兼容后端 PascalCase 与契约 camelCase 命名）。
+function readAnyString(record: UnknownRecord, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = readString(record, key);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+// 按多个候选键读取数值。
+function readAnyFiniteNumber(record: UnknownRecord, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = readFiniteNumber(record, key);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+// 回退预览条目在 API 边界归一化：后端 PascalCase（无 json tag）与契约 camelCase 均兼容。
+function normalizeRewindPreviewItem(item: unknown): ConversationRewindPreviewItemDTO {
+  if (!isRecord(item)) {
+    return { relativePath: "", action: "" };
+  }
+  return {
+    relativePath: readAnyString(item, "relativePath", "RelativePath") ?? "",
+    action: readAnyString(item, "action", "Action") ?? "",
+    currentVersion: readAnyFiniteNumber(item, "currentVersion", "CurrentVersion"),
+    targetVersion: readAnyFiniteNumber(item, "targetVersion", "TargetVersion"),
+    targetSizeBytes: readAnyFiniteNumber(item, "targetSizeBytes", "TargetSizeBytes"),
+  };
+}
+
+// 读取项目工作区清单（工作区元信息 + 文件树）。
+export async function getProjectWorkspace(
+  accessToken: string,
+  projectPublicID: string,
+): Promise<ProjectWorkspaceViewDTO> {
+  return authedRequest<ProjectWorkspaceViewDTO>(
+    `/api/v1/conversation-projects/${pathParam(projectPublicID)}/workspace`,
+    { accessToken },
+    true,
+  );
+}
+
+// 读取项目文本文件内容（返回原始文本，非 JSON 信封）。
+export async function fetchProjectFileContent(
+  accessToken: string,
+  projectPublicID: string,
+  filePublicID: string,
+): Promise<string> {
+  const response = await authedFetch(
+    `/api/v1/conversation-projects/${pathParam(projectPublicID)}/files/${pathParam(filePublicID)}/content`,
+    { accessToken },
+    true,
+  );
+  return response.text();
+}
+
+// 读取项目二进制文件内容（图片/字体等资源）。
+export async function fetchProjectFileBlob(
+  accessToken: string,
+  projectPublicID: string,
+  filePublicID: string,
+): Promise<Blob> {
+  const response = await authedFetch(
+    `/api/v1/conversation-projects/${pathParam(projectPublicID)}/files/${pathParam(filePublicID)}/content`,
+    { accessToken },
+    true,
+  );
+  return response.blob();
+}
+
+// 新建或覆盖项目文本文件。
+export async function saveProjectFile(
+  accessToken: string,
+  projectPublicID: string,
+  relativePath: string,
+  content: string,
+): Promise<void> {
+  await authedRequest<unknown>(
+    `/api/v1/conversation-projects/${pathParam(projectPublicID)}/files`,
+    { accessToken, method: "PUT", body: { path: relativePath, content } },
+    true,
+  );
+}
+
+// 删除项目文件。
+export async function deleteProjectFile(
+  accessToken: string,
+  projectPublicID: string,
+  filePublicID: string,
+): Promise<void> {
+  await authedRequest<unknown>(
+    `/api/v1/conversation-projects/${pathParam(projectPublicID)}/files/${pathParam(filePublicID)}`,
+    { accessToken, method: "DELETE" },
+    true,
+  );
+}
+
+// 下载整个项目归档 ZIP，返回 Blob 与文件名。
+export async function downloadProjectArchive(
+  accessToken: string,
+  projectPublicID: string,
+): Promise<{ blob: Blob; fileName: string }> {
+  const response = await authedFetch(
+    `/api/v1/conversation-projects/${pathParam(projectPublicID)}/archive`,
+    { accessToken },
+    true,
+  );
+  const blob = await response.blob();
+  return {
+    blob,
+    fileName: parseArchiveFileName(response.headers.get("content-disposition")) || `${projectPublicID}.zip`,
+  };
+}
+
+// 上传 ZIP 归档并导入项目工作区。
+export async function uploadProjectArchive(
+  accessToken: string,
+  projectPublicID: string,
+  file: File,
+): Promise<void> {
+  const body = new FormData();
+  body.append("file", file, file.name);
+  await authedRequest<unknown>(
+    `/api/v1/conversation-projects/${pathParam(projectPublicID)}/files/import`,
+    { accessToken, method: "POST", body },
+    true,
+  );
+}
+
+// 预览消息回退将产生的文件变更清单。
+export async function previewConversationRewind(
+  accessToken: string,
+  conversationPublicID: string,
+  messagePublicID: string,
+): Promise<ConversationRewindPreviewDTO> {
+  const data = await authedRequest<Partial<ConversationRewindPreviewDTO>>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/messages/${pathParam(messagePublicID)}/rewind/preview`,
+    { accessToken, method: "POST" },
+    true,
+  );
+  return {
+    messagePublicID: data?.messagePublicID ?? "",
+    hasProjectFiles: Boolean(data?.hasProjectFiles),
+    items: (data?.items ?? []).map(normalizeRewindPreviewItem),
+  };
+}
+
+// 执行消息回退，返回受影响文件与新的续聊锚点消息公开ID。
+export async function rewindConversationToMessage(
+  accessToken: string,
+  conversationPublicID: string,
+  messagePublicID: string,
+): Promise<ConversationRewindResultDTO> {
+  const data = await authedRequest<Partial<ConversationRewindResultDTO>>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/messages/${pathParam(messagePublicID)}/rewind`,
+    { accessToken, method: "POST" },
+    true,
+  );
+  return {
+    items: (data?.items ?? []).map(normalizeRewindPreviewItem),
+    activeTipMessagePublicID: data?.activeTipMessagePublicID ?? "",
+  };
 }

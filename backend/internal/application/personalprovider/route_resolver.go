@@ -15,6 +15,8 @@ type platformRouter interface {
 	MarkRouteSuccess(ctx context.Context, route *channel.ResolvedRoute)
 	ListActiveModels(ctx context.Context, userID uint) ([]channel.ModelView, error)
 	BuildExternalRoute(input channel.ExternalRouteInput) (*channel.ResolvedRoute, error)
+	// BuildRouteForUpstream 按上游 ID 定点重建路由，供异步媒体任务重查使用。
+	BuildRouteForUpstream(ctx context.Context, upstreamID uint, protocol string, upstreamModel string) (*channel.ResolvedRoute, error)
 }
 
 // RouteResolver 在平台路由前加一层：personal: 引用由个人服务解析，其余全部交给平台。
@@ -83,4 +85,10 @@ func (r *RouteResolver) MarkRouteSuccess(ctx context.Context, route *channel.Res
 // ListActiveModels 返回平台模型目录。项目默认模型等长期配置只允许平台模型，个人模型不进入该列表。
 func (r *RouteResolver) ListActiveModels(ctx context.Context, userID uint) ([]channel.ModelView, error) {
 	return r.platform.ListActiveModels(ctx, userID)
+}
+
+// BuildRouteForUpstream 定点重建路由：个人模型路由不带平台上游 ID，
+// 统一委托平台实现；上游 ID 为 0 或非平台上游时由平台侧返回 ErrRouteNotFound。
+func (r *RouteResolver) BuildRouteForUpstream(ctx context.Context, upstreamID uint, protocol string, upstreamModel string) (*channel.ResolvedRoute, error) {
+	return r.platform.BuildRouteForUpstream(ctx, upstreamID, protocol, upstreamModel)
 }

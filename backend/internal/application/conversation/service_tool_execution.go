@@ -10,6 +10,7 @@ import (
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/mcp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/tokenestimate"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/toolresult"
 )
@@ -17,6 +18,7 @@ import (
 type executeAssistantToolCallsInput struct {
 	UserID            uint
 	ConversationID    uint
+	ProjectPublicID   string
 	MessageID         uint
 	RequestID         string
 	RunID             string
@@ -44,6 +46,28 @@ type executeAssistantToolCallsResult struct {
 type toolExecutionRecord struct {
 	row    model.ToolCall
 	result llm.ToolResult
+}
+
+func isProjectWorkspaceQueryTool(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "project_list_files", "project_read_file", "project_search_files":
+		return true
+	default:
+		return false
+	}
+}
+
+// executeToolCallSafely 在 executeToolCall 之上兜底 recover：单个工具实现 panic
+// （如空指针、越界）不再让整条多轮运行崩溃，而是作为该工具的错误结果回灌给模型，
+// 由模型决定重试、换路径或基于已有信息作答。
+func (s *Service) executeToolCallSafely(ctx context.Context, input ExecuteToolInput) (output string, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			output = ""
+			err = fmt.Errorf("tool execution panicked: %v", recovered)
+		}
+	}()
+	return s.executeToolCall(ctx, input)
 }
 
 type toolExecutionSlot struct {
@@ -96,7 +120,7 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		}
 
 		binding := resolveMCPBinding(modelToolName, input.MCPBindings)
-		if binding == nil {
+		if binding == nil && !isProjectTool(executionToolName) {
 			row.Status = "error"
 			row.ErrorJSON = toolNotEnabledForRunMessage(modelToolName)
 			slots[i] = toolExecutionSlot{
@@ -106,14 +130,17 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 			if fatalErr == nil {
 				fatalErr = fmt.Errorf("model requested tool %q, but it is not enabled for this run", modelToolName)
 			}
-			if input.Ledger != nil {
+			if input.Ledger != nil && !isProjectWorkspaceQueryTool(row.ToolName) {
 				input.Ledger.store(row.ToolName, row.InputJSON, toolExecutionRecord{row: row, result: slots[i].result})
 			}
 			continue
 		}
-		// 服务器归属快照跟随每一行落库，错误行也保留归属，便于按服务器排查与统计。
-		row.MCPServerID = binding.ServerID
-		row.MCPServerName = binding.ServerName
+		// 项目工具没有 MCP 绑定（binding == nil），必须跳过归属快照，否则空指针 panic
+		// 会让整条多轮运行在工具执行前崩溃。
+		if binding != nil {
+			row.MCPServerID = binding.ServerID
+			row.MCPServerName = binding.ServerName
+		}
 
 		normalizedInput, validationErr := normalizeToolArguments(row.InputJSON, input.ToolSchemas[modelToolName])
 		if validationErr != nil {
@@ -130,7 +157,7 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		}
 		row.InputJSON = normalizedInput
 
-		if input.Ledger != nil {
+		if input.Ledger != nil && !isProjectWorkspaceQueryTool(row.ToolName) {
 			if previous, ok := input.Ledger.lookup(row.ToolName, row.InputJSON); ok {
 				slot := buildRepeatedToolSlot(row, modelToolName, previous)
 				persisted := false
@@ -145,13 +172,20 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		}
 
 		toolStartedAt := time.Now()
-		outputJSON, executeErr := s.executeToolCall(ctx, ExecuteToolInput{
-			UserID:         input.UserID,
-			ConversationID: input.ConversationID,
-			RequestID:      strings.TrimSpace(input.RequestID),
-			ToolName:       row.ToolName,
-			ArgumentsJSON:  row.InputJSON,
-			MCPConfig:      &binding.Config,
+		var mcpConfig *mcp.CallConfig
+		if binding != nil {
+			mcpConfig = &binding.Config
+		}
+		outputJSON, executeErr := s.executeToolCallSafely(ctx, ExecuteToolInput{
+			UserID:          input.UserID,
+			ConversationID:  input.ConversationID,
+			MessageID:       input.MessageID,
+			RunID:           strings.TrimSpace(input.RunID),
+			ProjectPublicID: strings.TrimSpace(input.ProjectPublicID),
+			RequestID:       strings.TrimSpace(input.RequestID),
+			ToolName:        row.ToolName,
+			ArgumentsJSON:   row.InputJSON,
+			MCPConfig:       mcpConfig,
 		})
 		row.LatencyMS = time.Since(toolStartedAt).Milliseconds()
 		if row.LatencyMS < 0 {
@@ -167,13 +201,15 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 				row.OutputJSON = "{}"
 			}
 			// 计费单位是一次逻辑调用：内部重试不重复计量，失败调用不计费。
-			mcpToolUsage = mergeMCPToolUsage(mcpToolUsage, []MCPToolUsageItem{{
-				ServerID:     binding.ServerID,
-				ServerName:   binding.ServerName,
-				ToolName:     binding.ToolName,
-				CallCount:    1,
-				PriceNanousd: binding.PriceNanousd,
-			}})
+			if binding != nil {
+				mcpToolUsage = mergeMCPToolUsage(mcpToolUsage, []MCPToolUsageItem{{
+					ServerID:     binding.ServerID,
+					ServerName:   binding.ServerName,
+					ToolName:     binding.ToolName,
+					CallCount:    1,
+					PriceNanousd: binding.PriceNanousd,
+				}})
+			}
 		}
 		persisted := false
 		if !input.Ephemeral {

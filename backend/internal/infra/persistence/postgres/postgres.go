@@ -404,6 +404,11 @@ func applyConversationBaselineIndexes(db *gorm.DB) error {
 		ON "chat_messages" ("edited_at")`,
 		`ALTER TABLE "chat_runs"
 		ADD COLUMN IF NOT EXISTS "task_type" varchar(32) NOT NULL DEFAULT 'chat'`,
+		`ALTER TABLE "chat_runs"
+		ADD COLUMN IF NOT EXISTS "upstream_task_id" varchar(128) NOT NULL DEFAULT ''`,
+		`COMMENT ON COLUMN "chat_runs"."upstream_task_id" IS '上游异步任务ID'`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_runs_upstream_task_id
+		ON "chat_runs" ("upstream_task_id")`,
 		`COMMENT ON COLUMN "chat_runs"."task_type" IS '任务类型'`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_runs_task_type
 		ON "chat_runs" ("task_type")`,

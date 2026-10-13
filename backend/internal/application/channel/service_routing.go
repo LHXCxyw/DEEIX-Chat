@@ -503,6 +503,41 @@ func (s *Service) selectAPIKey(ctx context.Context, upstreamID uint, cfg domainc
 	return s.pickActiveKey(ctx, upstreamID, cfg.Keys, cfg.Strategy)
 }
 
+// BuildRouteForUpstream 按上游 ID 定点重建路由（不做负载均衡与熔断筛选），
+// 供异步媒体任务重查等“必须回到原上游”的场景使用。
+func (s *Service) BuildRouteForUpstream(ctx context.Context, upstreamID uint, protocol string, upstreamModel string) (*ResolvedRoute, error) {
+	if upstreamID == 0 {
+		return nil, ErrRouteNotFound
+	}
+	upstream, err := s.repo.GetUpstreamByID(ctx, upstreamID)
+	if err != nil {
+		return nil, err
+	}
+	if upstream.Status != "" && upstream.Status != "active" {
+		return nil, ErrRouteNotFound
+	}
+	keyCfg, err := s.parseAPIKeysConfig(upstream.APIKeysEnc)
+	if err != nil {
+		return nil, err
+	}
+	apiKey, err := s.selectAPIKey(ctx, upstreamID, keyCfg)
+	if err != nil {
+		return nil, err
+	}
+	return &ResolvedRoute{
+		UpstreamID:          upstream.ID,
+		UpstreamName:        upstream.Name,
+		Protocol:            strings.TrimSpace(protocol),
+		BaseURL:             upstream.BaseURL,
+		APIKey:              apiKey,
+		ConnectTimeoutMS:    upstream.ConnectTimeoutMS,
+		ReadTimeoutMS:       upstream.ReadTimeoutMS,
+		StreamIdleTimeoutMS: upstream.StreamIdleTimeoutMS,
+		HeadersJSON:         upstream.HeadersJSON,
+		UpstreamModel:       strings.TrimSpace(upstreamModel),
+	}, nil
+}
+
 // pickActiveKey 从有效密钥列表中按策略选取一个密钥。
 func (s *Service) pickActiveKey(ctx context.Context, upstreamID uint, entries []domainchannel.APIKey, strategy string) (string, error) {
 	active := make([]domainchannel.APIKey, 0, len(entries))

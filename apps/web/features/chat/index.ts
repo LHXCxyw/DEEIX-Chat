@@ -22,3 +22,12 @@ export { useChatArtifacts } from "@/features/chat/hooks/use-chat-artifacts";
 export type { OpenCodeArtifactInput } from "@/features/chat/model/chat-artifacts";
 export { AppChatArea } from "@/features/chat/components/app-chat-area";
 export { AssistantImageGenerationSkeleton } from "@/features/chat/components/message/message-bot";
+
+// 创作画布复用对话侧的模型目录/参数布局/消息附件解析：经此公共入口供跨功能消费。
+export { parseAttachments } from "@/features/chat/model/chat-thread";
+export type { ChatModelOption, ModelOptionControl } from "@/features/chat/types/chat-runtime";
+export { useChatModelOptions } from "@/features/chat/hooks/use-chat-model-options";
+export {
+  resolveDesktopMenuListMaxHeight,
+  resolveDesktopModelMenuListMaxHeight,
+} from "@/features/chat/components/sections/chat-model-picker-layout";

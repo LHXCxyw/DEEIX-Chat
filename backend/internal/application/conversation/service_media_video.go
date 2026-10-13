@@ -343,6 +343,12 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		}},
 		Options:              filteredOptions,
 		VideoExtensionSource: videoExtensionSource,
+		// 上游任务提交成功即记录任务编号：后续失败可按此回查上游结果（任务重查）。
+		OnTaskStarted: func(upstreamTaskID string) {
+			if run != nil {
+				run.UpstreamTaskID = strings.TrimSpace(upstreamTaskID)
+			}
+		},
 	}
 	if len(videoInputParts) > 0 {
 		parts := make([]llm.ContentPart, 0, 1+len(videoInputParts))
@@ -397,8 +403,22 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	attachmentRows := make([]model.Attachment, 0, len(output.GeneratedVideos))
 	now := time.Now()
 	for i, video := range output.GeneratedVideos {
-		data, mimeType, readErr := s.readGeneratedVideo(ctx, video, mediaArtifactSourceFor(route))
+		source := mediaArtifactSourceFor(route)
+		data, mimeType, readErr := s.readGeneratedVideo(ctx, video, source)
+		if readErr != nil && isRetryableGeneratedMediaDownload(readErr) {
+			// 下载类瞬时故障自动重试一次，多数网络抖动在此消化
+			data, mimeType, readErr = s.readGeneratedVideo(ctx, video, source)
+		}
 		if readErr != nil {
+			if isRetryableGeneratedMediaDownload(readErr) && strings.TrimSpace(run.UpstreamTaskID) != "" {
+				// 上游任务已完成：生成已成功，保存职责移交输出节点；
+				// 视频重试复用任务重查接口（按 UpstreamTaskID 回查上游并回收产物）。
+				emitMediaArtifactPendingEvent(input.OnEvent, run.RunID, "video", []int{i})
+				s.logGeneratedMediaArtifactFailure(ctx, run, i+1, len(output.GeneratedVideos), readErr)
+				retErr = readErr
+				_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(readErr), textutil.TruncateTrimmed(messageErrorSummary(readErr), 255))
+				return buildFailureResult(readErr, output.Usage), nil
+			}
 			retErr = s.finalizeGeneratedMediaArtifactFailure(ctx, run, assistantMessage.ID, i+1, len(output.GeneratedVideos), readErr)
 			return buildFailureResult(retErr, output.Usage), retErr
 		}

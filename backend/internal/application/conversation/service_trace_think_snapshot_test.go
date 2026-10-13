@@ -36,8 +36,10 @@ func newSnapshotRecorder(persistInflight bool) (*messageTraceRecorder, *traceRec
 	stub := &traceRecordRepoStub{}
 	return &messageTraceRecorder{
 		cfg: config.Config{
-			ProcessTraceEnabled:         true,
-			ProcessTracePersistInflight: persistInflight,
+			ProcessTraceEnabled:            true,
+			ProcessTraceVisibleToUser:      true,
+			ProcessTraceStoreUpstreamThink: true,
+			ProcessTracePersistInflight:    persistInflight,
 		},
 		ctx:       context.Background(),
 		assistant: &model.Message{ID: 1, ConversationID: 2, UserID: 3, RunID: "run_snapshot"},

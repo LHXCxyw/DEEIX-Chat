@@ -109,6 +109,10 @@ var (
 	ErrMessageDeleteStateInvalid = apperr.New("conversation.message_delete_state_invalid", "message is still generating")
 	// ErrMessageDeleteRootInvalid 会话第一条消息不允许删除，否则历史将以助手消息开头。
 	ErrMessageDeleteRootInvalid = apperr.New("conversation.message_delete_root_invalid", "cannot delete the first message")
+	// ErrMessageRewindStateInvalid 当前存在进行中的生成，消息回退语义未定义，拒绝回退。
+	ErrMessageRewindStateInvalid = apperr.New("conversation.message_rewind_state_invalid", "conversation has an in-progress generation")
+	// ErrMessageRewindHistoryIncomplete 消息祖先链超过安全上限或已损坏，无法完整回退。
+	ErrMessageRewindHistoryIncomplete = apperr.New("conversation.message_rewind_history_incomplete", "message history is too deep or incomplete")
 	// ErrMessageParentDeleted 父消息已被删除，无法再挂在其下创建新消息。
 	ErrMessageParentDeleted    = apperr.New("conversation.message_parent_deleted", "parent message was deleted")
 	ErrModelRouteNotConfigured = apperr.NewMasked("llm.model_route_not_configured", "model route is not configured", "model route not configured")
@@ -119,6 +123,8 @@ var (
 	ErrUpstreamRequestFailed = errors.New("upstream request failed")
 	// ErrGeneratedMediaArtifactUnavailable 上游已完成媒体生成，但结果制品暂时无法获取或校验。
 	ErrGeneratedMediaArtifactUnavailable = apperr.New(MessageErrorCodeMediaArtifactUnavailable, "generated media artifact is temporarily unavailable")
+	// ErrMediaArtifactPending 上游已完成媒体生成，全部产物保存待重试，转交输出节点回收。
+	ErrMediaArtifactPending = apperr.New("media.artifact_pending", "generated media artifact is pending retry")
 	// ErrUpstreamEmptyResponse 上游返回空响应。
 	ErrUpstreamEmptyResponse = apperr.NewMasked(MessageErrorCodeUpstreamEmptyResponse, "model returned empty response", "upstream returned empty response")
 	// ErrToolRunFinalAnswerMissing 工具循环结束后上游仍未产出最终回答。

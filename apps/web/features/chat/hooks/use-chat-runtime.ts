@@ -190,6 +190,7 @@ export function useChatRuntime({
     pendingExchanges,
     liveActivityLabels,
     liveRunIDs: liveServerRunIDs,
+    activeTipMessagePublicID: activeConversation?.activeTipMessagePublicID ?? null,
   });
   const visibleResumeGenerationActive = React.useMemo(() => {
     const normalizedRunID = resumingRunID.trim();
