@@ -17,6 +17,7 @@ backend/config.yml
 apps/web/package-lock.json
 backend/storage
 storage
+data
 tmp
 # The image only builds the web app and the API; the desktop shell and local build
 # artifacts would otherwise be walked for every COPY.

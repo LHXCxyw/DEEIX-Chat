@@ -14,6 +14,6 @@ services:
 
 networks:
   deeix-chat:
-    # Required. Start a root compose profile first, or create this network manually.
+    # Required. Start the root docker-compose.yml stack first, or create this network manually.
     external: true
     name: deeix-chat-network

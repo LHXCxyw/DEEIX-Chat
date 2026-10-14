@@ -163,9 +163,11 @@ The backend keeps clear internal boundaries: `backend/cmd/server` is the executa
 ├── packages/
 │   ├── api-contract/         # generated TypeScript API contract (single source for all clients)
 │   └── core/                 # platform-agnostic client logic shared by web / desktop / mobile
-├── deploy/                    # Docker deployment: compose profiles, config templates, optional services
+├── deploy/                    # Docker assets: config template and optional document services
+├── data/                      # Docker deployment data (storage, app, postgres, redis)
 ├── docs/                      # project guides and screenshots
-└── Dockerfile                 # frontend + backend production image
+├── Dockerfile                 # frontend + backend production image
+└── docker-compose.yml         # single deployment entry point (local image build)
 ```
 
 `apps/web/` and `backend/` are independent workspaces managed by pnpm and Turborepo. `packages/api-contract/` connects them through generated Swagger types; update the Go transport contract first, then regenerate the shared package. `packages/core/` holds client logic that must stay identical across platforms and is forbidden from importing any UI or platform framework. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for platform boundaries and rules.
@@ -177,7 +179,7 @@ The backend keeps clear internal boundaries: `backend/cmd/server` is the executa
 - Go 1.26.8 for backend development.
 - Docker Engine with Docker Compose v2 for container deployments or local PostgreSQL/Redis services.
 
-The SQLite profile does not require a separately managed database or cache. The default development configuration uses PostgreSQL and Redis; the full Compose profile starts both services for you.
+The Docker deployment starts PostgreSQL and Redis in containers for you. Outside Docker, the default development configuration expects PostgreSQL and Redis reachable from the host.
 
 ## Quick Start
 
@@ -185,7 +187,7 @@ The SQLite profile does not require a separately managed database or cache. The 
 
 ### Local Development
 
-Local development is intended for editing source code and running the frontend and backend separately. The default config connects to local PostgreSQL and Redis. If you only want a low-dependency trial, use the lightweight Docker installation below.
+Local development is intended for editing source code and running the frontend and backend separately. The default config connects to local PostgreSQL and Redis. If you only want a trial without local PostgreSQL and Redis, use the Docker deployment below, which starts them in containers.
 
 1. Prepare backend configuration:
 
@@ -254,79 +256,54 @@ The frontend is exported as static files, so `pnpm build` writes the browser art
 
 ### Docker Deployment
 
-All Docker assets live in [`deploy/`](deploy/README.md); copy that directory to your server, the application source is not needed. Run the following commands from inside `deploy/`. Choose one installation profile first, then copy the matching config template to `deploy/config.yaml`. All profiles expose the app at `http://localhost:8080` by default and mount `./config.yaml` (relative to `deploy/`) to `/app/config.yaml` inside the container.
-
-| Profile | Use case | Config file | Compose file | Built-in dependencies |
-| --- | --- | --- | --- | --- |
-| Lightweight | Local evaluation, personal use, small single-node deployments | `config.sqlite.example.yaml` | `docker-compose.sqlite.yml` | App only, SQLite + sqlite-vec + in-memory cache |
-| Default | External PostgreSQL and Redis already exist | `config.example.yaml` | `docker-compose.yml` | App only |
-| Full | Single-machine stack with app, PostgreSQL, and Redis | `config.full.example.yaml` | `docker-compose.full.yml` | App, PostgreSQL, Redis |
-
-#### 1. Lightweight Installation: SQLite
-
-This is the lowest-dependency deployment. It starts only the `app` container, stores data and local vector indexes in SQLite, and uses the in-process memory cache. Use it for local evaluation, personal deployments, and small single-node setups.
+Docker deployment uses one file and one workflow. [`docker-compose.yml`](docker-compose.yml) at the repository root builds the runtime image from this source tree and starts the application together with its PostgreSQL and Redis containers. There is no prebuilt-image path and no second profile: the source is always compiled locally by `docker compose up -d --build`.
 
 ```bash
-cd deploy
-cp config.sqlite.example.yaml config.yaml
-docker compose -f docker-compose.sqlite.yml up -d
+cp deploy/config.example.yaml config.yaml   # first run only
+docker compose up -d --build
 ```
 
-SQLite + memory cache is single-process only. It is good for local use, evaluation, and small single-node deployments. Use PostgreSQL + Redis for multi-node or high-concurrency production deployments.
+| Aspect | Value |
+| --- | --- |
+| Image | Built locally by compose (`deeix-chat:local`) |
+| Config | Root `config.yaml`, mounted read-only at `/app/config.yaml` |
+| Services | `app`, `postgres` (`pgvector/pgvector:pg16`), `redis` (`redis:7-bookworm`) |
+| Network | `deeix-chat-network` |
+| Host port | `3700` mapped to container `8080` |
 
-#### 2. Default Installation: External PostgreSQL + Redis
+#### Data and Persistence
 
-Use this when PostgreSQL and Redis are already managed outside this compose stack. Before starting, set database and Redis addresses to values reachable from inside the container; if the services run on the Docker host, `host.docker.internal` is usually the right hostname.
+Every stateful path is a bind mount under the project root, using the same layout as earlier versions:
+
+| Data | Host path | Container path |
+| --- | --- | --- |
+| Uploaded and generated files | `./data/storage` | `/app/storage` |
+| Application data directory | `./data/app` | `/app/data` |
+| PostgreSQL data | `./data/postgres` | `/var/lib/postgresql/data` |
+| Redis data | `./data/redis` | `/data` |
+
+An existing `./data` tree from an earlier deployment can be reused directly: the PostgreSQL image and on-disk layout are unchanged, so no dump or re-import is needed. The `deeix_chat` role and its password are fixed by `docker-compose.yml` and must stay identical to the values already stored inside an existing `./data/postgres`. Stop the old containers first so a single process owns the data directory.
+
+Common operations, all from the project root:
 
 ```bash
-cd deploy
-cp config.example.yaml config.yaml
-# Edit database.postgres.dsn, database.redis.*, and public URLs.
-docker compose up -d
+docker compose logs -f app       # follow application logs
+docker compose restart app      # restart after editing config.yaml
+docker compose down             # stop the stack, keeping ./data intact
 ```
 
-The default `docker-compose.yml` starts only the application container. Keep compose `environment` empty unless you intentionally want environment variables to override `config.yaml`.
-
-#### 3. Full Installation: PostgreSQL + Redis Containers
-
-Use this when you want compose to start the app, PostgreSQL, and Redis together.
-
-```bash
-cd deploy
-cp config.full.example.yaml config.yaml
-docker compose -f docker-compose.full.yml up -d
-```
-
-`docker-compose.full.yml` sets `POSTGRES_DSN`, `REDIS_ADDR`, `REDIS_USERNAME`, and `REDIS_PASSWORD` in compose `environment`, so those values override the database and Redis values in `config.yaml`.
-
-#### Configuration, Persistence, and Image
+#### Configuration
 
 Configuration priority is `environment variables > config.yaml > built-in defaults`. `config.yaml` is for static infrastructure and security configuration such as server URLs, database, cache, storage, GeoIP, tracing, JWT, and encryption keys. Runtime business settings are stored in the database and managed in the admin console.
 
-The default compose files persist application data:
-
-| Data | Container path |
-| --- | --- |
-| SQLite database | `/app/data/deeix.db` |
-| Uploaded and generated files | `/app/storage` |
-| PostgreSQL data | `/var/lib/postgresql/data`, full installation only |
-| Redis data | `/data`, full installation only |
-
-The default application image is `ghcr.io/deeix-ai/deeix-chat:latest`. Compose files reference an image and do not define a build step. Build a local image from the repository root first, then select it with `DEEIX_CHAT_IMAGE`:
-
-```bash
-docker build -t deeix-chat:local .
-cd deploy && DEEIX_CHAT_IMAGE=deeix-chat:local docker compose up -d
-```
-
-Use the matching `-f docker-compose.sqlite.yml` or `-f docker-compose.full.yml` option when starting another profile.
+[`deploy/config.example.yaml`](deploy/config.example.yaml) is the only template. Its database and Redis values already point at the `postgres` and `redis` service names, so copying it to the root `config.yaml` works with this compose stack without edits. Before a public deployment, replace `security.jwt_secret` and `security.data_encryption_key` with strong random values, set `app.env` to `prod`, and set `server.public_api_base_url`, `server.public_web_base_url`, and `server.cors_allow_origin`.
 
 `APP_ENV` accepts `dev`/`development` and `prod`/`production`, normalizes them to `dev` or `prod`, and defaults to `prod` when omitted. Use `dev` only for local development. Public production deployments should keep `APP_ENV=prod` or `APP_ENV=production` and use production secrets.
 
 #### Optional Installation Services
 
 These services are optional. Start only the ones you enable in the admin console or `config.yaml`.
-They live under `deploy/services/` and attach to `deeix-chat-network`; start one application profile first, or create the network manually with `docker network create deeix-chat-network`. Run from inside `deploy/`:
+They live under `deploy/services/` and attach to `deeix-chat-network`; start this compose stack first, or create the network manually with `docker network create deeix-chat-network`. Run from inside `deploy/`:
 
 ```bash
 docker compose -f services/tika/docker-compose.yml up -d
@@ -386,8 +363,8 @@ Use this mode when the frontend and backend are served from different public ori
 After the application starts, verify liveness, readiness, the mounted config file, and startup logs. For Docker deployments:
 
 ```bash
-curl http://localhost:8080/healthz
-curl http://localhost:8080/readyz
+curl http://localhost:3700/healthz
+curl http://localhost:3700/readyz
 docker compose exec app ls -l /app/config.yaml
 docker compose logs app
 ```
@@ -411,7 +388,7 @@ If a superadmin already exists, the service does not regenerate or print the ini
 
 Backend configuration is split into static runtime configuration and runtime business settings. Static runtime configuration describes branding and the infrastructure, security, and storage parameters required to start the service, and is provided through `config.yaml` and environment variables. Runtime business settings cover product capabilities such as authentication, conversations, models, files, and billing; they are stored in `system_settings` and maintained from the admin console. Environment variables override matching config-file values, which is useful for containerized deployments, separated deployments, and secret injection.
 
-At startup, the backend resolves the default config file from the working directory: starting from the repository root reads `config.yaml`, while starting from `backend/` reads `../config.yaml`. Docker deployments mount `deploy/config.yaml` as read-only `/app/config.yaml` inside the container. If the config file is stored elsewhere, set `CONFIG_FILE` to a path accessible from the running process or container. The effective priority is `environment variables > config.yaml > built-in defaults`.
+At startup, the backend resolves the default config file from the working directory: starting from the repository root reads `config.yaml`, while starting from `backend/` reads `../config.yaml`. Docker deployments mount the root `config.yaml` as read-only `/app/config.yaml` inside the container. If the config file is stored elsewhere, set `CONFIG_FILE` to a path accessible from the running process or container. The effective priority is `environment variables > config.yaml > built-in defaults`.
 
 Frontend branding is also runtime configuration. Set the `branding` section in `config.yaml`, then restart the application; rebuilding the frontend or Docker image is not required. See [Custom branding](docs/BRANDING.md).
 

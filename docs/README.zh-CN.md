@@ -163,9 +163,11 @@ flowchart TB
 ├── packages/
 │   ├── api-contract/         # 生成的 TypeScript API 契约（所有客户端的唯一来源）
 │   └── core/                 # Web / 桌面 / 移动端共享的平台无关客户端逻辑
-├── deploy/                    # Docker 部署：compose 方案、配置模板、可选服务
+├── deploy/                    # Docker 资源：配置模板与可选文档处理服务
+├── data/                      # Docker 部署数据（storage、app、postgres、redis）
 ├── docs/                      # 项目指南和截图
-└── Dockerfile                 # 前后端生产镜像
+├── Dockerfile                 # 前后端生产镜像
+└── docker-compose.yml         # 唯一部署入口（本地编译镜像）
 ```
 
 `apps/web/` 和 `backend/` 是由 pnpm 与 Turborepo 管理的独立工作区。`packages/api-contract/` 通过生成的 Swagger 类型连接两者；修改 HTTP 契约时先更新 Go 传输层，再重新生成共享包。`packages/core/` 存放必须在各端保持一致的客户端逻辑，禁止引入任何 UI 或平台框架。平台边界与规则见 [docs/ARCHITECTURE.md](ARCHITECTURE.md)。
@@ -177,7 +179,7 @@ flowchart TB
 - Go 1.26.8，用于后端开发。
 - Docker Engine 与 Docker Compose v2，用于容器部署或启动本地 PostgreSQL/Redis。
 
-SQLite 方案不要求单独管理数据库或缓存。默认开发配置使用 PostgreSQL 和 Redis；完整 Compose 方案会自动启动这两个服务。
+Docker 部署会在容器内启动 PostgreSQL 和 Redis。在 Docker 之外，默认开发配置要求本机可访问 PostgreSQL 和 Redis。
 
 ## 快速开始
 
@@ -185,7 +187,7 @@ SQLite 方案不要求单独管理数据库或缓存。默认开发配置使用 
 
 ### 本地开发
 
-本地开发适合改动源码并分别启动前后端。默认配置连接本机 PostgreSQL 和 Redis；如果只是低依赖试用，建议直接使用下面的 Docker 轻量安装。
+本地开发适合改动源码并分别启动前后端。默认配置连接本机 PostgreSQL 和 Redis；如果不想在本机准备 PostgreSQL 和 Redis，建议直接使用下面的 Docker 部署，它会在容器内启动这两个服务。
 
 1. 准备后端配置：
 
@@ -251,79 +253,54 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080
 
 ### Docker 部署
 
-所有 Docker 部署资源都在 [`deploy/`](../deploy/README.md) 目录；把这个目录整体拷到服务器即可，不需要应用源码。以下命令均在 `deploy/` 目录内执行。先选择安装方案，再把对应的配置模板复制为 `deploy/config.yaml`。三套 compose 方案都默认将应用暴露在 `http://localhost:8080`，并把 `./config.yaml`（相对 `deploy/`）挂载到容器内 `/app/config.yaml`。
-
-| 方案 | 适合场景 | 配置文件 | Compose 文件 | 内置依赖 |
-| --- | --- | --- | --- | --- |
-| 轻量安装 | 本地试用、个人部署、小型单节点 | `config.sqlite.example.yaml` | `docker-compose.sqlite.yml` | 仅应用容器，SQLite + sqlite-vec + 内存缓存 |
-| 默认安装 | 已有外部 PostgreSQL 和 Redis | `config.example.yaml` | `docker-compose.yml` | 仅应用容器 |
-| 全量安装 | 单机同时部署应用、PostgreSQL 和 Redis | `config.full.example.yaml` | `docker-compose.full.yml` | 应用、PostgreSQL、Redis |
-
-#### 1. 轻量安装：SQLite
-
-依赖最少的部署方式，只启动 `app` 容器。数据和本地向量索引使用 SQLite，缓存使用进程内 memory，适合本地试用、个人部署和小型单节点场景。
+Docker 部署只有一个文件和一种运行方式：仓库根目录的 [`docker-compose.yml`](../docker-compose.yml) 会用当前源码本地编译镜像，并同时启动应用、PostgreSQL 和 Redis 容器。没有预构建镜像方案，也没有第二套方案——始终通过 `docker compose up -d --build` 本地编译。
 
 ```bash
-cd deploy
-cp config.sqlite.example.yaml config.yaml
-docker compose -f docker-compose.sqlite.yml up -d
+cp deploy/config.example.yaml config.yaml   # 仅首次
+docker compose up -d --build
 ```
 
-SQLite + memory cache 只适合单进程。多节点、高并发或更严格的生产部署建议使用 PostgreSQL + Redis。
-
-#### 2. 默认安装：外部 PostgreSQL + Redis
-
-适合已经有外部 PostgreSQL 和 Redis 的部署环境。启动前需要把数据库和 Redis 地址改成容器内可访问的地址；如果服务在 Docker 宿主机上，通常可以使用 `host.docker.internal`。
-
-```bash
-cd deploy
-cp config.example.yaml config.yaml
-# 修改 database.postgres.dsn、database.redis.* 和公开访问地址
-docker compose up -d
-```
-
-默认 `docker-compose.yml` 只启动应用容器。除非明确需要覆盖 `config.yaml`，否则不要在 compose 里额外写同名 `environment`。
-
-#### 3. 全量安装：PostgreSQL + Redis 容器
-
-适合希望 compose 同时启动应用、PostgreSQL 和 Redis 的部署方式。
-
-```bash
-cd deploy
-cp config.full.example.yaml config.yaml
-docker compose -f docker-compose.full.yml up -d
-```
-
-`docker-compose.full.yml` 会在 compose `environment` 中设置 `POSTGRES_DSN`、`REDIS_ADDR`、`REDIS_USERNAME` 和 `REDIS_PASSWORD`，因此这些值会覆盖 `config.yaml` 里的数据库和 Redis 配置。
-
-#### 配置、持久化和镜像
-
-配置优先级是：`环境变量 > config.yaml > 代码内置默认值`。`config.yaml` 负责品牌和静态基础设施、安全配置，例如品牌资源、服务地址、数据库、缓存、存储、GeoIP、Trace、JWT 和加密密钥。运行时业务配置存储在数据库中，并通过后台管理修改。
-
-默认 compose 会持久化应用数据：
-
-| 数据 | 容器路径 |
+| 项目 | 取值 |
 | --- | --- |
-| SQLite 数据库 | `/app/data/deeix.db` |
-| 上传文件和生成文件 | `/app/storage` |
-| PostgreSQL 数据 | `/var/lib/postgresql/data`，仅全量安装 |
-| Redis 数据 | `/data`，仅全量安装 |
+| 镜像 | 由 compose 本地编译（`deeix-chat:local`） |
+| 配置 | 根目录 `config.yaml`，只读挂载为容器内 `/app/config.yaml` |
+| 服务 | `app`、`postgres`（`pgvector/pgvector:pg16`）、`redis`（`redis:7-bookworm`） |
+| 网络 | `deeix-chat-network` |
+| 宿主机端口 | `3700` 映射到容器 `8080` |
 
-默认应用镜像为 `ghcr.io/deeix-ai/deeix-chat:latest`。Compose 文件只引用镜像，不定义构建步骤。测试本地构建时先在仓库根目录生成镜像，再通过 `DEEIX_CHAT_IMAGE` 选择它：
+#### 数据与持久化
+
+所有有状态路径都以绑定目录形式落在项目根目录，布局与旧版本一致：
+
+| 数据 | 宿主机路径 | 容器路径 |
+| --- | --- | --- |
+| 上传文件和生成文件 | `./data/storage` | `/app/storage` |
+| 应用数据目录 | `./data/app` | `/app/data` |
+| PostgreSQL 数据 | `./data/postgres` | `/var/lib/postgresql/data` |
+| Redis 数据 | `./data/redis` | `/data` |
+
+旧版本留下的 `./data` 目录可以直接复用：PostgreSQL 镜像和磁盘布局都没有变化，不需要导出再导入。`deeix_chat` 角色及其密码由 `docker-compose.yml` 固定，必须与已有 `./data/postgres` 中保存的密码保持一致。启动前请先停掉旧容器，避免两个进程同时占用数据目录。
+
+常用操作都在项目根目录执行：
 
 ```bash
-docker build -t deeix-chat:local .
-cd deploy && DEEIX_CHAT_IMAGE=deeix-chat:local docker compose up -d
+docker compose logs -f app       # 跟踪应用日志
+docker compose restart app      # 改完 config.yaml 后重启
+docker compose down             # 停止整套服务，保留 ./data
 ```
 
-使用其他方案时，在启动命令中加入对应的 `-f docker-compose.sqlite.yml` 或 `-f docker-compose.full.yml`。
+#### 配置
+
+配置优先级是：`环境变量 > config.yaml > 代码内置默认值`。`config.yaml` 负责品牌与静态基础设施、安全配置，例如品牌资源、服务地址、数据库、缓存、存储、GeoIP、Trace、JWT 和加密密钥。运行时业务配置存储在数据库中，并通过后台管理修改。
+
+[`deploy/config.example.yaml`](../deploy/config.example.yaml) 是唯一的配置模板。它的数据库和 Redis 取值已经指向 `postgres` 与 `redis` 服务名，复制为根目录 `config.yaml` 后即可配套使用。公网部署前请把 `security.jwt_secret`、`security.data_encryption_key` 换成强随机值，将 `app.env` 设为 `prod`，并设置 `server.public_api_base_url`、`server.public_web_base_url` 和 `server.cors_allow_origin`。
 
 `APP_ENV` 支持 `dev`/`development` 和 `prod`/`production`，内部会规范化为 `dev` 或 `prod`；未配置时默认 `prod`。`dev` 只用于本地开发；公网生产部署应保持 `APP_ENV=prod` 或 `APP_ENV=production` 并使用生产密钥。
 
 #### 可选安装服务
 
 这些服务不是必须安装。只有在后台或 `config.yaml` 中启用对应文件处理能力时才需要启动。
-这些服务位于 `deploy/services/`，会接入 `deeix-chat-network`；请先启动任一应用 compose 方案，或手动执行 `docker network create deeix-chat-network`。在 `deploy/` 目录内执行：
+这些服务位于 `deploy/services/`，会接入 `deeix-chat-network`；请先启动上面这套根目录 compose，或手动执行 `docker network create deeix-chat-network`。在 `deploy/` 目录内执行：
 
 ```bash
 docker compose -f services/tika/docker-compose.yml up -d
@@ -383,8 +360,8 @@ docker compose -f services/docling/docker-compose.yml up -d --build
 应用启动后，先确认存活、就绪、挂载配置文件和启动日志。Docker 部署可用：
 
 ```bash
-curl http://localhost:8080/healthz
-curl http://localhost:8080/readyz
+curl http://localhost:3700/healthz
+curl http://localhost:3700/readyz
 docker compose exec app ls -l /app/config.yaml
 docker compose logs app
 ```
@@ -408,7 +385,7 @@ docker compose logs app
 
 后端配置分为静态运行配置和运行时业务配置。静态运行配置用于描述品牌以及服务启动所需的基础设施、安全和存储参数，由 `config.yaml` 与环境变量提供；运行时业务配置用于认证、会话、模型、文件、计费等产品能力，写入 `system_settings` 并通过后台管理维护。环境变量会覆盖配置文件中的同名项，适合容器化、分离部署和密钥注入场景。
 
-后端启动时会按运行目录解析默认配置文件：从仓库根目录启动读取 `config.yaml`，从 `backend/` 目录启动读取 `../config.yaml`。Docker 部署将 `deploy/config.yaml` 只读挂载到容器内 `/app/config.yaml`；如果配置文件放在其他位置，请使用 `CONFIG_FILE` 指向实际运行环境可访问的路径。最终生效优先级是 `环境变量 > config.yaml > 代码内置默认值`。
+后端启动时会按运行目录解析默认配置文件：从仓库根目录启动读取 `config.yaml`，从 `backend/` 目录启动读取 `../config.yaml`。Docker 部署将根目录 `config.yaml` 只读挂载到容器内 `/app/config.yaml`；如果配置文件放在其他位置，请使用 `CONFIG_FILE` 指向实际运行环境可访问的路径。最终生效优先级是 `环境变量 > config.yaml > 代码内置默认值`。
 
 前端品牌同样属于运行时配置。在 `config.yaml` 中设置 `branding` 后重启应用即可生效，无需重新构建前端或 Docker 镜像。详见[自定义品牌资源](./BRANDING.md)。
 

@@ -110,25 +110,13 @@ backend/
 
 ## 配置
 
-默认读取仓库根目录下的 `config.yaml`，常用配置也支持环境变量覆盖。从 `backend/` 目录启动时会读取 `../config.yaml`。也可以通过 `CONFIG_FILE` 指定配置文件路径。配置模板在 `deploy/`，下面的复制命令从仓库根目录执行，并选择其中一个方案。
-
-默认开发配置（外部 PostgreSQL + Redis）：
+默认读取仓库根目录下的 `config.yaml`，常用配置也支持环境变量覆盖。从 `backend/` 目录启动时会读取 `../config.yaml`。也可以通过 `CONFIG_FILE` 指定配置文件路径。唯一的配置模板是 `deploy/config.example.yaml`，下面的复制命令从仓库根目录执行：
 
 ```bash
 cp deploy/config.example.yaml config.yaml
 ```
 
-完整 Compose 配置（应用、PostgreSQL、Redis）：
-
-```bash
-cp deploy/config.full.example.yaml config.yaml
-```
-
-SQLite + 进程内缓存配置：
-
-```bash
-cp deploy/config.sqlite.example.yaml config.yaml
-```
+模板中的数据库和 Redis 默认值指向根目录 compose 的 `postgres` 与 `redis` 服务；在 Docker 之外本机开发时，把地址改回 `127.0.0.1` 即可。
 
 关键配置：
 
@@ -221,29 +209,20 @@ https://pay.example.com/epay/submit.php
 
 ## 本地启动
 
-除 `make` 和 `go` 命令外，下面的 Docker 命令均在 `deploy/` 目录内执行（compose 挂载的是 `deploy/config.yaml`）。根据使用场景选择一种依赖方案。
+除 `make` 和 `go` 命令外，Docker 命令都在仓库根目录执行（compose 挂载的是根目录 `config.yaml`）。
 
-使用本机或外部 PostgreSQL、Redis：
+如果不希望在本机准备 PostgreSQL 和 Redis，直接用根目录 compose 启动完整依赖栈：
+
+```bash
+cp deploy/config.example.yaml config.yaml
+docker compose up -d --build
+```
+
+在 Docker 之外使用本机或外部 PostgreSQL、Redis 时，只需准备配置：
 
 ```bash
 cp deploy/config.example.yaml config.yaml
 # 按本机环境修改 database.postgres.dsn 和 database.redis.*
-```
-
-使用完整本地依赖栈：
-
-```bash
-cd deploy
-cp config.full.example.yaml config.yaml
-docker compose -f docker-compose.full.yml up -d
-```
-
-使用 SQLite 和进程内缓存：
-
-```bash
-cd deploy
-cp config.sqlite.example.yaml config.yaml
-docker compose -f docker-compose.sqlite.yml up -d
 ```
 
 启动后端（仓库根目录）：

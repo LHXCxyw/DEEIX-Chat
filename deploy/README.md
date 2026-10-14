@@ -1,17 +1,15 @@
 # Deployment
 
-Everything needed to run DEEIX Chat with Docker lives in this directory. Copy it to your
-server as-is; the application source is not required.
+Docker deployment assets that stay separate from the application source. The compose file itself lives at
+the repository root; this directory holds the configuration template, the optional document services, and
+the desktop rollout assets.
 
 ```
 deploy/
-├── docker-compose.yml            Default: app only, external PostgreSQL + Redis
-├── docker-compose.sqlite.yml     Lightweight: app only, SQLite + in-memory cache
-├── docker-compose.full.yml       Full: app + PostgreSQL + Redis containers
-├── config.example.yaml           Template for the default profile (also used for local development)
-├── config.sqlite.example.yaml    Template for the lightweight profile
-├── config.full.example.yaml      Template for the full profile
+├── config.example.yaml           Template for the root config.yaml (Database and Redis defaults already
+│                                 point at the postgres / redis services of the root compose stack)
 ├── services/                     Optional document extraction / OCR services
+├── secrets/                      Signing keys for desktop releases; see secrets/README.md
 └── windows/                      Desktop client rollout on managed Windows (MSI, portable, Group Policy)
 ```
 
@@ -20,33 +18,27 @@ Rolling out the desktop client to managed Windows machines is covered separately
 
 ## Run
 
-Pick one profile, copy its template to `config.yaml` **in this directory**, then start it:
+There is one deployment workflow, defined by [`../docker-compose.yml`](../docker-compose.yml). From the
+repository root:
 
 ```bash
-cd deploy
-cp config.sqlite.example.yaml config.yaml
-docker compose -f docker-compose.sqlite.yml up -d
+cp deploy/config.example.yaml config.yaml   # first run only
+docker compose up -d --build
 ```
 
-Every compose file mounts `./config.yaml` (relative to this directory) to `/app/config.yaml`.
-`deploy/config.yaml` is git-ignored and excluded from the image build context.
+Compose builds the image locally from this source tree and starts the application together with
+PostgreSQL and Redis. Every stateful path is bound to `./data` in the project root
+(`storage`, `app`, `postgres`, `redis`), which matches the layout used by earlier versions, so an
+existing `./data` directory can be reused as-is. The app is exposed on `http://localhost:3700`, and the
+root `config.yaml` is mounted read-only at `/app/config.yaml`.
 
-The full guide, including profile trade-offs, persistence paths and optional services, is in the
+The full guide — configuration, persistence paths, data migration, and common operations — is in the
 [root README](../README.md#docker-deployment).
-
-## Build a local image
-
-The application image is built from the repository root:
-
-```bash
-docker build -t deeix-chat:local .
-cd deploy && DEEIX_CHAT_IMAGE=deeix-chat:local docker compose up -d
-```
 
 ## Optional services
 
 Each service under `services/` is self-contained (its own build context) and attaches to
-`deeix-chat-network`, so start an application profile first:
+`deeix-chat-network`, so start the root compose stack first. Run these from inside `deploy/`:
 
 ```bash
 docker compose -f services/tika/docker-compose.yml up -d

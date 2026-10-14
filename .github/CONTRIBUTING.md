@@ -67,7 +67,7 @@ Commit message subjects that do not match this format will fail CI.
 
 - `apps/web/` owns the user interface, client-side state, message rendering, and admin/user workflows. `apps/desktop/` is a Tauri shell around the same web build and contains no business UI. `packages/core` holds platform-neutral client logic (auth state machine, server address resolution, capabilities).
 - `backend/` owns business APIs, authentication, authorization, model routing, file processing, billing, audit logs, and persistence.
-- `deploy/` contains Docker Compose setups, config templates, and optional services for document extraction, OCR, and related runtime dependencies.
+- `deploy/` contains the Docker config template and optional services for document extraction, OCR, and related runtime dependencies. The deployment entry point itself is the root `docker-compose.yml`.
 - The frontend should not duplicate backend authorization, billing, provider routing, or file-processing business rules.
 - Keep cross-cutting concerns such as security, tracing, storage, and provider clients behind backend infrastructure boundaries.
 - Backend startup flows through `cmd -> internal/cli -> internal/app`.

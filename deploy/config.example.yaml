@@ -54,17 +54,20 @@ database:
   driver: postgres
   postgres:
     # Required when database.driver is postgres.
-    dsn: "postgres://deeix_chat:deeix_chat_dev_2026@127.0.0.1:5432/deeix_chat?sslmode=disable&TimeZone=Asia/Shanghai"
+    # The default DSN matches the bundled root docker-compose.yml (service `postgres`, user and database
+    # `deeix_chat`). For local development outside Docker, point the host at 127.0.0.1 instead.
+    dsn: "postgres://deeix_chat:deeix_chat_change_me@postgres:5432/deeix_chat?sslmode=disable&TimeZone=Asia/Shanghai"
     max_open_conns: 30
     max_idle_conns: 10
     conn_max_lifetime_minutes: 60
     conn_max_idle_time_minutes: 10
   redis:
     # Required when cache.driver is redis.
-    addr: "127.0.0.1:6379"
+    # The default address and password match the bundled root docker-compose.yml (service `redis`).
+    addr: "redis:6379"
     # Optional. Set when Redis ACL requires a username.
     username: ""
-    password: "deeix_chat_redis_dev"
+    password: "deeix_chat_change_me"
     db: 0
     # Optional. Enable TLS for providers such as Upstash Redis.
     tls_enabled: false

@@ -14,10 +14,11 @@ DEEIX-Chat/
 ├── packages/
 │   ├── api-contract/         后端 Swagger → TypeScript 类型，所有客户端的唯一 API 来源
 │   └── core/                 平台无关的客户端逻辑：鉴权状态机、服务器地址解析、能力声明解析
-├── deploy/                   Docker 部署：compose 方案、配置模板、可选服务；可整体拷到服务器
+├── deploy/                   Docker 资源：配置模板、可选文档处理服务、桌面端分发资产
 ├── scripts/sync-version.mjs  根目录 VERSION 驱动所有包与 Go 版本号
 ├── docs/
-├── Dockerfile                应用镜像（唯一留在根目录的部署文件，构建上下文是仓库根）
+├── Dockerfile                应用镜像（构建上下文是仓库根）
+├── docker-compose.yml        唯一部署入口：本地编译镜像 + 应用/PostgreSQL/Redis，数据落在根目录 data/
 └── .github/workflows/
 ```
 

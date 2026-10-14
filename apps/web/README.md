@@ -217,10 +217,11 @@ cp deploy/config.example.yaml config.yaml
 pnpm dev
 ```
 
-如果本机没有 PostgreSQL 和 Redis，可以启动完整本地依赖：
+如果本机没有 PostgreSQL 和 Redis，可以在仓库根目录用 compose 启动完整依赖栈（应用会暴露在 `http://localhost:3700`）：
 
 ```bash
-cd deploy && docker compose -f docker-compose.full.yml up -d
+cp deploy/config.example.yaml config.yaml
+docker compose up -d --build
 ```
 
 只启动前端时访问 `http://localhost:3000`。后端默认监听 `http://localhost:8080`。API 地址按“运行时覆盖（桌面端）→ `NEXT_PUBLIC_API_BASE_URL` → 页面 origin”的顺序解析；未设置构建变量且页面运行在本机回环地址的非 8080 端口时，自动指向同主机的 8080 端口。
