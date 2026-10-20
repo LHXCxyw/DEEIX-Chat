@@ -208,7 +208,8 @@ func errorResponseDetails(err error) any {
 			Message:    strings.TrimSpace(upstream.Message),
 		}
 		if snapshot := appconversation.MessageErrorDebug(err); snapshot != nil {
-			if snapshot.Response.StatusCode > 0 {
+			// 流内 error 块的状态码（如 504）优先；调试快照里的 200 只是传输层建流状态。
+			if detail.StatusCode == 0 && snapshot.Response.StatusCode > 0 {
 				detail.StatusCode = snapshot.Response.StatusCode
 			}
 			detail.Body = strings.TrimSpace(snapshot.Response.Body)

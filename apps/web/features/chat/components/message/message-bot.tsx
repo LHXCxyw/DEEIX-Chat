@@ -32,7 +32,7 @@ import type {
   ChatInlineAlert,
   MessageAttachment,
 } from "@/features/chat/types/messages";
-import { isUpstreamStreamingDebugBody, summarizeUpstreamError } from "@/features/chat/utils/chat-runtime";
+import { extractUpstreamStreamError, isUpstreamStreamingDebugBody, summarizeUpstreamError } from "@/features/chat/utils/chat-runtime";
 import { cn } from "@/lib/utils";
 import { type FileContentLoader, PreviewMedia } from "@/entities/file";
 import { type MarkdownArtifactActions, MarkdownImage } from "@/shared/components/markdown/streamdown-components";
@@ -564,8 +564,11 @@ export function ChatInlineAlertCard({
   const summary = summarizeUpstreamError(message, details, t("retryLater"));
   const hasDetails = Boolean(details?.request || details?.response);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
+  // 流内 error 数据块自带失败码与文案时，说明不是协议不兼容，不能再用兜底文案覆盖。
+  const streamError = extractUpstreamStreamError(details?.response?.body || message);
   const hasSuccessfulStreamDebug =
     Boolean(summary.statusCode && summary.statusCode >= 200 && summary.statusCode < 300) &&
+    !streamError &&
     isUpstreamStreamingDebugBody(details?.response?.body || message);
   // 后端摘要里的“原因：”行携带真实失败原因（空闲超时、连接中断、数据块解析失败），
   // 有原因时直接展示完整摘要，不能再被“协议不兼容”的兜底文案覆盖。

@@ -135,6 +135,31 @@ func TestDescribeSendMessageErrorPreservesUpstreamRateLimit(t *testing.T) {
 	}
 }
 
+func TestErrorResponseDetailsKeepsInStreamErrorStatus(t *testing.T) {
+	err := errors.Join(appconversation.ErrUpstreamRequestFailed, &llm.UpstreamError{
+		StatusCode: http.StatusGatewayTimeout,
+		Message:    "文本生成中断，请稍后重试",
+		Debug: &llm.UpstreamDebugSnapshot{
+			Response: llm.UpstreamDebugResponse{
+				StatusCode: http.StatusOK,
+				Body:       `{"error":{"code":504,"message":"文本生成中断，请稍后重试"}}`,
+			},
+		},
+	})
+
+	details, ok := errorResponseDetails(err).(*errorDetails)
+	if !ok || details.Upstream == nil {
+		t.Fatalf("expected upstream details, got %#v", errorResponseDetails(err))
+	}
+	// 调试快照里的 200 只是建流状态，不能覆盖流内 error 块声明的 504。
+	if details.Upstream.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want %d", details.Upstream.StatusCode, http.StatusGatewayTimeout)
+	}
+	if details.Upstream.Message != "文本生成中断，请稍后重试" {
+		t.Fatalf("message = %q", details.Upstream.Message)
+	}
+}
+
 func TestDescribeSendMessageErrorPreservesEmptyResponseAfterUpstreamWrapping(t *testing.T) {
 	tests := []struct {
 		name string

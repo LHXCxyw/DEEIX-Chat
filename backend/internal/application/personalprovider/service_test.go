@@ -466,6 +466,40 @@ func TestResolveIsScopedToTheOwnerAndCurrentPolicy(t *testing.T) {
 	}
 }
 
+// 个人服务商的超时由管理员统一配置，解析路由时必须带上当前配置值。
+func TestResolveUsesAdminConfiguredTimeouts(t *testing.T) {
+	fixture := newFixture(t, func(cfg *config.Config) {
+		cfg.PersonalProvidersConnectTimeoutMS = 15_000
+		cfg.PersonalProvidersReadTimeoutMS = 240_000
+		cfg.PersonalProvidersStreamIdleTimeoutMS = 600_000
+	})
+	item, err := fixture.service.Create(context.Background(), 1, validCreate(), RequestMeta{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := domainpersonalprovider.FormatModelRef(item.PublicID, "gpt-4o")
+
+	route, err := fixture.service.Resolve(context.Background(), 1, ref)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if route.ConnectTimeoutMS != 15_000 || route.ReadTimeoutMS != 240_000 || route.StreamIdleTimeoutMS != 600_000 {
+		t.Fatalf("route timeouts = %d/%d/%d", route.ConnectTimeoutMS, route.ReadTimeoutMS, route.StreamIdleTimeoutMS)
+	}
+
+	// 管理员改完设置立即生效，不需要重启。
+	next := fixture.runtime.Snapshot()
+	next.PersonalProvidersStreamIdleTimeoutMS = 900_000
+	fixture.runtime.Store(next)
+	updated, err := fixture.service.Resolve(context.Background(), 1, ref)
+	if err != nil {
+		t.Fatalf("resolve after update: %v", err)
+	}
+	if updated.StreamIdleTimeoutMS != 900_000 {
+		t.Fatalf("stream idle timeout = %d, want 900000", updated.StreamIdleTimeoutMS)
+	}
+}
+
 // 密文绑定到所属用户与服务：直接改库把 Key 挪到别的记录上，解密失败而不是被别的服务使用。
 func TestStoredKeysOnlyDecryptOnTheirOwnRecord(t *testing.T) {
 	fixture := newFixture(t, nil)

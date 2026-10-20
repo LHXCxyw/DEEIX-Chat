@@ -12,7 +12,7 @@ type LLMUpstream struct {
 	Status               string `gorm:"size:32;not null;default:'active';index:idx_llm_upstreams_status;comment:上游状态"`
 	ConnectTimeoutMS     int    `gorm:"not null;default:10000;comment:TCP建连超时毫秒"`
 	ReadTimeoutMS        int    `gorm:"not null;default:120000;comment:非流式整体超时/流式首字节超时毫秒"`
-	StreamIdleTimeoutMS  int    `gorm:"not null;default:60000;comment:流式chunk间隔超时毫秒"`
+	StreamIdleTimeoutMS  int    `gorm:"not null;default:300000;comment:流式chunk间隔超时毫秒"`
 	APIKeysEnc           string `gorm:"type:text;comment:AES加密后的API密钥配置"`
 	CbFailureThreshold   int    `gorm:"not null;default:0;comment:上游级熔断失败次数阈值"`
 	CbModelThreshold     int    `gorm:"not null;default:0;comment:上游级熔断模型数阈值"`

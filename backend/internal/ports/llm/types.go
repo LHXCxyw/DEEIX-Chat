@@ -35,7 +35,7 @@ type RouteConfig struct {
 	HeadersJSON         string
 	ConnectTimeoutMS    int // TCP 建连超时（默认 10s）
 	ReadTimeoutMS       int // 非流式整体超时 / 流式首字节超时（默认 180s）
-	StreamIdleTimeoutMS int // 流式两个 chunk 之间最大间隔（默认 120s）
+	StreamIdleTimeoutMS int // 流式两个 chunk 之间最大间隔（默认 300s）
 	Endpoint            string
 	UpstreamModel       string
 	AttributionReferer  string

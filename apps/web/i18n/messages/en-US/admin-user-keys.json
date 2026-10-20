@@ -10,6 +10,18 @@
       "label": "Provider limit",
       "description": "Providers each user can add, from 1 to 50."
     },
+    "connectTimeout": {
+      "label": "Connect timeout (ms)",
+      "description": "Maximum time to establish a connection to the provider. Default 10000, range 1000–120000."
+    },
+    "readTimeout": {
+      "label": "Read timeout (ms)",
+      "description": "Overall timeout for non-streaming requests and the first-byte wait for streaming requests. Default 120000, range 10000–1800000."
+    },
+    "streamIdleTimeout": {
+      "label": "Stream idle timeout (ms)",
+      "description": "Maximum gap between data chunks from a user provider. Default 300000 (5 minutes), range 30000–1800000. Raise it for large files or long tool arguments."
+    },
     "blockedHosts": {
       "label": "Blocked domains",
       "description": "One per line, matched exactly; *.example.com matches all of its subdomains. Applies to existing providers immediately."

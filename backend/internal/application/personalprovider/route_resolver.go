@@ -58,6 +58,10 @@ func (r *RouteResolver) ResolveRoute(ctx context.Context, input channel.ResolveR
 		TaskType: input.TaskType,
 		BaseURL:  resolved.BaseURL,
 		APIKey:   resolved.APIKey,
+		// 个人服务商的超时由管理员统一配置。
+		ConnectTimeoutMS:    resolved.ConnectTimeoutMS,
+		ReadTimeoutMS:       resolved.ReadTimeoutMS,
+		StreamIdleTimeoutMS: resolved.StreamIdleTimeoutMS,
 	})
 }
 

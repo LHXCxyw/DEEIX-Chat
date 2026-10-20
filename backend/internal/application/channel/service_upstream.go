@@ -177,7 +177,7 @@ func (s *Service) CreateUpstream(ctx context.Context, input CreateUpstreamInput)
 		Status:               normalizeStatus(input.Status),
 		ConnectTimeoutMS:     normalizeTimeout(input.ConnectTimeoutMS, 10000),
 		ReadTimeoutMS:        normalizeTimeout(input.ReadTimeoutMS, 120000),
-		StreamIdleTimeoutMS:  normalizeTimeout(input.StreamIdleTimeoutMS, 120000),
+		StreamIdleTimeoutMS:  normalizeTimeout(input.StreamIdleTimeoutMS, 300000),
 		CbFailureThreshold:   input.CbFailureThreshold,
 		CbModelThreshold:     input.CbModelThreshold,
 		CbThresholdLogic:     normalizeCbLogic(input.CbThresholdLogic),
@@ -270,7 +270,7 @@ func (s *Service) UpdateUpstream(ctx context.Context, upstreamID uint, input Upd
 		updateInput.ReadTimeoutMS = &readTimeoutMS
 	}
 	if input.StreamIdleTimeoutMS != nil {
-		streamIdleTimeoutMS := normalizeTimeout(*input.StreamIdleTimeoutMS, 120000)
+		streamIdleTimeoutMS := normalizeTimeout(*input.StreamIdleTimeoutMS, 300000)
 		updateInput.StreamIdleTimeoutMS = &streamIdleTimeoutMS
 	}
 	if input.CbFailureThreshold != nil {

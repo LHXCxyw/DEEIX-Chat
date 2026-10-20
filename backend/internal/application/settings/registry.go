@@ -170,6 +170,12 @@ var settingSpecs = []settingSpec{
 		Validate: boolValue(), Apply: applyField(func(c *config.Config) *bool { return &c.PersonalProvidersEnabled }, toBool)},
 	{Namespace: "personal_provider", Key: "max_per_user", ValueType: "int", Default: strconv.Itoa(config.DefaultPersonalProvidersMaxPerUser), Description: "每个用户最多可添加的模型服务数",
 		Validate: intRange(1, config.MaxPersonalProvidersMaxPerUser), Apply: applyField(func(c *config.Config) *int { return &c.PersonalProvidersMaxPerUser }, toInt)},
+	{Namespace: "personal_provider", Key: "connect_timeout_ms", ValueType: "int", Default: strconv.Itoa(config.DefaultPersonalProvidersConnectTimeoutMS), Description: "个人服务商的建连超时（毫秒）",
+		Validate: intRange(config.MinPersonalProvidersConnectTimeoutMS, config.MaxPersonalProvidersConnectTimeoutMS), Apply: applyField(func(c *config.Config) *int { return &c.PersonalProvidersConnectTimeoutMS }, toInt)},
+	{Namespace: "personal_provider", Key: "read_timeout_ms", ValueType: "int", Default: strconv.Itoa(config.DefaultPersonalProvidersReadTimeoutMS), Description: "个人服务商的非流式整体超时与流式首字节超时（毫秒）",
+		Validate: intRange(config.MinPersonalProvidersReadTimeoutMS, config.MaxPersonalProvidersReadTimeoutMS), Apply: applyField(func(c *config.Config) *int { return &c.PersonalProvidersReadTimeoutMS }, toInt)},
+	{Namespace: "personal_provider", Key: "stream_idle_timeout_ms", ValueType: "int", Default: strconv.Itoa(config.DefaultPersonalProvidersStreamIdleTimeoutMS), Description: "个人服务商的流式空闲超时（毫秒）：上游两个数据块之间的最大间隔，生成长文件或大段工具参数时可调大",
+		Validate: intRange(config.MinPersonalProvidersStreamIdleTimeoutMS, config.MaxPersonalProvidersStreamIdleTimeoutMS), Apply: applyField(func(c *config.Config) *int { return &c.PersonalProvidersStreamIdleTimeoutMS }, toInt)},
 	{Namespace: "personal_provider", Key: "blocked_hosts", ValueType: "string", Default: "", Description: "域名黑名单，逗号或换行分隔；精确匹配域名，*.example.com 匹配其子域名。内网、回环与云元数据地址始终禁止，无需在此配置",
 		Validate: validateHostList, Apply: applyField(func(c *config.Config) *string { return &c.PersonalProvidersBlockedHosts }, trimmedText)},
 

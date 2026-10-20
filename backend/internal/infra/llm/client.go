@@ -25,9 +25,11 @@ import (
 
 // 超时默认值。
 const (
-	defaultConnectTimeoutMS    = 10000  // TCP 建连超时 10s
-	defaultReadTimeoutMS       = 180000 // 非流式/首字节超时 180s（含 LLM 推理与图像生成等待）
-	defaultStreamIdleTimeoutMS = 120000 // 流式 chunk 间隔超时 120s
+	defaultConnectTimeoutMS = 10000  // TCP 建连超时 10s
+	defaultReadTimeoutMS    = 180000 // 非流式/首字节超时 180s（含 LLM 推理与图像生成等待）
+	// 流式 chunk 间隔超时。上游在生成大段工具参数（如整文件写入）时可能长时间不发送任何字节，
+	// 60s/120s 会把正常生成误判为断流；300s 与 Codex CLI 的 stream_idle_timeout_ms 默认值一致。
+	defaultStreamIdleTimeoutMS = 300000
 	maxUpstreamBodyBytes       = 64 * 1024 * 1024
 	// maxStreamToolCallIndex 防止异常稀疏的上游索引触发无界切片扩容。
 	maxStreamToolCallIndex = 1024

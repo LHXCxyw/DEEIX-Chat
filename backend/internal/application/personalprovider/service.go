@@ -436,6 +436,10 @@ type ResolvedRoute struct {
 	Protocols    []string
 	BaseURL      string
 	APIKey       string
+	// 超时由管理员统一配置，供路由配置使用。
+	ConnectTimeoutMS    int
+	ReadTimeoutMS       int
+	StreamIdleTimeoutMS int
 }
 
 // Resolve 把个人模型引用解析为调用配置。每次调用都会重新校验：功能开关、权限组、归属、
@@ -470,15 +474,28 @@ func (s *Service) Resolve(ctx context.Context, userID uint, ref string) (*Resolv
 	if err != nil {
 		return nil, ErrModelUnavailable
 	}
+	connectTimeoutMS, readTimeoutMS, streamIdleTimeoutMS := s.routeTimeouts()
 	return &ResolvedRoute{
-		Ref:          domainpersonalprovider.FormatModelRef(provider.PublicID, model),
-		Model:        model,
-		ProviderID:   provider.PublicID,
-		ProviderName: provider.Name,
-		Protocols:    append([]string(nil), enabled.Protocols...),
-		BaseURL:      provider.BaseURL,
-		APIKey:       apiKey,
+		Ref:                 domainpersonalprovider.FormatModelRef(provider.PublicID, model),
+		Model:               model,
+		ProviderID:          provider.PublicID,
+		ProviderName:        provider.Name,
+		Protocols:           append([]string(nil), enabled.Protocols...),
+		BaseURL:             provider.BaseURL,
+		APIKey:              apiKey,
+		ConnectTimeoutMS:    connectTimeoutMS,
+		ReadTimeoutMS:       readTimeoutMS,
+		StreamIdleTimeoutMS: streamIdleTimeoutMS,
 	}, nil
+}
+
+// routeTimeouts 返回管理员统一配置的个人服务商超时；未配置时返回 0，由路由回退默认值。
+func (s *Service) routeTimeouts() (connectTimeoutMS int, readTimeoutMS int, streamIdleTimeoutMS int) {
+	if s.cfg == nil {
+		return 0, 0, 0
+	}
+	snapshot := s.cfg.Snapshot()
+	return snapshot.PersonalProvidersConnectTimeoutMS, snapshot.PersonalProvidersReadTimeoutMS, snapshot.PersonalProvidersStreamIdleTimeoutMS
 }
 
 // ---------------------------------------------------------------------------

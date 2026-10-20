@@ -77,13 +77,81 @@ export function summarizeUpstreamError(
   details?: UpstreamDebugInfo,
   fallback = "",
 ): { statusCode: number | null; reason: string } {
-  const statusCode = details?.response?.statusCode || extractStatusCode(message);
+  // 流内 error 数据块自带状态码与文案（如 code=504），优先于 2xx 的传输状态。
+  const streamError = extractUpstreamStreamError(details?.response?.body);
+  const statusCode = streamError
+    ? streamError.statusCode
+    : details?.response?.statusCode ?? extractStatusCode(message);
   const reason =
+    streamError?.message ||
     extractStructuredErrorReason(details?.response?.body || "") ||
     extractStructuredErrorReason(extractDetailBody(message)) ||
     extractMessageReason(message) ||
     fallback;
   return { statusCode, reason };
+}
+
+/** 流内 error 块声明的错误信息；statusCode 是错误块自己的状态，不是 HTTP 传输状态。 */
+export type UpstreamStreamErrorInfo = {
+  statusCode: number | null;
+  message: string;
+};
+
+// extractUpstreamStreamError 从流式响应体里找出流内 error 数据块。SSE 的 HTTP 状态可能仍是
+// 200，真正的失败码（如 504）只在数据块里；不解析出来就只能显示成“格式不兼容”。
+// 同时兼容 `data: {...}` 的 SSE 与 Gemini 逐行 JSON（无 data: 前缀）。
+export function extractUpstreamStreamError(body: string | null | undefined): UpstreamStreamErrorInfo | null {
+  const raw = body?.trim() || "";
+  if (!raw) {
+    return null;
+  }
+  const payloads = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => (line.startsWith("data:") ? line.slice("data:".length).trim() : line))
+    .filter((line) => line.startsWith("{"));
+  for (const payload of payloads) {
+    const value = parseJSON(payload);
+    if (!isRecord(value)) {
+      continue;
+    }
+    const nested = isRecord(value.response) ? value.response : undefined;
+    const error = isRecord(value.error) ? value.error : nested && isRecord(nested.error) ? nested.error : undefined;
+    if (!error) {
+      continue;
+    }
+    const statusCode = firstStatusCode([error.status, error.status_code, error.code, value.status, value.status_code]);
+    const reason = firstNonEmptyString([error.message, error.msg, value.message]);
+    if (statusCode !== null || reason) {
+      return { statusCode, message: reason };
+    }
+  }
+  return null;
+}
+
+function firstStatusCode(values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599) {
+      return value;
+    }
+    if (typeof value === "string" && /^\d{3}$/.test(value.trim())) {
+      const parsed = Number.parseInt(value.trim(), 10);
+      if (parsed >= 100 && parsed <= 599) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function firstNonEmptyString(values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
 }
 
 export function isUpstreamStreamingDebugBody(value: string | null | undefined): boolean {

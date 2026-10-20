@@ -11,7 +11,7 @@ import (
 const (
 	externalRouteConnectTimeoutMS    = 10_000
 	externalRouteReadTimeoutMS       = 120_000
-	externalRouteStreamIdleTimeoutMS = 60_000
+	externalRouteStreamIdleTimeoutMS = 300_000
 )
 
 // ExternalModel 描述一个不在平台路由表中的模型（用户自带 Key 的模型）。
@@ -32,6 +32,10 @@ type ExternalRouteInput struct {
 	TaskType string
 	BaseURL  string
 	APIKey   string
+	// 超时由调用方（如个人服务商的管理员配置）指定；0 表示用平台默认值。
+	ConnectTimeoutMS    int
+	ReadTimeoutMS       int
+	StreamIdleTimeoutMS int
 }
 
 // BuildExternalRoute 为外部模型构造调用路由：补齐厂商、图标、内置目录的推理能力与输入模态，
@@ -52,9 +56,9 @@ func (s *Service) BuildExternalRoute(input ExternalRouteInput) (*ResolvedRoute, 
 		Protocol:                        protocol,
 		BaseURL:                         strings.TrimSpace(input.BaseURL),
 		APIKey:                          input.APIKey,
-		ConnectTimeoutMS:                externalRouteConnectTimeoutMS,
-		ReadTimeoutMS:                   externalRouteReadTimeoutMS,
-		StreamIdleTimeoutMS:             externalRouteStreamIdleTimeoutMS,
+		ConnectTimeoutMS:                externalRouteTimeout(input.ConnectTimeoutMS, externalRouteConnectTimeoutMS),
+		ReadTimeoutMS:                   externalRouteTimeout(input.ReadTimeoutMS, externalRouteReadTimeoutMS),
+		StreamIdleTimeoutMS:             externalRouteTimeout(input.StreamIdleTimeoutMS, externalRouteStreamIdleTimeoutMS),
 		ModelVendor:                     vendor,
 		ModelIcon:                       normalizeModelIcon("", vendor, model),
 		UpstreamModel:                   model,
@@ -73,6 +77,14 @@ func (s *Service) BuildExternalRoute(input ExternalRouteInput) (*ResolvedRoute, 
 		}
 	}
 	return route, nil
+}
+
+// externalRouteTimeout 优先使用调用方配置的超时；未配置时回退默认值。
+func externalRouteTimeout(value int, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 // ExternalModelView 构造外部模型在用户模型目录中的展示数据。能力按上游真实模型名解析，

@@ -10,7 +10,14 @@ import { invalidatePersonalProviderAccess } from "@/shared/hooks/use-personal-pr
 const USER_KEYS_SETTINGS_NAMESPACE = "personal_provider";
 
 /** Setting keys in display order; values are kept as the raw strings the settings API stores. */
-const USER_KEYS_SETTING_KEYS = ["enabled", "max_per_user", "blocked_hosts"] as const;
+const USER_KEYS_SETTING_KEYS = [
+  "enabled",
+  "max_per_user",
+  "connect_timeout_ms",
+  "read_timeout_ms",
+  "stream_idle_timeout_ms",
+  "blocked_hosts",
+] as const;
 
 export type UserKeysSettingKey = (typeof USER_KEYS_SETTING_KEYS)[number];
 type UserKeysSettings = Record<UserKeysSettingKey, string>;
@@ -18,6 +25,9 @@ type UserKeysSettings = Record<UserKeysSettingKey, string>;
 const DEFAULT_SETTINGS: UserKeysSettings = {
   enabled: "false",
   max_per_user: "10",
+  connect_timeout_ms: "10000",
+  read_timeout_ms: "120000",
+  stream_idle_timeout_ms: "300000",
   blocked_hosts: "",
 };
 

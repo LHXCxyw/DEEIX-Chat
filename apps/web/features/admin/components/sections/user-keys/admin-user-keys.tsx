@@ -62,6 +62,27 @@ export function AdminUserKeysPage() {
   const limitFields: Array<SettingsFieldDefinition & { key: UserKeysSettingKey }> = [
     { key: "max_per_user", id: "personal_provider.max_per_user", type: "int", label: t("policy.maxPerUser.label"), description: t("policy.maxPerUser.description") },
     {
+      key: "connect_timeout_ms",
+      id: "personal_provider.connect_timeout_ms",
+      type: "int",
+      label: t("policy.connectTimeout.label"),
+      description: t("policy.connectTimeout.description"),
+    },
+    {
+      key: "read_timeout_ms",
+      id: "personal_provider.read_timeout_ms",
+      type: "int",
+      label: t("policy.readTimeout.label"),
+      description: t("policy.readTimeout.description"),
+    },
+    {
+      key: "stream_idle_timeout_ms",
+      id: "personal_provider.stream_idle_timeout_ms",
+      type: "int",
+      label: t("policy.streamIdleTimeout.label"),
+      description: t("policy.streamIdleTimeout.description"),
+    },
+    {
       key: "blocked_hosts",
       id: "personal_provider.blocked_hosts",
       type: "textarea",
