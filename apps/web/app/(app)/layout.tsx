@@ -7,6 +7,7 @@ import { AppearancePreferencesProvider } from "@/features/settings";
 import { AppI18nProvider } from "@/i18n/app-i18n-provider";
 import { CapabilitiesProvider } from "@/shared/capabilities";
 import { BrandingProvider } from "@/shared/config/branding-provider";
+import { ChunkLoadRecovery } from "@/shared/components/chunk-load-recovery";
 import { DevtoolsBrandBanner } from "@/shared/components/devtools-brand-banner";
 import { ThemeBootstrapScript } from "@/shared/components/theme-bootstrap-script";
 import { ThemeProvider } from "@/shared/components/theme-provider";
@@ -86,6 +87,7 @@ export default function RootLayout({
                     <AppVersionGuard />
                     <DesktopUpdateNotifier />
                     <LegacyPWAServiceWorkerMigration />
+                    <ChunkLoadRecovery />
                     <DevtoolsBrandBanner />
                   </CapabilitiesProvider>
                 </DesktopBootstrap>

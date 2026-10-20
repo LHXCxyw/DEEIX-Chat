@@ -14,6 +14,7 @@ import {
   SettingsPage,
   SettingsSection,
 } from "@/shared/components/settings-layout";
+import { useBranding } from "@/shared/config/branding-provider";
 import { cn } from "@/lib/utils";
 
 type AboutLabels = {
@@ -21,6 +22,8 @@ type AboutLabels = {
   official: string;
   website: string;
   repository: string;
+  // 二改项目仓库：仅当 config.branding.project_url 指向非原项目地址时展示。
+  repositoryFork: string;
   social: string;
   blog: string;
   contact: string;
@@ -120,6 +123,11 @@ export function AboutSettingsContent({
   brandIcon,
 }: AboutSettingsContentProps) {
   const tCommon = useTranslations("common.appVersion");
+  const branding = useBranding();
+  const originalRepositoryURL = "https://github.com/DEEIX-AI/DEEIX-Chat";
+  const forkRepositoryURL = branding.projectURL?.trim() || "";
+  const showForkRepository = Boolean(forkRepositoryURL) && forkRepositoryURL !== originalRepositoryURL;
+  const forkRepositoryName = forkRepositoryURL.replace(/\/+$/, "").split("/").pop() || "DEEIX-Chat";
   // A "-" in the version means a pre-release build (e.g. 0.4.4-beta.1).
   const isPrerelease = packageMeta.version.includes("-");
   const versionBadge = (
@@ -150,9 +158,17 @@ export function AboutSettingsContent({
     {
       label: labels.repository,
       value: "DEEIX-Chat",
-      href: "https://github.com/DEEIX-AI/DEEIX-Chat",
+      href: originalRepositoryURL,
       brand: { name: "GitHub", slug: "github" },
     },
+    ...(showForkRepository
+      ? [{
+          label: labels.repositoryFork,
+          value: forkRepositoryName,
+          href: forkRepositoryURL,
+          brand: { name: "GitHub", slug: "github" },
+        }]
+      : []),
     {
       label: labels.blog,
       value: "blog.cheny.me",

@@ -22,6 +22,7 @@ const (
 	defaultBrandTitle                   = "DEEIX Chat"
 	defaultBrandShortName               = "DEEIX"
 	defaultBrandDescription             = "DEEIX Chat is a multi-model AI conversation system."
+	defaultBrandProjectURL              = "https://github.com/DEEIX-AI/DEEIX-Chat"
 	defaultBrandFaviconURL              = "/favicon.ico"
 	defaultBrandPWAIcon192URL           = "/pwa/icon-192.png"
 	defaultBrandPWAIcon512URL           = "/pwa/icon-512.png"
@@ -295,6 +296,7 @@ type yamlConfig struct {
 		Title                 string `yaml:"title"`
 		ShortName             string `yaml:"short_name"`
 		Description           string `yaml:"description"`
+		ProjectURL            string `yaml:"project_url"`
 		LogoURL               string `yaml:"logo_url"`
 		FaviconURL            string `yaml:"favicon_url"`
 		PWAIcon192URL         string `yaml:"pwa_icon_192_url"`
@@ -398,11 +400,13 @@ type yamlConfig struct {
 // 静态字段由 YAML/ENV 加载；动态字段由 settings.RuntimeSettings.ApplyTo 从数据库覆盖。
 type Config struct {
 	// ── 静态配置（YAML/ENV） ──
-	AppName                    string
-	Env                        string
-	BrandTitle                 string
-	BrandShortName             string
-	BrandDescription           string
+	AppName          string
+	Env              string
+	BrandTitle       string
+	BrandShortName   string
+	BrandDescription string
+	// BrandProjectURL 是项目仓库地址；二改项目可在 config.branding.project_url 指向自己的仓库。
+	BrandProjectURL            string
 	BrandLogoURL               string
 	BrandFaviconURL            string
 	BrandPWAIcon192URL         string
@@ -666,6 +670,7 @@ func Load() Config {
 		BrandTitle:                   valueOrDefault(yc.Branding.Title, defaultBrandTitle),
 		BrandShortName:               valueOrDefault(yc.Branding.ShortName, defaultBrandShortName),
 		BrandDescription:             valueOrDefault(yc.Branding.Description, defaultBrandDescription),
+		BrandProjectURL:              valueOrDefault(yc.Branding.ProjectURL, defaultBrandProjectURL),
 		BrandLogoURL:                 strings.TrimSpace(yc.Branding.LogoURL),
 		BrandFaviconURL:              valueOrDefault(yc.Branding.FaviconURL, defaultBrandFaviconURL),
 		BrandPWAIcon192URL:           valueOrDefault(yc.Branding.PWAIcon192URL, defaultBrandPWAIcon192URL),

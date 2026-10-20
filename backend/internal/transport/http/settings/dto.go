@@ -55,9 +55,11 @@ type LoginPageSettingsResponse struct {
 }
 
 type BrandingResponse struct {
-	Title                 string `json:"title"`
-	ShortName             string `json:"shortName"`
-	Description           string `json:"description"`
+	Title       string `json:"title"`
+	ShortName   string `json:"shortName"`
+	Description string `json:"description"`
+	// ProjectURL 是项目仓库地址，供页脚与关于页的 GitHub 图标跳转。
+	ProjectURL            string `json:"projectURL"`
 	LogoURL               string `json:"logoURL"`
 	FaviconURL            string `json:"faviconURL"`
 	PWAIcon192URL         string `json:"pwaIcon192URL"`

@@ -42,12 +42,17 @@ export function useBrandingLoader(): { branding: BrandingDTO; ready: boolean } {
     // settles late cannot overwrite the current one.
     let generation = 0;
     const applyBranding = (nextBranding: BrandingDTO) => {
-      setBrandingSnapshot(nextBranding);
+      // 旧服务端没有 projectURL 时回退到内置仓库地址，避免页脚与关于页拿到空链接。
+      const normalized = {
+        ...nextBranding,
+        projectURL: nextBranding.projectURL?.trim() || DEFAULT_BRANDING.projectURL,
+      };
+      setBrandingSnapshot(normalized);
       if (!active) {
         return;
       }
       window.clearTimeout(fallbackTimer);
-      setBranding(nextBranding);
+      setBranding(normalized);
       setReady(true);
     };
     const applyFrom = (requestGeneration: number) => (nextBranding: BrandingDTO) => {

@@ -17,6 +17,7 @@ func TestGetBrandingReturnsRuntimeConfig(t *testing.T) {
 		BrandTitle:                 "Example Chat",
 		BrandShortName:             "Example",
 		BrandDescription:           "Example description",
+		BrandProjectURL:            "https://github.com/example/chat",
 		BrandLogoURL:               "https://cdn.example.com/logo.svg",
 		BrandFaviconURL:            "https://cdn.example.com/favicon.ico",
 		BrandPWAIcon192URL:         "https://cdn.example.com/icon-192.png",
@@ -44,6 +45,9 @@ func TestGetBrandingReturnsRuntimeConfig(t *testing.T) {
 	}
 	if body.Data.Title != "Example Chat" || body.Data.LogoURL != "https://cdn.example.com/logo.svg" {
 		t.Fatalf("unexpected branding response: %+v", body.Data)
+	}
+	if body.Data.ProjectURL != "https://github.com/example/chat" {
+		t.Fatalf("unexpected project URL: %q", body.Data.ProjectURL)
 	}
 }
 

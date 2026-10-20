@@ -5,6 +5,7 @@ export const DEFAULT_BRANDING: BrandingDTO = {
   title: "DEEIX Chat",
   shortName: "DEEIX",
   description: "DEEIX Chat is a multi-model AI conversation system.",
+  projectURL: "https://github.com/DEEIX-AI/DEEIX-Chat",
   logoURL: "",
   faviconURL: "/favicon.ico",
   pwaIcon192URL: pwaAsset("/pwa/icon-192.png"),

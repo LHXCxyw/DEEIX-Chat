@@ -56,6 +56,8 @@ branding:
   title: DEEIX Chat
   short_name: DEEIX
   description: DEEIX Chat is a multi-model AI conversation system.
+  # 二改项目请改成自己的仓库地址；页脚、分享页与关于页会展示本项目，关于页同时保留原项目地址。
+  project_url: https://github.com/DEEIX-AI/DEEIX-Chat
   logo_url: ""
   favicon_url: /favicon.ico
   pwa_icon_192_url: /pwa/icon-192.png

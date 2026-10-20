@@ -8,6 +8,7 @@ import { useBranding } from "@/shared/config/branding-provider";
 
 export function PoweredByDeeix({ className }: { className?: string }) {
   const t = useTranslations("common.attribution");
+  const branding = useBranding();
   return (
     <span
       className={cn(
@@ -17,7 +18,7 @@ export function PoweredByDeeix({ className }: { className?: string }) {
     >
       <span>{t("poweredBy")}</span>
       <a
-        href="https://github.com/DEEIX-AI/DEEIX-Chat"
+        href={branding.projectURL}
         target="_blank"
         rel="noopener noreferrer"
         aria-label={t("githubLink")}

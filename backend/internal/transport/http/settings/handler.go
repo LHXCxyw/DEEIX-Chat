@@ -211,6 +211,7 @@ func brandingResponse(cfg config.Config) BrandingResponse {
 		Title:                 cfg.BrandTitle,
 		ShortName:             cfg.BrandShortName,
 		Description:           cfg.BrandDescription,
+		ProjectURL:            cfg.BrandProjectURL,
 		LogoURL:               cfg.BrandLogoURL,
 		FaviconURL:            cfg.BrandFaviconURL,
 		PWAIcon192URL:         cfg.BrandPWAIcon192URL,

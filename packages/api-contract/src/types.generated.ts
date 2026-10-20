@@ -583,6 +583,8 @@ export interface BrandingResponse {
   description: string;
   faviconURL: string;
   logoURL: string;
+  /** ProjectURL 是项目仓库地址，供页脚与关于页的 GitHub 图标跳转。 */
+  projectURL: string;
   shortName: string;
   title: string;
 }
