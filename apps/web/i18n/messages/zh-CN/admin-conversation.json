@@ -1,4 +1,10 @@
 {
+  "agent": {
+    "title": "Agent 工具审批",
+    "approvalModel": "自动审批专用模型",
+    "description": "选择平台模型用于自动工具审批，独立于聊天模型。未配置时自动模式拒绝执行。仅管理员可配置，客户端不能指定审批模型。",
+    "unconfigured": "未配置（拒绝自动审批）"
+  },
   "sections": {
     "conversation": "会话配置",
     "contextManagement": "上下文管理",

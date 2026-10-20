@@ -13,6 +13,7 @@ import (
 
 // allowedKeys 是用户可配置的 key 集合及其默认值。
 var allowedKeys = map[string]string{
+	"chat.agent_permission_mode":                "manual",
 	"chat.file_mode":                            "auto",
 	"chat.send_on_enter":                        "enter",
 	"chat.show_token_usage":                     "true",
@@ -60,10 +61,11 @@ var boolKeys = map[string]bool{
 
 // enumKeys 枚举 key 的合法值集合。
 var enumKeys = map[string]map[string]bool{
-	"chat.file_mode":     {"auto": true, "full_context": true, "rag": true},
-	"chat.send_on_enter": {"enter": true, "ctrl_enter": true, "meta_enter": true},
-	"chat.input_height":  {"compact": true, "standard": true, "loose": true},
-	"chat.content_width": {"compact": true, "standard": true, "wide": true},
+	"chat.agent_permission_mode": {"manual": true, "auto": true, "full": true},
+	"chat.file_mode":             {"auto": true, "full_context": true, "rag": true},
+	"chat.send_on_enter":         {"enter": true, "ctrl_enter": true, "meta_enter": true},
+	"chat.input_height":          {"compact": true, "standard": true, "loose": true},
+	"chat.content_width":         {"compact": true, "standard": true, "wide": true},
 }
 
 // validateValue 校验 key 对应 value 的合法性。

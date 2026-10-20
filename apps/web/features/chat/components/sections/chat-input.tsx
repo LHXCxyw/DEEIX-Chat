@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, CircleAlert, CornerDownRight, Eye, EyeOff, HatGlasses, LoaderCircle, PencilLine, TextQuote, Trash2 } from "lucide-react";
+import { Box, CircleAlert, CornerDownRight, Eye, EyeOff, HatGlasses, LoaderCircle, PencilLine, ShieldCheck, TextQuote, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useLocale, useTranslations } from "next-intl";
 import * as React from "react";
@@ -23,6 +23,7 @@ import {
   AttachmentTitle,
   AttachmentTrigger,
 } from "@/components/ui/attachment";
+import { useChatAgentPermissionMode } from "@/features/chat/hooks/use-chat-agent-permission-mode";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,9 +48,11 @@ import { useChatModelControlPlacements } from "@/features/chat/hooks/use-chat-mo
 import type { ChatModelControlSelections } from "@/features/chat/model/chat-model-controls";
 import {
   applyOptionControlValue,
+  chatComposerControls,
   inferOptionControls,
   modelControlsFromOptionControls,
   optionControlSelections,
+  withComposerPlacements,
 } from "@/features/chat/model/chat-option-controls";
 import {
   hasProviderTool,
@@ -78,7 +81,7 @@ import {
 } from "@/features/chat/utils/markdown-paste";
 import type { SendShortcut } from "@/features/settings";
 import { cn } from "@/lib/utils";
-import type { ConversationOptions } from "@/shared/api/conversation-types";
+import type { AgentPermissions, ConversationOptions } from "@/shared/api/conversation-types";
 import type { FileObjectDTO } from "@/shared/api/file-types";
 import type { MCPToolDTO } from "@/shared/api/mcp-types";
 import type { SkillSummaryDTO } from "@/shared/api/skills-types";
@@ -96,7 +99,13 @@ import {
   resolveFileIcon,
   resolveFileProcessingBadge,
 } from "@/entities/file";
-import { isModelOptionPathFiltered, type ModelControlValue, type ModelOptionPolicy } from "@/entities/model";
+import {
+  isModelOptionPathFiltered,
+  resolveProtocolImageControls,
+  resolveProtocolVideoControls,
+  type ModelControlValue,
+  type ModelOptionPolicy,
+} from "@/entities/model";
 import { isSendShortcutEvent } from "@/shared/lib/platform-shortcuts";
 
 const TEMPORARY_NOTICE_TRANSITION = {
@@ -170,7 +179,7 @@ type ChatInputProps = {
   onUploadFiles: (files: File[]) => Promise<PendingAttachment[]>;
   onCaptureScreenshot: () => void | Promise<void>;
   onRemoveAttachment: (fileID: string) => void;
-  onSendMessage: () => void | Promise<void>;
+  onSendMessage: (agentPermissions?: AgentPermissions) => void | Promise<void>;
   onStopMessage: () => void;
   onDeleteQueuedMessage: (id: string) => void;
   onEditQueuedMessage: (id: string, content: string) => void;
@@ -430,6 +439,9 @@ function ChatInputComponent({
   const submitDecision = resolveChatSubmitDecision(selectedModel, attachments, options);
   const submitTask = submitDecision.task;
   const isMediaMode = isMediaSubmitTask(submitTask);
+  const tPermissions = useTranslations("chat.agentPermissions");
+  const { mode: permissionMode, setMode: setPermissionMode, saving: permissionSaving, loaded: permissionsLoaded } = useChatAgentPermissionMode();
+  const sendCurrentTurn = () => onSendMessage({ mode: permissionMode });
   // The mode a media model works in is named by the input placeholder and the parameters popover.
   // What blocks sending is said in the same place until there are attachments to point at; after
   // that it moves to a notice above them.
@@ -467,16 +479,33 @@ function ChatInputComponent({
   );
   const mediaControls = React.useMemo(() => {
     if (!isMediaMode || modelOptionPolicyDisabled) return [];
+    // 协议补缺：未声明 optionControls 的媒体模型按协议预设补齐参数；任务自带参数集时以任务为准。
+    const protocolPresets = taskOptionConfig
+      ? []
+      : submitTask === "video_generation"
+        ? resolveProtocolVideoControls(selectedProtocols)
+        : resolveProtocolImageControls(selectedProtocols);
+    const allowed = (control: { path: string }) =>
+      !modelOptionPolicy || selectedProtocols.length === 0 || selectedProtocols.some((protocol) =>
+        !isModelOptionPathFiltered({ policy: modelOptionPolicy, protocol, path: control.path }));
     // Parameters set without an option control (plain defaultOptions) are adjustable too, as they
     // are in the parameter dialog. A task with its own parameter set takes nothing from the rest.
     const inferred = inferOptionControls(
       taskOptionConfig ? [taskDefaultOptions] : [taskDefaultOptions, modelConfigOptions],
       taskOptionControls,
-    ).filter((control) =>
-      !modelOptionPolicy || selectedProtocols.length === 0 || selectedProtocols.some((protocol) =>
-        !isModelOptionPathFiltered({ policy: modelOptionPolicy, protocol, path: control.path })));
-    return modelControlsFromOptionControls([...taskOptionControls, ...inferred], taskDefaultOptions);
-  }, [isMediaMode, modelConfigOptions, modelOptionPolicy, modelOptionPolicyDisabled, selectedProtocols, taskDefaultOptions, taskOptionConfig, taskOptionControls]);
+    ).filter(allowed);
+    // 管理员声明的 optionControls 优先，已推断参数次之，协议预设只补未声明项。
+    const presets = protocolPresets.filter(allowed);
+    // 图像/视频常用参数常驻工具栏（画幅比/时长/分辨率/参考模式/尺寸/质量），其余收进「更多对话参数」。
+    return withComposerPlacements(modelControlsFromOptionControls([...taskOptionControls, ...inferred, ...presets], taskDefaultOptions));
+  }, [isMediaMode, modelConfigOptions, modelOptionPolicy, modelOptionPolicyDisabled, selectedProtocols, submitTask, taskDefaultOptions, taskOptionConfig, taskOptionControls]);
+  // 文本模型控件：管理员声明的 controls 优先，协议预设补齐未声明的常用参数。
+  const chatControls = React.useMemo(
+    () => (selectedModel
+      ? chatComposerControls(selectedModel.controls, selectedModel.protocols, selectedModel.reasoning !== null)
+      : []),
+    [selectedModel],
+  );
   const mediaControlSelections = React.useMemo(
     () => optionControlSelections(mediaControls, modelConfigOptions),
     [mediaControls, modelConfigOptions],
@@ -1092,7 +1121,7 @@ function ChatInputComponent({
               if (shouldSend) {
                 event.preventDefault();
                 if (canSend) {
-                  void onSendMessage();
+                  void sendCurrentTurn();
                 }
               }
             }}
@@ -1162,6 +1191,26 @@ function ChatInputComponent({
                   </DropdownMenuContent>
               </DropdownMenu>
 
+
+              {!temporaryMode && !isMediaMode ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <InputGroupButton type="button" variant="ghost" size="sm" className="h-7 gap-1 rounded-md text-xs text-muted-foreground sm:h-8" disabled={loading || permissionSaving || !permissionsLoaded}>
+                      <ShieldCheck className="size-4" strokeWidth={1.6} />
+                      {tPermissions(permissionMode)}
+                    </InputGroupButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-80">
+                    {(["manual", "auto", "full"] as const).map((mode) => (
+                      <DropdownMenuItem key={mode} className="items-start gap-2" onSelect={() => { void setPermissionMode(mode).catch(() => toast.error(tPermissions("saveFailed"))); }}>
+                        <ShieldCheck className={cn("mt-0.5 size-4 shrink-0", permissionMode === mode ? "text-primary" : "text-muted-foreground")} />
+                        <span><span className="block font-medium">{tPermissions(mode)}{permissionMode === mode ? ` · ${tPermissions("selected")}` : ""}</span><span className="block text-xs leading-relaxed text-muted-foreground">{tPermissions(`${mode}Description`)}</span></span>
+                      </DropdownMenuItem>
+                    ))}
+                    <p className="px-2 py-2 text-xs text-muted-foreground">{tPermissions("remembered")}</p>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
 
               {showMCPToolsButton ? (
                 <ChatMCP
@@ -1233,7 +1282,7 @@ function ChatInputComponent({
             <div className="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-hidden sm:gap-1.5">
               {selectedModel ? (
                 <ChatModelControls
-                  controls={isMediaMode ? mediaControls : selectedModel.controls}
+                  controls={isMediaMode ? mediaControls : chatControls}
                   selections={isMediaMode ? mediaControlSelections : controlSelections}
                   nativeTools={nativeToolOptions}
                   isNativeToolEnabled={isNativeToolEnabled}
@@ -1286,7 +1335,7 @@ function ChatInputComponent({
                     size="icon-sm"
                     className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
                     disabled={loading || uploading || (!sending && !hasSubmitContent && !speechInput.supported)}
-                    onClick={hasSubmitContent ? onSendMessage : sending ? onStopMessage : speechInput.toggle}
+                    onClick={hasSubmitContent ? sendCurrentTurn : sending ? onStopMessage : speechInput.toggle}
                     onMouseEnter={() => setIsVoiceHovered(true)}
                     onMouseLeave={() => setIsVoiceHovered(false)}
                     aria-label={submitActionLabel}

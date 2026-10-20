@@ -209,8 +209,10 @@ export function extractArtifactsFromContent(
     codeLines.push(line);
   }
 
-  if (openMarker && message.isStreaming) {
-    pushArtifact(codeLines.join("\n"), false);
+  // 模型有时会漏掉收尾围栏（输出被截断，或代码块正好位于消息末尾）。消息不再流式输出时
+  // 该段代码已是最终内容，必须按完整产物产出：否则整块代码被丢弃，侧栏会一直停在生成中。
+  if (openMarker) {
+    pushArtifact(codeLines.join("\n"), !message.isStreaming);
   }
 
   if (artifacts.length === 0) {

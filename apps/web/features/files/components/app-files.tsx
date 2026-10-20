@@ -47,6 +47,7 @@ export function AppFiles() {
     query,
     sortKey,
     filterKeys,
+    sourceFilter,
     isSidebarCollapsed,
     isSearchOpen,
     renamingFileID,
@@ -66,6 +67,7 @@ export function AppFiles() {
     onToggleSearch,
     onQueryChange,
     onFilterToggle,
+    onSourceChange,
     onSortChange,
     onRenameStart,
     onRenameValueChange,
@@ -115,6 +117,7 @@ export function AppFiles() {
               query={query}
               searchOpen={isSearchOpen}
               filterKeys={filterKeys}
+              sourceFilter={sourceFilter}
               sortKey={sortKey}
               uploading={uploading}
               selectedCount={selectedCount}
@@ -128,6 +131,7 @@ export function AppFiles() {
               onToggleSearch={onToggleSearch}
               onQueryChange={onQueryChange}
               onFilterToggle={onFilterToggle}
+              onSourceChange={onSourceChange}
               onSortChange={onSortChange}
               onSelectLoaded={onSelectLoadedFiles}
               onClearSelection={onClearFileSelection}
@@ -139,7 +143,7 @@ export function AppFiles() {
             {!sidebarCollapsed ? (
               <SidebarList
                 items={files}
-                emptyState={query.trim() || filterKeys.length > 0 ? "filtered" : "all"}
+                emptyState={query.trim() || filterKeys.length > 0 || sourceFilter !== "all" ? "filtered" : "all"}
                 selectedFileID={selectedFileID}
                 selectedFileIDs={selectedFileIDs}
                 loading={loading}

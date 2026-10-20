@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownUp, Check, DatabaseZap, Funnel, PanelLeftClose, PanelLeftOpen, Plus, Search, SquareDashed, SquareDashedMousePointer, Trash2 } from "lucide-react";
+import { ArrowDownUp, Check, DatabaseZap, Funnel, Layers, PanelLeftClose, PanelLeftOpen, Plus, Search, SquareDashed, SquareDashedMousePointer, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { FILE_FILTER_OPTIONS, FILE_SORT_OPTIONS } from "@/features/files/model/files-page-options";
-import type { FileFilterValue, FileSortKey } from "@/features/files/types/files";
+import { FILE_FILTER_OPTIONS, FILE_SORT_OPTIONS, FILE_SOURCE_OPTIONS } from "@/features/files/model/files-page-options";
+import type { FileFilterValue, FileSortKey, FileSourceFilter } from "@/features/files/types/files";
 import { cn } from "@/lib/utils";
 
 type SidebarHeaderProps = {
@@ -22,6 +22,7 @@ type SidebarHeaderProps = {
   query: string;
   searchOpen: boolean;
   filterKeys: FileFilterValue[];
+  sourceFilter: FileSourceFilter;
   sortKey: FileSortKey;
   uploading: boolean;
   selectedCount: number;
@@ -33,6 +34,7 @@ type SidebarHeaderProps = {
   onToggleSearch: () => void;
   onQueryChange: (value: string) => void;
   onFilterToggle: (value: FileFilterValue | "all") => void;
+  onSourceChange: (value: FileSourceFilter) => void;
   onSortChange: (value: FileSortKey) => void;
   onSelectLoaded: () => void;
   onClearSelection: () => void;
@@ -46,6 +48,7 @@ export function SidebarHeader({
   query,
   searchOpen,
   filterKeys,
+  sourceFilter,
   sortKey,
   uploading,
   selectedCount,
@@ -58,6 +61,7 @@ export function SidebarHeader({
   onToggleSearch,
   onQueryChange,
   onFilterToggle,
+  onSourceChange,
   onSortChange,
   onSelectLoaded,
   onClearSelection,
@@ -198,6 +202,46 @@ export function SidebarHeader({
                         >
                           <item.icon className="size-3 stroke-1 text-muted-foreground" />
                           <span className="flex-1 truncate">{t(`filters.${item.value}`)}</span>
+                          {active ? <Check className="size-3 stroke-1 text-muted-foreground" /> : null}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "h-7 shrink-0 gap-0.5 px-1 text-xs text-muted-foreground shadow-none hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground",
+                      sourceFilter !== "all" && "bg-muted text-foreground",
+                    )}
+                    aria-label={t("source.label")}
+                    title={t("source.label")}
+                  >
+                    <Layers className="size-3 stroke-1" />
+                    {sourceFilter === "all" ? t("source.label") : t(`source.${sourceFilter}`)}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-40 p-1.5">
+                  <div className="space-y-1">
+                    {FILE_SOURCE_OPTIONS.map((item) => {
+                      const active = item.value === sourceFilter;
+                      return (
+                        <DropdownMenuItem
+                          key={item.value}
+                          className={cn(
+                            "h-6 gap-2 px-2 py-0 text-[10px]",
+                            active ? "bg-muted/55 text-foreground" : "text-foreground/70 hover:bg-muted hover:text-foreground",
+                          )}
+                          onSelect={() => onSourceChange(item.value)}
+                        >
+                          <item.icon className="size-3 stroke-1 text-muted-foreground" />
+                          <span className="flex-1 truncate">{t(`source.${item.value}`)}</span>
                           {active ? <Check className="size-3 stroke-1 text-muted-foreground" /> : null}
                         </DropdownMenuItem>
                       );

@@ -1,4 +1,10 @@
 {
+  "agent": {
+    "title": "Agent tool approval",
+    "approvalModel": "Dedicated automatic approval model",
+    "description": "Select a platform model for automatic tool review, independent of the chat model. Automatic mode denies execution when unconfigured. Only administrators can configure it; clients cannot select the approval model.",
+    "unconfigured": "Unconfigured (deny automatic approval)"
+  },
   "sections": {
     "conversation": "Conversation settings",
     "contextManagement": "Context management",

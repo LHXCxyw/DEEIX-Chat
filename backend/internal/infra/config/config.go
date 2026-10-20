@@ -138,6 +138,15 @@ func DefaultModelOptionAllowedPathsJSON() string {
     "size",
     "user"
   ],
+  "openai_video_generations": [
+    "generate_audio",
+    "mode",
+    "ratio",
+    "resolution_name",
+    "seconds",
+    "size",
+    "watermark"
+  ],
   "anthropic_messages": [
     "speed",
     "top_k",
@@ -149,6 +158,8 @@ func DefaultModelOptionAllowedPathsJSON() string {
     "generationConfig.topP",
     "generationConfig.maxOutputTokens",
     "generationConfig.responseMimeType",
+    "generationConfig.imageConfig.aspectRatio",
+    "generationConfig.imageConfig.imageSize",
     "generationConfig.thinkingConfig.includeThoughts",
     "generationConfig.thinkingConfig.thinkingLevel"
   ],
@@ -168,7 +179,8 @@ func DefaultModelOptionAllowedPathsJSON() string {
     "response_format.image_size",
     "response_format.mime_type",
     "response_format.schema",
-    "generation_config.video_config.task"
+    "generation_config.video_config.task",
+    "generation_config.video_config.duration_seconds"
   ],
   "xai_responses": [
     "reasoning.effort",

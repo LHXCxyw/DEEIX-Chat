@@ -194,7 +194,7 @@ func (s *Service) Create(ctx context.Context, userID uint, input CreateInput, me
 	if err != nil {
 		return nil, err
 	}
-	models, err := selectModels(candidate.protocol, input.Models, available)
+	models, err := selectModels(candidate.protocol, input.Models, available, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +304,7 @@ func (s *Service) Update(ctx context.Context, userID uint, publicID string, inpu
 		if input.Models != nil {
 			requested = *input.Models
 		}
-		models, err := selectModels(current.Protocol, requested, available)
+		models, err := selectModels(current.Protocol, requested, available, modelNames(current.Models))
 		if err != nil {
 			return nil, err
 		}
@@ -724,13 +724,19 @@ func redactedError(err error) error {
 
 // selectModels 校验用户选择的模型都在上游目录中，并校验每个模型的协议（未指定时按模型名推断）。
 // 未选择时默认不启用任何模型，由用户显式勾选。
-func selectModels(providerProtocol string, requested []ModelInput, available []string) ([]domainpersonalprovider.Model, error) {
+// savedNames 是服务里已保存的模型名：上游目录可能不再列出它们（下架、目录分页或探测走的是回退路径），
+// 这些已启用模型不应阻塞后续保存，只有新增的模型名才必须在本次目录中。
+func selectModels(providerProtocol string, requested []ModelInput, available []string, savedNames []string) ([]domainpersonalprovider.Model, error) {
 	if len(requested) > maxModelsCount {
 		return nil, ErrInvalidModels
 	}
 	availableSet := make(map[string]struct{}, len(available))
 	for _, model := range available {
 		availableSet[model] = struct{}{}
+	}
+	savedSet := make(map[string]struct{}, len(savedNames))
+	for _, name := range savedNames {
+		savedSet[strings.TrimSpace(name)] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(requested))
 	models := make([]domainpersonalprovider.Model, 0, len(requested))
@@ -740,7 +746,9 @@ func selectModels(providerProtocol string, requested []ModelInput, available []s
 			return nil, ErrInvalidModels
 		}
 		if _, ok := availableSet[name]; !ok {
-			return nil, ErrInvalidModels
+			if _, saved := savedSet[name]; !saved {
+				return nil, ErrInvalidModels
+			}
 		}
 		if _, exists := seen[name]; exists {
 			continue
@@ -766,6 +774,15 @@ func modelInputs(models []domainpersonalprovider.Model) []ModelInput {
 		inputs = append(inputs, ModelInput{Name: model.Name, Protocols: model.Protocols})
 	}
 	return inputs
+}
+
+// modelNames 返回已保存模型的名称，用于更新时豁免目录校验。
+func modelNames(models []domainpersonalprovider.Model) []string {
+	names := make([]string, 0, len(models))
+	for _, model := range models {
+		names = append(names, model.Name)
+	}
+	return names
 }
 
 func truncateRunes(value string, limit int) string {

@@ -11,11 +11,15 @@ export type CanvasViewMode = "graph" | "chat";
 export type CanvasElementMeta = { locked?: boolean; groupID?: string | null; frameID?: string | null; zIndex?: number };
 
 // ---------------------------------------------------------------------------
-// 节点图模型：提示词 / 参考图 / 生成 / 输出四类连线节点，另有独立不连线的 HTML 预览节点
+// 节点图模型：提示词 / 参考图 / 参考媒体 / 生成 / 输出五类连线节点
 // ---------------------------------------------------------------------------
-export type GraphNodeKind = "prompt" | "image" | "generate" | "output" | "html";
+export type GraphNodeKind = "prompt" | "image" | "media" | "generate" | "output";
 // 生成节点的运行状态：idle 未运行；pending/streaming 执行中
 export type GraphRunStatus = "idle" | "pending" | "streaming";
+// 参考媒体节点的素材类型：视频或音频
+export type CanvasMediaKind = "video" | "audio";
+// 新建节点时的媒体提示：图像 / 视频生成节点入口，媒体节点的视频 / 音频素材入口
+export type CanvasNodeMediaHint = CanvasMediaType | CanvasMediaKind;
 
 export type GraphNodeBase = CanvasElementMeta & {
   id: string;
@@ -34,6 +38,18 @@ export type PromptGraphNode = GraphNodeBase & {
 // 参考图节点：持有一张已上传的参考图片
 export type ImageGraphNode = GraphNodeBase & {
   kind: "image";
+  reference: CanvasNodeReference | null;
+  previewURL?: string;
+  uploading?: boolean;
+  // 预览加载状态：仅运行时使用（fileID -> objectURL 拉取过程），不持久化
+  previewLoading?: boolean;
+  previewFailed?: boolean;
+};
+
+// 参考媒体节点：持有一个已上传的参考视频或音频，供视频生成节点引用
+export type MediaGraphNode = GraphNodeBase & {
+  kind: "media";
+  mediaKind: CanvasMediaKind;
   reference: CanvasNodeReference | null;
   previewURL?: string;
   uploading?: boolean;
@@ -66,6 +82,10 @@ export type GenerateGraphNode = GraphNodeBase & {
   conversationID?: string;
   runID?: string;
   progress?: number;
+  // 上游清单总行数（瞬态派生，不持久化）：节点高度按它增长
+  connectionRows?: number;
+  // 每个入端口的清单行数（瞬态派生，不持久化）：端口纵向锚点与清单行对齐
+  portRowCounts?: number[];
 };
 
 // 输出节点的待重试保存引用：上游生成已成功但产物保存瞬时失败，
@@ -110,24 +130,19 @@ export type OutputGraphNode = GraphNodeBase & {
   previewURL?: string;
 };
 
-// HTML 预览节点：承载一段 HTML/CSS/JS 源码，在节点内以沙箱 iframe 实时预览；独立节点，不参与连线
-export type HtmlGraphNode = GraphNodeBase & {
-  kind: "html";
-  html: string;
-};
-
-export type GraphNode = PromptGraphNode | ImageGraphNode | GenerateGraphNode | OutputGraphNode | HtmlGraphNode;
+// HTML 预览节点已移除；保留占位注释以便阅读历史差异。
+export type GraphNode = PromptGraphNode | ImageGraphNode | MediaGraphNode | GenerateGraphNode | OutputGraphNode;
 
 // 图节点部分更新补丁：按节点类型取联合，避免 kind 字面量交叉被 TS 归约为 never
 export type GraphNodeUpdate =
   | Partial<PromptGraphNode>
   | Partial<ImageGraphNode>
+  | Partial<MediaGraphNode>
   | Partial<GenerateGraphNode>
-  | Partial<OutputGraphNode>
-  | Partial<HtmlGraphNode>;
+  | Partial<OutputGraphNode>;
 
 // 连线：fromNodeID 的出端口 -> toNodeID 的入端口
-export type GraphInputPort = "prompt" | "image" | "result";
+export type GraphInputPort = "prompt" | "image" | "video" | "audio" | "result";
 export type GraphEdge = {
   id: string;
   fromNodeID: string;
@@ -142,8 +157,30 @@ export const GRAPH_NODE_SIZES: Record<GraphNodeKind, { width: number; height: nu
     Object.values(CANVAS_NODE_REGISTRY).map((entry) => [entry.kind, entry.size] as const),
   ) as Record<GraphNodeKind, { width: number; height: number }>;
 
-export function graphNodeSize(node: Pick<GraphNode, "kind">): { width: number; height: number } {
-  return GRAPH_NODE_SIZES[node.kind];
+// 节点尺寸入参：媒体类型决定生成 / 输出节点的工作流尺寸，连接行数决定生成节点的动态高度
+export type GraphNodeSizeInput = { kind: GraphNodeKind; mediaType?: CanvasMediaType; connectionRows?: number };
+
+// 生成节点每个上游连接行占用的额外高度
+export const GENERATE_CONNECTION_ROW_HEIGHT = 18;
+// 生成节点固定部分高度（标题栏 + 模型/参数行 + 运行按钮 + 内边距）：
+// 其余高度全部留给上游清单区，清单有几行就占几行，避免出现大面积空白
+export const GENERATE_NODE_FIXED_HEIGHT = 170;
+// 上游清单区最小高度：端口全部未连接时也要留出足够的点击与阅读空间
+export const GENERATE_LIST_MIN_HEIGHT = 150;
+
+// 生成节点高度 = 固定部分 + 清单区（随上游行数增长，不足最小值时保持最小值）
+export function generateNodeHeight(connectionRows: number): number {
+  const rows = Math.max(0, connectionRows);
+  return GENERATE_NODE_FIXED_HEIGHT + Math.max(GENERATE_LIST_MIN_HEIGHT, rows * GENERATE_CONNECTION_ROW_HEIGHT);
+}
+
+export function graphNodeSize(node: GraphNodeSizeInput): { width: number; height: number } {
+  const entry = CANVAS_NODE_REGISTRY[node.kind];
+  const base = (node.mediaType ? entry.sizeByMediaType?.[node.mediaType] : undefined) ?? entry.size;
+  if (node.kind === "generate") {
+    return { width: base.width, height: generateNodeHeight(node.connectionRows ?? 0) };
+  }
+  return base;
 }
 
 export type CanvasDecoration = CanvasElementMeta & {
@@ -174,8 +211,10 @@ export type PersistedGenerateGraphNode = PersistedGraphNodeBase & {
   // 运行中任务恢复所需的会话与运行 ID（仅运行期间存在）
   conversationID?: string; runID?: string;
 };
-// HTML 预览节点：持久化 HTML 源码
-export type PersistedHtmlGraphNode = PersistedGraphNodeBase & { kind: "html"; html: string };
+// 参考媒体节点：持久化素材类型与引用
+export type PersistedMediaGraphNode = PersistedGraphNodeBase & {
+  kind: "media"; mediaKind?: CanvasMediaKind; reference: CanvasNodeReference | null; uploading?: boolean;
+};
 export type PersistedOutputGraphNode = PersistedGraphNodeBase & {
   kind: "output"; mediaType?: CanvasMediaType; status: "empty" | "running" | "done" | "error";
   fileID?: string; fileName?: string; mimeType?: string; sizeBytes?: number;
@@ -188,9 +227,9 @@ export type PersistedOutputGraphNode = PersistedGraphNodeBase & {
 export type PersistedGraphNode =
   | PersistedPromptGraphNode
   | PersistedImageGraphNode
+  | PersistedMediaGraphNode
   | PersistedGenerateGraphNode
-  | PersistedOutputGraphNode
-  | PersistedHtmlGraphNode;
+  | PersistedOutputGraphNode;
 export type PersistedGraphEdge = { id: string; fromNodeID: string; toNodeID: string; toPort: GraphInputPort; createdAt: number };
 
 // 旧版图像卡片持久化结构（仅用于 v3 -> v4 迁移）
@@ -213,8 +252,6 @@ export type PersistedCanvasPage = {
 export type CanvasVersion = { id: string; name: string; createdAt: number; activeCanvasID: string; canvases: PersistedCanvasPage[] };
 export type PersistedCanvasState = {
   version?: 4;
-  // 快照写入时间：用于云端/本地双端比较，避免旧云端快照覆盖较新的本地状态
-  savedAt?: number;
   projectName?: string;
   activeCanvasID?: string;
   canvases?: PersistedCanvasPage[];
@@ -243,7 +280,6 @@ export const CANVAS_MIN_SCALE = 0.2;
 export const CANVAS_MAX_SCALE = 4;
 export const CANVAS_STORAGE_KEY = "deeix_canvas_state_v4";
 export const CANVAS_LEGACY_STORAGE_KEY = "deeix_canvas_state_v3";
-export const CANVAS_CLOUD_SETTING_KEY = "canvas.state_v1";
 export const CANVAS_UI_ATTRIBUTE = "data-canvas-ui";
 export const PROMPT_TEMPLATES_STORAGE_KEY = "deeix_canvas_prompt_templates_v1";
 export const PROMPT_MAX_LENGTH = 20000;

@@ -15,7 +15,13 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/toolresult"
 )
 
+// maxAgentToolExecutionDuration 仅约束一次 executeAssistantToolCalls 批次，
+// 每批重新计时，不是整个 Run 的总预算；调用方更早的期限仍然有效。
+const maxAgentToolExecutionDuration = 30 * time.Minute
+
 type executeAssistantToolCallsInput struct {
+	AgentPermissions  AgentPermissions
+	WorkspaceID       uint
 	UserID            uint
 	ConversationID    uint
 	ProjectPublicID   string
@@ -50,7 +56,7 @@ type toolExecutionRecord struct {
 
 func isProjectWorkspaceQueryTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "project_list_files", "project_read_file", "project_search_files":
+	case "project_list_files", "project_read_file", "project_search_files", "project_show_diff":
 		return true
 	default:
 		return false
@@ -67,6 +73,19 @@ func (s *Service) executeToolCallSafely(ctx context.Context, input ExecuteToolIn
 			err = fmt.Errorf("tool execution panicked: %v", recovered)
 		}
 	}()
+	if input.ToolName == "project_browser_run" {
+		snapshot, snapshotErr := s.browserSnapshot(ctx, input)
+		if snapshotErr != nil {
+			return "", snapshotErr
+		}
+		input.browserSnapshot = snapshot
+	}
+	if err := s.approveToolExecution(ctx, input); err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	return s.executeToolCall(ctx, input)
 }
 
@@ -84,7 +103,16 @@ func newToolExecutionLedger() *toolExecutionLedger {
 	return &toolExecutionLedger{records: map[string]toolExecutionRecord{}}
 }
 
+func agentToolExecutionContext(ctx context.Context, permissions AgentPermissions) (context.Context, context.CancelFunc) {
+	if !permissions.EditFiles && !permissions.ExecuteCode && !permissions.BrowseProject && !permissions.BrowsePublic {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, maxAgentToolExecutionDuration)
+}
+
 func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAssistantToolCallsInput) executeAssistantToolCallsResult {
+	ctx, cancel := agentToolExecutionContext(ctx, input.AgentPermissions)
+	defer cancel()
 	toolCalls := input.ToolCalls
 	if input.ToolCallLimit > 0 && len(toolCalls) > input.ToolCallLimit {
 		toolCalls = toolCalls[:input.ToolCallLimit]
@@ -102,6 +130,13 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 	var mcpToolUsage []MCPToolUsageItem
 	var fatalErr error
 	for i, item := range toolCalls {
+		if err := ctx.Err(); err != nil {
+			fatalErr = err
+			// 未处理项没有结果，必须同时从调用消息和结果汇总中移除。
+			slots = slots[:i]
+			executedToolCalls = executedToolCalls[:i]
+			break
+		}
 		modelToolName := strings.TrimSpace(item.ToolName)
 		executionToolName := resolveExecutionToolName(modelToolName, input.ToolNameMap)
 		row := model.ToolCall{
@@ -120,7 +155,8 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		}
 
 		binding := resolveMCPBinding(modelToolName, input.MCPBindings)
-		if binding == nil && !isProjectTool(executionToolName) {
+		_, enabled := input.ToolSchemas[modelToolName]
+		if ((isProjectTool(executionToolName) || executionToolName == "workspace_run_command") && !enabled) || (binding == nil && !isProjectTool(executionToolName) && executionToolName != "workspace_run_command") {
 			row.Status = "error"
 			row.ErrorJSON = toolNotEnabledForRunMessage(modelToolName)
 			slots[i] = toolExecutionSlot{
@@ -176,16 +212,21 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		if binding != nil {
 			mcpConfig = &binding.Config
 		}
+		// 命令运行时自带 40 秒执行预算及独立清理预算；不要把快照、准入
+		// 等准备时间也计入 40 秒，清理错误仍由命令层归属并返回。
 		outputJSON, executeErr := s.executeToolCallSafely(ctx, ExecuteToolInput{
-			UserID:          input.UserID,
-			ConversationID:  input.ConversationID,
-			MessageID:       input.MessageID,
-			RunID:           strings.TrimSpace(input.RunID),
-			ProjectPublicID: strings.TrimSpace(input.ProjectPublicID),
-			RequestID:       strings.TrimSpace(input.RequestID),
-			ToolName:        row.ToolName,
-			ArgumentsJSON:   row.InputJSON,
-			MCPConfig:       mcpConfig,
+			ToolCallID:       row.ToolCallID,
+			AgentPermissions: input.AgentPermissions,
+			WorkspaceID:      input.WorkspaceID,
+			UserID:           input.UserID,
+			ConversationID:   input.ConversationID,
+			MessageID:        input.MessageID,
+			RunID:            strings.TrimSpace(input.RunID),
+			ProjectPublicID:  strings.TrimSpace(input.ProjectPublicID),
+			RequestID:        strings.TrimSpace(input.RequestID),
+			ToolName:         row.ToolName,
+			ArgumentsJSON:    row.InputJSON,
+			MCPConfig:        mcpConfig,
 		})
 		row.LatencyMS = time.Since(toolStartedAt).Milliseconds()
 		if row.LatencyMS < 0 {
@@ -226,6 +267,11 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		}
 	}
 
+	// 最后一项执行或清理期间取消时，没有下一轮循环检查，仍须按 fatal 中止。
+	// 仅检查批次上下文，不把命令自身超时或清理错误改写成批次取消。
+	if fatalErr == nil {
+		fatalErr = ctx.Err()
+	}
 	rows := make([]model.ToolCall, 0, len(slots))
 	toolResults := make([]llm.ToolResult, 0, len(slots))
 	persistedToolCallKeys := make(map[string]struct{})

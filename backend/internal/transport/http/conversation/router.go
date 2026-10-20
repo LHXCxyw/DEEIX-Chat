@@ -8,6 +8,9 @@ import (
 
 // RegisterRoutes 注册会话域路由。
 func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup, gate middleware.FeatureGate) {
+	authRequired.GET("/runtime/agent-capabilities", m.Handler.GetAgentCapabilities)
+	authRequired.GET("/tool-approvals", m.Handler.ListToolApprovals)
+	authRequired.POST("/tool-approvals/:approval_id/decision", m.Handler.DecideToolApproval)
 	authRequired.POST("/conversations", m.Handler.CreateConversation)
 	authRequired.GET("/conversations", m.Handler.ListConversations)
 	authRequired.GET("/conversations/search", m.Handler.SearchConversations)
@@ -18,6 +21,7 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup, gate middleware.F
 	authRequired.GET("/conversation-projects/:id/workspace", m.Handler.GetProjectWorkspace)
 	authRequired.GET("/conversation-projects/:id/files", m.Handler.ListProjectFiles)
 	authRequired.PUT("/conversation-projects/:id/files", m.Handler.WriteProjectFile)
+	authRequired.POST("/conversation-projects/:id/files/from-attachment", m.Handler.ImportProjectFileFromAttachment)
 	authRequired.POST("/conversation-projects/:id/files/import", m.Handler.ImportProjectZIP)
 	authRequired.GET("/conversation-projects/:id/files/:file_id/content", m.Handler.GetProjectFileContent)
 	authRequired.DELETE("/conversation-projects/:id/files/:file_id", m.Handler.DeleteProjectFile)
@@ -27,6 +31,9 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup, gate middleware.F
 	authRequired.POST("/conversations/project", m.Handler.BatchSetConversationProject)
 	authRequired.GET("/conversations/export", m.Handler.ExportAllConversations)
 	authRequired.GET("/conversations/:id", m.Handler.GetConversation)
+	authRequired.GET("/conversations/:id/workspace", m.Handler.GetConversationWorkspace)
+	authRequired.POST("/conversations/:id/workspace/files/from-attachment", m.Handler.ImportConversationFileFromAttachment)
+	authRequired.GET("/conversations/:id/workspace/files/:file_id/content", m.Handler.GetConversationWorkspaceFileContent)
 	authRequired.GET("/conversations/:id/export", m.Handler.ExportConversation)
 	authRequired.PATCH("/conversations/:id/title", m.Handler.RenameConversation)
 	authRequired.POST("/conversations/:id/title/regenerate", m.Handler.RegenerateConversationTitle)
@@ -34,6 +41,7 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup, gate middleware.F
 	authRequired.PATCH("/conversations/:id/star", m.Handler.SetConversationStar)
 	authRequired.PATCH("/conversations/:id/archive", m.Handler.SetConversationArchive)
 	authRequired.PATCH("/conversations/:id/project", m.Handler.SetConversationProject)
+	authRequired.POST("/conversations/:id/project-preview-result", m.Handler.RecordProjectPreviewResult)
 	authRequired.DELETE("/conversations/:id", m.Handler.DeleteConversation)
 	sharing := authRequired.Group("", gate.Require("sharing"))
 	sharing.POST("/conversations/shares/revoke", m.Handler.RevokeConversationShares)
@@ -84,6 +92,8 @@ func (m *Module) RegisterPublicRoutes(public *gin.RouterGroup, gate middleware.F
 	sharing := public.Group("", gate.Require("sharing"))
 	sharing.GET("/shared-conversations/:share_id", m.Handler.GetPublicSharedConversation)
 	sharing.GET("/shared-conversations/:share_id/files/:file_id/content", m.Handler.GetPublicSharedFileContent)
+	sharing.GET("/shared-conversations/:share_id/project/files", m.Handler.GetPublicSharedProjectFiles)
+	sharing.GET("/shared-conversations/:share_id/project/files/:file_id/content", m.Handler.GetPublicSharedProjectFileContent)
 	// 签名 URL 自带用户与时效鉴权，供无登录态上游与浏览器媒体直连访问。
 	public.GET("/files/:file_id/signed-content", m.Handler.GetSignedFileContent)
 	public.GET("/files/:file_id/signed-thumbnail", m.Handler.GetSignedFileThumbnail)

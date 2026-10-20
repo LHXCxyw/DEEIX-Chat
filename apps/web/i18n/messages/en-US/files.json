@@ -20,6 +20,12 @@
     "pdf": "PDF",
     "code": "Code"
   },
+  "source": {
+    "label": "Source",
+    "all": "All sources",
+    "generated": "AI generated",
+    "uploaded": "Uploaded"
+  },
   "sort": {
     "size": "Size",
     "name": "Name",

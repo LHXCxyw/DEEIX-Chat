@@ -18,6 +18,8 @@ type ProjectFileChangeListFilter struct {
 // ProjectWorkspaceRepository 封装项目工作区资源访问。
 // 所有子资源查询都必须同时携带 ownerUserID 与 projectID，形成仓储层第二道权限边界。
 type ProjectWorkspaceRepository interface {
+	GetOrCreateConversationWorkspace(ctx context.Context, ownerUserID uint, conversationID uint, publicID string) (*domainconversation.ProjectWorkspace, error)
+	GetConversationWorkspace(ctx context.Context, ownerUserID uint, conversationID uint) (*domainconversation.ProjectWorkspace, error)
 	GetOrCreateProjectWorkspace(ctx context.Context, ownerUserID uint, conversationProjectID uint, publicID string) (*domainconversation.ProjectWorkspace, error)
 	GetProjectWorkspaceByProject(ctx context.Context, ownerUserID uint, conversationProjectID uint) (*domainconversation.ProjectWorkspace, error)
 	CreateProjectImport(ctx context.Context, item *domainconversation.ProjectImport) error
@@ -27,6 +29,7 @@ type ProjectWorkspaceRepository interface {
 	ListProjectFiles(ctx context.Context, ownerUserID uint, projectID uint) ([]domainconversation.ProjectFile, error)
 	CreateProjectFile(ctx context.Context, item *domainconversation.ProjectFile) error
 	UpdateProjectFile(ctx context.Context, ownerUserID uint, projectID uint, publicID string, storageKey string, mimeType string, sizeBytes int64, sha256 string, version int) (*domainconversation.ProjectFile, error)
+	CompareAndSwapProjectFile(ctx context.Context, ownerUserID uint, projectID uint, publicID string, storageKey string, mimeType string, sizeBytes int64, sha256 string, expectedVersion int) (*domainconversation.ProjectFile, error)
 	UpdateProjectWorkspaceUsage(ctx context.Context, ownerUserID uint, workspaceID uint, storageDelta int64, fileDelta int) error
 	DeleteProjectFile(ctx context.Context, ownerUserID uint, projectID uint, publicID string) (*domainconversation.ProjectFile, error)
 	PurgeProjectFileByPath(ctx context.Context, ownerUserID uint, projectID uint, relativePath string) error

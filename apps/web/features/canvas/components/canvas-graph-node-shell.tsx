@@ -2,9 +2,9 @@
 
 import { X } from "lucide-react";
 import * as React from "react";
-import { type GraphPortDefinition, graphNodePorts } from "@/features/canvas/model/canvas-graph";
+import { type GraphPortDefinition, graphNodePorts, graphPortOffsetY } from "@/features/canvas/model/canvas-graph";
 import { CANVAS_NODE_REGISTRY } from "@/features/canvas/model/canvas-node-registry";
-import type { GraphNodeKind } from "@/features/canvas/model/canvas-types";
+import type { CanvasMediaType, GraphNodeKind } from "@/features/canvas/model/canvas-types";
 import { cn } from "@/lib/utils";
 
 // 各类节点的主题色：用于标题栏点缀、端口与选中态的层次区分，从节点注册表派生
@@ -16,15 +16,17 @@ export const GRAPH_NODE_ACCENTS: Record<GraphNodeKind, { dot: string; soft: stri
 // 视频节点的紫色主题变体：与图像节点在同一画布上可一眼区分
 export const VIDEO_NODE_ACCENT = { dot: "bg-violet-500", soft: "text-violet-500", ring: "ring-violet-500/40" };
 
-// 节点端口：出入方向决定左右位置，纵向偏移按端口定义固定
+// 节点端口：出入方向决定左右位置，纵向偏移由注册表或生成节点的清单行派生
 function GraphPort({
   nodeID,
   port,
+  offsetY,
   accent,
   highlighted,
 }: {
   nodeID: string;
   port: GraphPortDefinition;
+  offsetY: number;
   accent: string;
   highlighted: boolean;
 }) {
@@ -39,7 +41,7 @@ function GraphPort({
         "group/port absolute z-20 flex size-4 cursor-crosshair items-center justify-center",
         isOut ? "-right-2 -translate-x-0" : "-left-2",
       )}
-      style={{ top: port.offsetY - 8 }}
+      style={{ top: offsetY - 8 }}
     >
       {/* 命中区扩大便于拖拽，视觉圆点居中 */}
       <span
@@ -59,6 +61,8 @@ function GraphPort({
 export function GraphNodeShell({
   nodeID,
   kind,
+  mediaType,
+  portRowCounts,
   title,
   icon,
   width,
@@ -72,6 +76,10 @@ export function GraphNodeShell({
 }: {
   nodeID: string;
   kind: GraphNodeKind;
+  // 媒体类型决定端口布局（视频生成节点含参考视频 / 参考音频入端口）
+  mediaType?: CanvasMediaType;
+  // 生成节点每个入端口的清单行数：端口纵向锚点据此与清单行对齐
+  portRowCounts?: number[];
   title: string;
   icon: React.ReactNode;
   width: number;
@@ -85,7 +93,7 @@ export function GraphNodeShell({
   children: React.ReactNode;
 }) {
   const accent = variant === "video" ? VIDEO_NODE_ACCENT : GRAPH_NODE_ACCENTS[kind];
-  const ports = graphNodePorts(kind);
+  const ports = graphNodePorts(kind, mediaType);
   return (
     <div
       className={cn(
@@ -125,7 +133,14 @@ export function GraphNodeShell({
 
       {/* 端口：固定几何位置，由视口统一处理连线交互 */}
       {ports.map((port) => (
-        <GraphPort key={port.id} nodeID={nodeID} port={port} accent={accent.dot} highlighted={compatible === true} />
+        <GraphPort
+          key={port.id}
+          nodeID={nodeID}
+          port={port}
+          offsetY={graphPortOffsetY(kind, port.id, mediaType, portRowCounts)}
+          accent={accent.dot}
+          highlighted={compatible === true}
+        />
       ))}
     </div>
   );

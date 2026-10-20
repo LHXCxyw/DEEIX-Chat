@@ -14,7 +14,14 @@ import {
   apiFetch,
   pathParam,
   resolveAbortError,
+  resolveApiBaseURL,
 } from "@/shared/api/http-client";
+import { fileDisplayName } from "@/shared/lib/string";
+
+// 接口可能返回带内部存储目录前缀的历史名称，展示前统一取文件名。
+function withDisplayFileName(file: FileObjectDTO): FileObjectDTO {
+  return { ...file, fileName: fileDisplayName(file.fileName) };
+}
 
 type UploadFileOptions = {
   purpose?: string;
@@ -27,6 +34,7 @@ type ListFilesParams = {
   query?: string;
   kind?: string[];
   sort?: "created" | "name" | "size" | "last_used";
+  source?: "generated" | "uploaded";
 };
 
 export type FileContentResult = {
@@ -92,7 +100,7 @@ export async function uploadFile(
     }
 
     try {
-      return await authedRequest<UploadFileResult>(
+      const result = await authedRequest<UploadFileResult>(
         "/api/v1/files",
         {
           method: "POST",
@@ -102,6 +110,7 @@ export async function uploadFile(
         },
         true,
       );
+      return { ...result, file: withDisplayFileName(result.file) };
     } catch (error) {
       const abortError = resolveAbortError(error, options.signal);
       if (abortError) {
@@ -141,9 +150,12 @@ export async function listFiles(
   if (params.sort) {
     searchParams.set("sort", params.sort);
   }
+  if (params.source) {
+    searchParams.set("source", params.source);
+  }
 
   const suffix = searchParams.toString();
-  return authedRequest<FileListResult>(
+  const result = await authedRequest<FileListResult>(
     suffix ? `/api/v1/files?${suffix}` : "/api/v1/files",
     {
       method: "GET",
@@ -152,6 +164,7 @@ export async function listFiles(
     },
     true,
   );
+  return { ...result, results: result.results.map(withDisplayFileName) };
 }
 
 export async function deleteFile(accessToken: string, fileID: string): Promise<DeleteFileResult> {
@@ -170,7 +183,7 @@ export async function renameFile(
   fileID: string,
   fileName: string,
 ): Promise<RenameFileResult> {
-  return authedRequest<RenameFileResult>(
+  const result = await authedRequest<RenameFileResult>(
     `/api/v1/files/${pathParam(fileID)}`,
     {
       method: "PATCH",
@@ -179,6 +192,7 @@ export async function renameFile(
     },
     true,
   );
+  return withDisplayFileName(result);
 }
 
 export async function updateFileRagOptOut(
@@ -227,6 +241,39 @@ export async function fetchSharedFileContent(
   );
 
   return readFileContentResponse(response);
+}
+
+// 公开分享项目文件内容端点路径（无登录态）。图片/视频预览直连此地址。
+export function sharedProjectFileContentURL(shareID: string, fileID: string): string {
+  return `${resolveApiBaseURL()}/api/v1/shared-conversations/${pathParam(shareID)}/project/files/${pathParam(fileID)}/content`;
+}
+
+// 读取公开分享项目文件文本内容（返回原始文本，非 JSON 信封）。
+export async function fetchSharedProjectFileContent(
+  shareID: string,
+  fileID: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await apiFetch(
+    `/api/v1/shared-conversations/${pathParam(shareID)}/project/files/${pathParam(fileID)}/content`,
+    { signal },
+  );
+
+  return response.text();
+}
+
+// 读取公开分享项目文件二进制内容（图片/字体等资源）。
+export async function fetchSharedProjectFileBlob(
+  shareID: string,
+  fileID: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const response = await apiFetch(
+    `/api/v1/shared-conversations/${pathParam(shareID)}/project/files/${pathParam(fileID)}/content`,
+    { signal },
+  );
+
+  return response.blob();
 }
 
 export async function fetchFileExtract(accessToken: string, fileID: string): Promise<FileExtractDTO> {

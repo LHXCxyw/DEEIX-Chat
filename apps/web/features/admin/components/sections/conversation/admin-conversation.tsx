@@ -245,6 +245,15 @@ function ModelOptionPolicyGuideButton({ t }: { t: (key: string) => string }) {
       "size",
       "user"
     ],
+    "openai_video_generations": [
+      "generate_audio",
+      "mode",
+      "ratio",
+      "resolution_name",
+      "seconds",
+      "size",
+      "watermark"
+    ],
     "anthropic_messages": [
       "speed",
       "thinking.type",
@@ -450,7 +459,19 @@ export function AdminConversationPage() {
           t={t}
         />
       ) : undefined;
-    const content = id === "chat.conversation_default_model" ? (
+    const content = id === "agent.approval_model" ? (
+      <TaskModelField
+        id={id}
+        label={field.label}
+        description={field.description}
+        value={settingsMap[id] ?? ""}
+        fallbackValue=""
+        dirty={(settingsMap[id] ?? "") !== (savedMap[id] ?? "")}
+        disabled={loading || saving}
+        modelOptions={[{ label: t("agent.unconfigured"), value: "" }, ...defaultModelOptions.filter((option) => option.value !== "")]}
+        onChange={(value) => setSettingsMap((prev) => ({ ...prev, [id]: value }))}
+      />
+    ) : id === "chat.conversation_default_model" ? (
       <TaskModelField
         id={id}
         label={field.label}
@@ -499,6 +520,14 @@ export function AdminConversationPage() {
       <SettingsSection title={t("sections.conversation")} actions={conversationActions}>
         <SettingsFieldList>
           {conversationFields.map((field, index) => renderField(field, index))}
+        </SettingsFieldList>
+      </SettingsSection>
+
+      <SettingsSectionSeparator />
+
+      <SettingsSection title={t("agent.title")} actions={renderSaveAction(visibleConversationSettingsFields.filter((field) => field.section === "agent"))}>
+        <SettingsFieldList>
+          {visibleConversationSettingsFields.filter((field) => field.section === "agent").map((field, index) => renderField(field, index))}
         </SettingsFieldList>
       </SettingsSection>
 

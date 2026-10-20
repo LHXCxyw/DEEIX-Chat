@@ -6,8 +6,10 @@ import {
 import {
   canConnectGraphNodes,
   type GraphConnectionAttempt,
+  type GraphPortID,
   gatherGraphGenerateInputs,
   graphGenerateHasInputs,
+  graphNodePorts,
 } from "@/features/canvas/model/canvas-graph";
 import {
   canvasModelKey,
@@ -20,8 +22,6 @@ import {
   type CanvasModelOption,
 } from "@/features/canvas/model/canvas-image-options";
 import {
-  arrangeCanvasElements,
-  type CanvasArrangeAction,
   canvasElementIDsCarriedByFrame,
   type FrameRefitElement,
   frameUnionBounds,
@@ -44,7 +44,9 @@ import {
   CANVAS_MIN_SCALE,
   type CanvasBookmark,
   type CanvasDecoration,
+  type CanvasMediaKind,
   type CanvasMediaType,
+  type CanvasNodeMediaHint,
   type CanvasNodeReference,
   type CanvasOperation,
   type CanvasPointerMode,
@@ -54,11 +56,12 @@ import {
   type GenerateGraphNode,
   GRAPH_NODE_SIZES,
   type GraphEdge,
+  type GraphInputPort,
   type GraphNode,
   type GraphNodeKind,
   graphNodeSize,
-  type HtmlGraphNode,
   type ImageGraphNode,
+  type MediaGraphNode,
   type OutputGraphNode,
   type OutputPendingRetry,
   type PersistedCanvasPage,
@@ -66,7 +69,7 @@ import {
   type PromptGraphNode,
 } from "@/features/canvas/model/canvas-types";
 import { parseAttachments } from "@/features/chat";
-import type { ConversationStreamOptions } from "@/shared/api/conversation";
+import type { ConversationStreamOptions, MediaArtifactPendingEvent } from "@/shared/api/conversation";
 import {
   createConversation,
   deleteConversation,
@@ -88,8 +91,10 @@ import type {
   SendMessageRequest,
 } from "@/shared/api/conversation-types";
 import { fetchFileContent, uploadFile } from "@/shared/api/file";
-import { ApiError } from "@/shared/api/http-client";
+import { ApiError, ApiNetworkError } from "@/shared/api/http-client";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { resolveLocalizedErrorMessageWithoutReference } from "@/i18n/resolve-error-message";
+import { isFiniteNumber, isRecord, parseJSON, readString } from "@/shared/lib/type-guards";
 
 // 生成流程所需的本地化文案，由组件层注入，避免 store 依赖 React 上下文
 export type CanvasStoreLabels = {
@@ -123,6 +128,7 @@ export type CanvasStoreLabels = {
   nodeRequery: string;
   requeryStarted: string;
   requeryPending: string;
+  requeryTimeout: string;
   requeryUnavailable: string;
   requeryRecovered: string;
   artifactSavePending: string;
@@ -190,6 +196,26 @@ let state: CanvasState = initialState;
 const listeners = new Set<() => void>();
 const objectURLCache = new Map<string, string>();
 const abortControllers = new Map<string, AbortController>();
+// 重查监听：上游任务仍在生成时每 3 秒回查一次状态，最多等待 10 分钟
+// （与生成期视频轮询预算同一口径，超时后仍保留"重新查询"入口）。
+const REQUERY_POLL_INTERVAL_MS = 3000;
+const REQUERY_WAIT_LIMIT_MS = 10 * 60 * 1000;
+
+// 等待下一次重查；节点被取消/离开时立即结束等待，不留悬挂的监听循环。
+function waitForRequeryTick(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(finish, REQUERY_POLL_INTERVAL_MS);
+    function finish(): void {
+      window.clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    }
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
 // 尚未注册 AbortController 的启动窗口（取 token/创建会话期间）收到的取消请求
 const startAborts = new Set<string>();
 let labels: CanvasStoreLabels | null = null;
@@ -197,6 +223,10 @@ let modelCatalog: CanvasModelOption[] = [];
 let persistTimer: number | null = null;
 let cloudPersist: ((raw: string) => void) | null = null;
 let lastPersistedRaw = "";
+// 上次推送到服务端的内容指纹（不含视口），用于区分「只有视口变化」而跳过云端写入
+let lastCloudRaw = "";
+// 本端已同步到的服务端版本（毫秒），仅内存态：跨会话由服务端内容重新建立
+let syncedAt = 0;
 let nodeSpawnCounter = 0;
 type GraphSnapshot = { nodes: GraphNode[]; edges: GraphEdge[] };
 const undoStack: GraphSnapshot[] = [];
@@ -246,12 +276,41 @@ function emit(): void {
   }
 }
 
+// 生成节点的上游行数派生：入端口逐个展示，每个端口至少占一行（未连接也要显示），
+// 因此总行数 = 各端口「连接数取 max(1)」之和；端口锚点据此与清单行对齐
+function normalizeGenerateRows<T extends { nodes: GraphNode[]; edges: GraphEdge[] }>(next: T): T {
+  const perPort = new Map<string, Map<GraphPortID, number>>();
+  for (const edge of next.edges) {
+    const counts = perPort.get(edge.toNodeID) ?? new Map<GraphPortID, number>();
+    counts.set(edge.toPort, (counts.get(edge.toPort) ?? 0) + 1);
+    perPort.set(edge.toNodeID, counts);
+  }
+  let changed = false;
+  const nodes = next.nodes.map((node) => {
+    if (node.kind !== "generate") {
+      return node;
+    }
+    const counts = perPort.get(node.id);
+    const portRowCounts = graphNodePorts("generate", node.mediaType ?? "image")
+      .filter((port) => port.direction === "in")
+      .map((port) => Math.max(1, counts?.get(port.id) ?? 0));
+    const totalRows = portRowCounts.reduce((sum, value) => sum + value, 0);
+    if ((node.connectionRows ?? 0) === totalRows
+      && (node.portRowCounts ?? []).join(",") === portRowCounts.join(",")) {
+      return node;
+    }
+    changed = true;
+    return { ...node, connectionRows: totalRows, portRowCounts };
+  });
+  return changed ? { ...next, nodes } : next;
+}
+
 function setState(updater: (current: CanvasState) => CanvasState): void {
   const next = updater(state);
   if (next === state) {
     return;
   }
-  state = next;
+  state = normalizeGenerateRows(next);
   emit();
   schedulePersist();
 }
@@ -302,7 +361,7 @@ function allPages(current: CanvasState): PersistedCanvasPage[] {
 
 function getPersistedState(): PersistedCanvasState {
   return {
-    version: 4, savedAt: Date.now(), projectName: state.projectName, activeCanvasID: state.activeCanvasID,
+    version: 4, projectName: state.projectName, activeCanvasID: state.activeCanvasID,
     canvases: allPages(state), versions: state.versions,
     conversationID: null, selectedModelName: state.restoredModelName,
     selectedVideoModelName: state.restoredVideoModelName,
@@ -311,6 +370,19 @@ function getPersistedState(): PersistedCanvasState {
     viewMode: state.viewMode,
     viewport: state.viewport, graphNodes: toPersistedGraphNodes(state.nodes), edges: toPersistedEdges(state.edges),
     decorations: state.decorations, bookmarks: state.bookmarks, imageOptions: {},
+  };
+}
+
+// 云端快照统一使用的中性视口：视口是每台设备自己的浏览位置，
+// 同步它会让「拖动画面」也产生云端写入，并可能把另一台设备的视角一起改掉
+const CLOUD_NEUTRAL_VIEWPORT: CanvasViewport = { x: 0, y: 0, scale: 1 };
+
+// 剥离视口后的快照：本地仍按完整快照落盘（刷新后视角不变），只有云端推送使用本函数
+function cloudSnapshot(persisted: PersistedCanvasState): PersistedCanvasState {
+  return {
+    ...persisted,
+    viewport: CLOUD_NEUTRAL_VIEWPORT,
+    canvases: persisted.canvases?.map((page) => ({ ...page, viewport: CLOUD_NEUTRAL_VIEWPORT })),
   };
 }
 
@@ -332,7 +404,14 @@ function flushPersistInternal(): void {
   }
   lastPersistedRaw = raw;
   saveCanvasState(persisted);
-  cloudPersist?.(raw);
+  // 只有视口变化时停止在这里：本地已落盘（刷新后视角保持），但不上云，
+  // 否则拖动画面会用一次不必要的请求把服务端刷成同样内容
+  const cloudRaw = stringifyCanvasState(cloudSnapshot(persisted));
+  if (cloudRaw === lastCloudRaw) {
+    return;
+  }
+  lastCloudRaw = cloudRaw;
+  cloudPersist?.(cloudRaw);
 }
 
 function schedulePersist(): void {
@@ -447,21 +526,26 @@ async function loadOutputImage(nodeID: string, fileID: string): Promise<void> {
   }
 }
 
-// 参考图节点预览加载：本地预览地址缺失（刷新恢复、跨节点拖入）时按 fileID 拉取
+// 参考素材节点：参考图节点与参考媒体节点共用「按 fileID 拉取预览」的逻辑
+function isReferencePreviewNode(node: GraphNode): node is ImageGraphNode | MediaGraphNode {
+  return node.kind === "image" || node.kind === "media";
+}
+
+// 参考素材节点预览加载：本地预览地址缺失（刷新恢复、跨节点拖入）时按 fileID 拉取
 async function loadImageNodePreview(nodeID: string, fileID: string): Promise<void> {
   const cached = objectURLCache.get(fileID);
   if (cached) {
-    updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+    updateNode(nodeID, (node) => (isReferencePreviewNode(node) && node.reference?.fileID === fileID
       ? { ...node, previewURL: cached, previewLoading: false, previewFailed: false }
       : node));
     return;
   }
-  updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+  updateNode(nodeID, (node) => (isReferencePreviewNode(node) && node.reference?.fileID === fileID
     ? { ...node, previewLoading: true, previewFailed: false }
     : node));
   const token = await resolveAccessToken();
   if (!token) {
-    updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+    updateNode(nodeID, (node) => (isReferencePreviewNode(node) && node.reference?.fileID === fileID
       ? { ...node, previewLoading: false, previewFailed: true }
       : node));
     return;
@@ -470,11 +554,11 @@ async function loadImageNodePreview(nodeID: string, fileID: string): Promise<voi
     const result = await fetchFileContent(token, fileID);
     const objectURL = URL.createObjectURL(result.blob);
     objectURLCache.set(fileID, objectURL);
-    updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+    updateNode(nodeID, (node) => (isReferencePreviewNode(node) && node.reference?.fileID === fileID
       ? { ...node, previewURL: objectURL, previewLoading: false, previewFailed: false }
       : node));
   } catch {
-    updateNode(nodeID, (node) => (node.kind === "image" && node.reference?.fileID === fileID
+    updateNode(nodeID, (node) => (isReferencePreviewNode(node) && node.reference?.fileID === fileID
       ? { ...node, previewLoading: false, previewFailed: true }
       : node));
   }
@@ -492,17 +576,109 @@ function nextNodePosition(kind: GraphNodeKind, spawnPoint?: { x: number; y: numb
   };
 }
 
-function errorDetailFromApiError(error: ApiError): string | undefined {
-  const parts = [error.rawMessage?.trim() || "", error.errorCode ? `errorCode: ${error.errorCode}` : ""];
-  if (error.details !== undefined && error.details !== null) {
-    try {
-      parts.push(JSON.stringify(error.details, null, 2));
-    } catch {
-      parts.push(String(error.details));
+// 拖到空白处自动补节点：按起拖端口推断应创建的节点，创建后立即连线。
+// reverse 表示新节点在连线的「上游」（从入端口反向拖出）。
+function resolveAutoConnectPlan(drag: {
+  fromPort: GraphPortID;
+  fromDirection: "in" | "out";
+  fromKind: GraphNodeKind;
+  fromMediaKind?: CanvasMediaKind;
+  fromMediaType?: CanvasMediaType;
+}): { kind: GraphNodeKind; mediaType: CanvasNodeMediaHint; toPort: GraphInputPort; reverse: boolean } | null {
+  if (drag.fromDirection === "in") {
+    // 从入端口反向拖出：补该端口对应的来源节点
+    switch (drag.fromPort) {
+      case "prompt": return { kind: "prompt", mediaType: "image", toPort: "prompt", reverse: true };
+      case "image": return { kind: "image", mediaType: "image", toPort: "image", reverse: true };
+      case "video": return { kind: "media", mediaType: "video", toPort: "video", reverse: true };
+      case "audio": return { kind: "media", mediaType: "audio", toPort: "audio", reverse: true };
+      case "result": return { kind: "generate", mediaType: "image", toPort: "result", reverse: true };
+      default: return null;
     }
   }
-  const detail = parts.filter(Boolean).join("\n");
-  return detail || undefined;
+  // 从出端口正向拖出：补下游节点
+  switch (drag.fromKind) {
+    case "prompt": return { kind: "generate", mediaType: "image", toPort: "prompt", reverse: false };
+    case "image": return { kind: "generate", mediaType: "image", toPort: "image", reverse: false };
+    case "media": return {
+      kind: "generate",
+      mediaType: "video",
+      toPort: drag.fromMediaKind === "audio" ? "audio" : "video",
+      reverse: false,
+    };
+    case "generate": return {
+      kind: "output",
+      mediaType: drag.fromMediaType === "video" ? "video" : "image",
+      toPort: "result",
+      reverse: false,
+    };
+    // 输出节点的产物回灌：视频产物接视频生成节点的参考视频端口，图像产物接参考图端口
+    case "output": return drag.fromMediaType === "video"
+      ? { kind: "generate", mediaType: "video", toPort: "video", reverse: false }
+      : { kind: "generate", mediaType: "image", toPort: "image", reverse: false };
+    default: return null;
+  }
+}
+
+// 上游响应正文：服务端重新序列化后是单行 JSON，这里按 JSON 美化；非 JSON 原样返回
+function formatUpstreamBody(body: string): string {
+  const value = body.trim();
+  if (!value) {
+    return "";
+  }
+  const parsed = parseJSON(value);
+  return parsed === undefined ? value : JSON.stringify(parsed, null, 2);
+}
+
+// 上游响应抬头：有状态码时形如 "HTTP 502 upstream bad request"
+function upstreamHeadline(statusCode: unknown, label: string): string {
+  const status = isFiniteNumber(statusCode) ? `HTTP ${statusCode}` : "";
+  return [status, label.trim()].filter(Boolean).join(" ");
+}
+
+function contextLine(label: string, value: string | undefined): string {
+  return value ? `${label}: ${value}` : "";
+}
+
+function joinDetailLines(lines: ReadonlyArray<string>): string | undefined {
+  return lines.map((line) => line.trim()).filter(Boolean).join("\n\n") || undefined;
+}
+
+// 错误详情归一化为可读文本，按信息量排序：
+// ① HTTP 错误的结构化详情 details.upstream（上游状态码 + 脱敏正文）
+// ② 会话流错误的脱敏调试快照 details.response（同一份内容，字段布局不同）
+// ③ 媒体任务被前置校验拦下时的定位上下文 details.context（哪个运行 / 什么任务 / 哪个协议 / 哪个上游）
+// ④ 回退到后端原始文案与错误码
+function errorDetailFromApiError(error: ApiError): string | undefined {
+  const details = isRecord(error.details) ? error.details : null;
+  const upstream = details && isRecord(details.upstream) ? details.upstream : null;
+  if (upstream) {
+    return joinDetailLines([
+      upstreamHeadline(upstream.statusCode, readString(upstream, "message") ?? ""),
+      formatUpstreamBody(readString(upstream, "body") ?? ""),
+    ]);
+  }
+  const snapshot = details && isRecord(details.response) ? details.response : null;
+  if (snapshot) {
+    const request = details && isRecord(details.request) ? details.request : {};
+    const target = [readString(request, "method") ?? "", readString(request, "path") ?? ""].filter(Boolean).join(" ");
+    return joinDetailLines([
+      upstreamHeadline(snapshot.statusCode, target),
+      formatUpstreamBody(readString(snapshot, "body") ?? ""),
+    ]);
+  }
+  const context = details && isRecord(details.context) ? details.context : null;
+  if (context) {
+    return joinDetailLines([
+      contextLine("runID", readString(context, "runID")),
+      contextLine("taskType", readString(context, "taskType")),
+      contextLine("protocol", readString(context, "protocol")),
+      contextLine("upstreamID", isFiniteNumber(context.upstreamID) ? String(context.upstreamID) : undefined),
+      contextLine("upstreamTaskID", readString(context, "upstreamTaskID")),
+      contextLine("status", readString(context, "status")),
+    ]);
+  }
+  return joinDetailLines([error.rawMessage?.trim() || "", error.errorCode ? `errorCode: ${error.errorCode}` : ""]);
 }
 
 function hydrateNodeImages(nodes: ReadonlyArray<GraphNode>): void {
@@ -510,7 +686,7 @@ function hydrateNodeImages(nodes: ReadonlyArray<GraphNode>): void {
     if (node.kind === "output" && node.status === "done" && node.fileID) {
       void loadOutputImage(node.id, node.fileID);
     }
-    if (node.kind === "image" && node.reference && !node.previewURL && !node.previewLoading) {
+    if (isReferencePreviewNode(node) && node.reference && !node.previewURL && !node.previewLoading) {
       void loadImageNodePreview(node.id, node.reference.fileID);
     }
   }
@@ -527,13 +703,8 @@ function frameRefitElements(nodes: ReadonlyArray<GraphNode>, decorations: Readon
   ];
 }
 
-// 忽略 savedAt 后的状态内容指纹：判断两端画布内容是否真正一致
-function comparableCanvasState(persisted: PersistedCanvasState): string {
-  return JSON.stringify({ ...persisted, savedAt: 0 });
-}
-
-// 快照是否承载任何实际内容（节点/装饰）。空快照不允许靠时间戳覆盖有内容的画布：
-// 历史漏洞可能把空快照以最新时间戳写入云端，若按 savedAt 采纳会让画布随机变空
+// 快照是否承载任何实际内容（节点/装饰）。空快照绝不覆盖本地已有内容：
+// 云端一旦被误写为空，直接采纳会让画布随机变空
 function persistedStateHasContent(persisted: PersistedCanvasState): boolean {
   const pageHasContent = (page: PersistedCanvasPage): boolean =>
     (page.graphNodes?.length ?? 0) > 0 || (page.nodes?.length ?? 0) > 0 || (page.decorations?.length ?? 0) > 0;
@@ -548,7 +719,8 @@ function defaultCanvasViewMode(): CanvasViewMode {
   return window.matchMedia("(max-width: 1023px)").matches ? "chat" : "graph";
 }
 
-function restoreFromPersisted(persisted: PersistedCanvasState): void {
+// viewportOverride 用于采纳云端快照时保留本端视角（云端快照不携带视口）
+function restoreFromPersisted(persisted: PersistedCanvasState, viewportOverride?: CanvasViewport): void {
   const canvases = persisted.canvases ?? [];
   const activeCanvasID = persisted.activeCanvasID ?? canvases[0]?.id ?? "canvas-main";
   const active = canvases.find((item) => item.id === activeCanvasID);
@@ -563,7 +735,8 @@ function restoreFromPersisted(persisted: PersistedCanvasState): void {
     ...state, nodes: reconciled.nodes, edges: restoredEdges, decorations: reconciled.decorations,
     bookmarks: active?.bookmarks ?? persisted.bookmarks ?? [], canvases, activeCanvasID,
     projectName: persisted.projectName ?? "Untitled project", versions: persisted.versions ?? [],
-    viewport: { ...(active?.viewport ?? persisted.viewport), scale: clampScale((active?.viewport ?? persisted.viewport).scale) },
+    viewport: viewportOverride
+      ?? { ...(active?.viewport ?? persisted.viewport), scale: clampScale((active?.viewport ?? persisted.viewport).scale) },
     conversationID: null, pointerMode: persisted.pointerMode,
     viewMode: persisted.viewMode ?? defaultCanvasViewMode(),
     restoredModelName: persisted.selectedModelName,
@@ -933,27 +1106,16 @@ function writeGenerateResults(
 
 // 流事件回调构建：媒体状态（含视频进度百分比）与图像增量预览写入运行中的输出节点。
 // 任务创建即转交输出节点：等待/流式响应/进度都在输出节点上呈现，生成节点不再承载运行状态。
-// 上游 0.4.4 的流选项不含"产物待重试"回调（Fork 专有事件），画布在此本地扩展该回调类型；
-// sync 后端暂不下发该事件，回调保持可选，为空时不影响其它流处理。
-type CanvasMediaArtifactPendingEvent = {
-  run_id: string;
-  media_type: "image" | "video" | string;
-  indexes?: number[];
-};
-
-type CanvasStreamOptions = ConversationStreamOptions & {
-  onMediaArtifactPending?: (event: CanvasMediaArtifactPendingEvent) => void;
-};
-
+// 产物待重试（media_artifact_pending）由会话流层统一分派，画布只需提供回调。
 function buildStreamOptions(
   outputNodeIDs: ReadonlyArray<string>,
   mediaType: CanvasMediaType,
   signal: AbortSignal | undefined,
   extra: {
     onDelta?: (delta: string) => void;
-    onMediaArtifactPending?: (event: CanvasMediaArtifactPendingEvent) => void;
+    onMediaArtifactPending?: (event: MediaArtifactPendingEvent) => void;
   } = {},
-): CanvasStreamOptions {
+): ConversationStreamOptions {
   const updateRunningOutputs = (updater: (node: OutputGraphNode) => OutputGraphNode): void => {
     for (const nodeID of outputNodeIDs) {
       updateNode(nodeID, (node) =>
@@ -967,7 +1129,12 @@ function buildStreamOptions(
     onMediaStatus: (event) => {
       const label = resolveStatusLabel(event.status, event.message, mediaType);
       updateRunningOutputs((node) => {
-        const percent = event.status === "progress" ? Number(event.message.match(/(\d+)\s*%/)?.[1] ?? NaN) : NaN;
+        // 进入落盘阶段说明上游生成已结束：直接置满，避免轮询提前收尾时进度条定格在半截百分比
+        const percent = event.status === "saving_artifact"
+          ? 100
+          : event.status === "progress"
+            ? Number(event.message.match(/(\d+)\s*%/)?.[1] ?? NaN)
+            : NaN;
         return {
           ...node,
           statusLabel: label,
@@ -1094,51 +1261,30 @@ const canvasStoreImplementation = {
     return candidates[0];
   },
 
+  // 采用服务端快照。服务端是唯一权威：本端不再用本地时钟推断新旧，
+  // 因此不存在"时间戳误判导致拒绝采纳"或"多端互相抬升时间戳"的问题。
   seedPersistedState(persisted: PersistedCanvasState): void {
-    // 内存态必须先从本地恢复：后续的内容比较与云端回推都要基于真实内容，
-    // 否则未恢复时会把空画布当成本地最新状态（导致画布空白/云端被清空）
+    // 内存态必须先从本地恢复：空快照保护要基于真实本地内容判断
     if (!state.restored) {
       canvasStore.restore();
     }
-    // 云端快照可能落后于本地（推送延迟或页面关闭时丢尾）：
-    // 仅当云端快照更新时才采用，否则保留本地状态并把当前状态回推云端
-    const local = loadCanvasState();
-    const localSavedAt = local?.savedAt ?? 0;
-    const cloudSavedAt = persisted.savedAt ?? 0;
-    const localHasContent = local ? persistedStateHasContent(local) : false;
-    const cloudHasContent = persistedStateHasContent(persisted);
-    // 内容一致（仅 savedAt 时间戳差异）时只对齐时间戳，不重建状态：
-    // 否则多端轮询会因时间戳互相抬升而反复"采纳"相同内容，表现为页面突然重置
-    if (local && comparableCanvasState(local) === comparableCanvasState(persisted)) {
-      if (cloudSavedAt > localSavedAt) {
-        const preserved = { ...local, savedAt: cloudSavedAt };
-        lastPersistedRaw = stringifyCanvasState(preserved);
-        saveCanvasState(preserved);
+    // 空快照不回灌：云端一旦被误写为空，采纳会让画布凭空消失，
+    // 此时保留本地内容并把它回推云端，让服务端恢复到有内容的状态
+    if (!persistedStateHasContent(persisted)) {
+      const local = loadCanvasState();
+      if (local && persistedStateHasContent(local)) {
+        canvasStore.pushCurrentStateToCloud();
       }
       return;
     }
-    // 空快照保护：空快照不覆盖非空内容（时间戳不可信的历史遗留），改为用本地回推云端
-    if (localHasContent && !cloudHasContent) {
-      canvasStore.pushCurrentStateToCloud();
-      return;
-    }
-    // 本地为空但云端有内容：采用云端而不是用空本地覆盖云端
-    if (!localHasContent && cloudHasContent) {
-      restoreFromPersisted(persisted);
-      const preserved = { ...getPersistedState(), savedAt: cloudSavedAt };
-      lastPersistedRaw = stringifyCanvasState(preserved);
-      saveCanvasState(preserved);
-      return;
-    }
-    if (localSavedAt > 0 && cloudSavedAt < localSavedAt) {
-      canvasStore.pushCurrentStateToCloud();
-      return;
-    }
-    restoreFromPersisted(persisted);
-    // 采用云端内容时保留其 savedAt，避免拉取本身抬升时间戳造成另一端误判
-    const preserved = { ...getPersistedState(), savedAt: cloudSavedAt };
-    lastPersistedRaw = stringifyCanvasState(preserved);
-    saveCanvasState(preserved);
+    // 云端快照不携带视口：采纳内容时保留本端视角，否则每次同步都会把画面重置
+    const localViewport = state.viewport;
+    restoreFromPersisted(persisted, localViewport);
+    // 本地缓存跟随云端：下次冷启动先展示的就是服务端最新内容
+    const next = getPersistedState();
+    lastPersistedRaw = stringifyCanvasState(next);
+    lastCloudRaw = stringifyCanvasState(cloudSnapshot(next));
+    saveCanvasState(next);
   },
 
   pushCurrentStateToCloud(): void {
@@ -1146,7 +1292,20 @@ const canvasStoreImplementation = {
     if (!state.restored) {
       canvasStore.restore();
     }
-    cloudPersist?.(stringifyCanvasState(getPersistedState()));
+    const cloudRaw = stringifyCanvasState(cloudSnapshot(getPersistedState()));
+    lastCloudRaw = cloudRaw;
+    cloudPersist?.(cloudRaw);
+  },
+
+  // 记录本端已同步到的服务端版本：拉取时据此判断云端是否被其他设备更新过
+  markSynced(updatedAt: number): void {
+    if (Number.isFinite(updatedAt) && updatedAt > syncedAt) {
+      syncedAt = updatedAt;
+    }
+  },
+
+  getSyncedAt(): number {
+    return syncedAt;
   },
 
   // 首次进入时从 localStorage 恢复；后续路由切换直接复用内存状态
@@ -1353,50 +1512,11 @@ const canvasStoreImplementation = {
     });
   },
 
-  groupSelected(): void {
-    if (state.selectedNodeIDs.length + state.selectedDecorationIDs.length < 2) return;
-    const groupID = createNodeID();
-    const nodes = new Set(state.selectedNodeIDs); const decorations = new Set(state.selectedDecorationIDs);
-    setState((current) => ({ ...current, nodes: current.nodes.map((item) => nodes.has(item.id) ? { ...item, groupID } : item), decorations: current.decorations.map((item) => decorations.has(item.id) ? { ...item, groupID } : item) }));
-  },
-
-  ungroupSelected(): void {
-    const groups = new Set([...state.nodes.filter((item) => state.selectedNodeIDs.includes(item.id)).map((item) => item.groupID), ...state.decorations.filter((item) => state.selectedDecorationIDs.includes(item.id)).map((item) => item.groupID)].filter(Boolean));
-    setState((current) => ({ ...current, nodes: current.nodes.map((item) => groups.has(item.groupID) ? { ...item, groupID: null } : item), decorations: current.decorations.map((item) => groups.has(item.groupID) ? { ...item, groupID: null } : item) }));
-  },
-
   toggleLockSelected(): void {
     const nodes = new Set(state.selectedNodeIDs); const decorations = new Set(state.selectedDecorationIDs);
     const selected = [...state.nodes.filter((item) => nodes.has(item.id)), ...state.decorations.filter((item) => decorations.has(item.id))];
     const lock = selected.some((item) => !item.locked);
     setState((current) => ({ ...current, nodes: current.nodes.map((item) => nodes.has(item.id) ? { ...item, locked: lock } : item), decorations: current.decorations.map((item) => decorations.has(item.id) ? { ...item, locked: lock } : item) }));
-  },
-
-  arrangeSelected(action: CanvasArrangeAction): boolean {
-    const selectedIDs = new Set([...state.selectedNodeIDs, ...state.selectedDecorationIDs]);
-    const elements = [
-      ...state.nodes.map((item) => ({ ...item, ...graphNodeSize(item) })),
-      ...state.decorations,
-    ];
-    const patches = arrangeCanvasElements(elements, selectedIDs, action);
-    if (!patches) {
-      return false;
-    }
-    setState((current) => {
-      const nodes = current.nodes.map((item) => patches.has(item.id) ? { ...item, ...patches.get(item.id) } : item);
-      const decorations = current.decorations.map((item) => patches.has(item.id) ? { ...item, ...patches.get(item.id) } : item);
-      const reconciled = reconcileFrameMembership(nodes, decorations);
-      return {
-        ...current,
-        ...reconciled,
-        decorations: refitFrameDecorations(
-          frameRefitElements(current.nodes, current.decorations),
-          frameRefitElements(reconciled.nodes, reconciled.decorations),
-          reconciled.decorations,
-        ),
-      };
-    });
-    return true;
   },
 
   addBookmark(name?: string): void {
@@ -1427,15 +1547,6 @@ const canvasStoreImplementation = {
     schedulePersist();
   },
 
-  applyTemplate(kind: "blank" | "storyboard" | "moodboard"): void {
-    const point = { x: 0, y: 0 };
-    if (kind === "blank") { setState((current) => ({ ...current, nodes: [], edges: [], decorations: [], bookmarks: [], viewport: { x: 0, y: 0, scale: 1 }, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [] })); return; }
-    const decorations: CanvasDecoration[] = kind === "storyboard"
-      ? [0, 1, 2].map((index) => ({ id: createNodeID(), kind: "frame", x: point.x + index * 520, y: point.y, width: 480, height: 360, title: `Scene ${index + 1}`, text: "", color: "indigo", createdAt: Date.now(), zIndex: -10 }))
-      : [{ id: createNodeID(), kind: "section", x: -420, y: -260, width: 840, height: 520, title: "Moodboard", text: "", color: "cyan", createdAt: Date.now(), zIndex: -10 }, { id: createNodeID(), kind: "note", x: 460, y: -120, width: 240, height: 160, title: "Direction", text: "Collect references and define the visual language.", color: "amber", createdAt: Date.now(), zIndex: 10 }];
-    setState((current) => ({ ...current, nodes: [], edges: [], decorations, bookmarks: [], viewport: { x: 0, y: 0, scale: 1 }, selectedNodeIDs: [], selectedDecorationIDs: [], selectedEdgeIDs: [] }));
-  },
-
   // 记录当前选中模型：同时保存名称与身份键（键用于区分接口重名模型）
   setSelectedModel(model: CanvasModelOption | null, mediaType: CanvasMediaType = "image"): void {
     if (!model) {
@@ -1455,7 +1566,7 @@ const canvasStoreImplementation = {
   // -------------------------------------------------------------------------
   // 图节点 CRUD
   // -------------------------------------------------------------------------
-  addGraphNode(kind: GraphNodeKind, point?: { x: number; y: number }, mediaType: CanvasMediaType = "image"): string {
+  addGraphNode(kind: GraphNodeKind, point?: { x: number; y: number }, mediaType: CanvasNodeMediaHint = "image"): string {
     const nodeID = createNodeID();
     const position = nextNodePosition(kind, point);
     const base = { id: nodeID, kind, x: position.x, y: position.y, createdAt: Date.now() };
@@ -1465,20 +1576,21 @@ const canvasStoreImplementation = {
     } else if (kind === "image") {
       node = { ...base, kind: "image", reference: null } satisfies ImageGraphNode;
     } else if (kind === "generate") {
-      const selectedKey = mediaType === "video" ? state.restoredVideoModelKey : state.restoredModelKey;
+      const nodeMediaType: CanvasMediaType = mediaType === "video" ? "video" : "image";
+      const selectedKey = nodeMediaType === "video" ? state.restoredVideoModelKey : state.restoredModelKey;
       const selectedScope = parseCanvasModelKey(selectedKey);
       node = {
-        ...base, kind: "generate", mediaType,
-        model: mediaType === "video" ? state.restoredVideoModelName : state.restoredModelName,
+        ...base, kind: "generate", mediaType: nodeMediaType,
+        model: nodeMediaType === "video" ? state.restoredVideoModelName : state.restoredModelName,
         modelScope: selectedScope.scope,
         userModelID: selectedScope.userModelID,
         options: {}, resultCount: 1,
         operation: "generate", maskReference: null, runStatus: "idle",
       } satisfies GenerateGraphNode;
-    } else if (kind === "html") {
-      node = { ...base, kind: "html", html: "" } satisfies HtmlGraphNode;
+    } else if (kind === "media") {
+      node = { ...base, kind: "media", mediaKind: mediaType === "audio" ? "audio" : "video", reference: null } satisfies MediaGraphNode;
     } else {
-      node = { ...base, kind: "output", mediaType: mediaType !== "image" ? mediaType : undefined, status: "empty" } satisfies OutputGraphNode;
+      node = { ...base, kind: "output", mediaType: mediaType === "video" ? "video" : undefined, status: "empty" } satisfies OutputGraphNode;
     }
     recordGraphHistory(currentSnapshot());
     setState((current) => {
@@ -1506,10 +1618,10 @@ const canvasStoreImplementation = {
     updateNode(nodeID, (node) => ({ ...node, ...patch, id: node.id, kind: node.kind }) as GraphNode);
   },
 
-  // 参考图节点预览缺失时按 fileID 拉取（刷新恢复、跨节点拖入后由视图触发）
+  // 参考素材节点预览缺失时按 fileID 拉取（刷新恢复、跨节点拖入后由视图触发）
   ensureNodeImagePreview(nodeID: string): void {
     const node = state.nodes.find((item) => item.id === nodeID);
-    if (node?.kind === "image" && node.reference && !node.previewURL && !node.previewLoading) {
+    if (node && isReferencePreviewNode(node) && node.reference && !node.previewURL && !node.previewLoading) {
       void loadImageNodePreview(nodeID, node.reference.fileID);
     }
   },
@@ -1632,6 +1744,30 @@ const canvasStoreImplementation = {
       canRedo: false,
     }));
     return true;
+  },
+
+  // 连线拖到空白处：按起拖端口自动创建匹配的节点并立即连线，免去「先建节点再连线」两步
+  connectToNewNode(
+    drag: {
+      fromNodeID: string;
+      fromPort: GraphPortID;
+      fromDirection: "in" | "out";
+      fromKind: GraphNodeKind;
+      fromMediaKind?: CanvasMediaKind;
+      fromMediaType?: CanvasMediaType;
+    },
+    point: { x: number; y: number },
+  ): boolean {
+    const plan = resolveAutoConnectPlan(drag);
+    if (!plan) {
+      return false;
+    }
+    const nodeID = canvasStore.addGraphNode(plan.kind, point, plan.mediaType);
+    return canvasStore.connectGraphNodes(
+      plan.reverse
+        ? { fromNodeID: nodeID, fromPort: "out", toNodeID: drag.fromNodeID, toPort: plan.toPort }
+        : { fromNodeID: drag.fromNodeID, fromPort: "out", toNodeID: nodeID, toPort: plan.toPort },
+    );
   },
 
   removeEdge(edgeID: string): void {
@@ -1917,7 +2053,8 @@ const canvasStoreImplementation = {
     });
 
     try {
-      const completed = await (route === "chat"
+      // 启动一次生成流：媒体任务可能长时间等待，断流后凭同一 run 引用续传
+      const startStream = () => (route === "chat"
         ? streamMessage(
           token,
           conversationID,
@@ -1961,6 +2098,22 @@ const canvasStoreImplementation = {
               : streamImageGeneration(token, conversationID, payload, streamOptions);
           })());
 
+      // 网络中断只对媒体流自动补救一次：用同一 run 引用续传，仍拿不到结果就按原错误路径落错误态
+      const completed = await (async () => {
+        try {
+          return await startStream();
+        } catch (streamError) {
+          if (route === "chat" || controller.signal.aborted || !(streamError instanceof ApiNetworkError)) {
+            throw streamError;
+          }
+          const resumed = await resumeMessageGenerationStream(token, runID, { ...streamOptions });
+          if (!resumed) {
+            throw streamError;
+          }
+          return resumed;
+        }
+      })();
+
       await canvasStore.completeGeneration({
         generateNodeID,
         outputNodeIDs,
@@ -1982,7 +2135,7 @@ const canvasStoreImplementation = {
       } else if (error instanceof ApiError) {
         markOutputTargetsError(
           outputNodeIDs,
-          error.message || labels?.generateFailed || "",
+          resolveLocalizedErrorMessageWithoutReference(error, labels?.generateFailed ?? ""),
           errorDetailFromApiError(error) ?? (assistantText.trim() || undefined),
         );
       } else {
@@ -2439,9 +2592,7 @@ const canvasStoreImplementation = {
       markGenerateNodeError(generateNodeID, message, node.errorDetail);
       toast.error(message);
     } catch (error) {
-      const message = error instanceof ApiError && error.message
-        ? error.message
-        : labels.requeryUnavailable;
+      const message = resolveLocalizedErrorMessageWithoutReference(error, labels.requeryUnavailable);
       markGenerateNodeError(generateNodeID, message, node.errorDetail);
       toast.error(message);
     } finally {
@@ -2459,7 +2610,9 @@ const canvasStoreImplementation = {
     if (!node || node.kind !== "output" || !node.runID || !labels) {
       return;
     }
-    if (node.status !== "error" || node.pendingRetry) {
+    // 未完成（运行中）的任务同样允许手动重查：上游可能已产出结果而当前流尚未收到。
+    // 任务引用（runID）绑定在输出节点上，重查不会干扰仍在进行的流。
+    if ((node.status !== "error" && node.status !== "running") || node.pendingRetry) {
       return;
     }
     if (abortControllers.has(nodeID)) {
@@ -2471,6 +2624,17 @@ const canvasStoreImplementation = {
       item.kind === "output" ? { ...item, statusLabel: labels?.requeryStarted ?? item.statusLabel } : item,
     );
     toast.info(labels.requeryStarted);
+    // 重查判定为失败时统一落为错误态：运行中的节点与原本的错误节点走同一收束
+    const failToError = (message: string): void => {
+      updateNode(nodeID, (item) =>
+        item.kind === "output"
+          ? {
+            ...item, status: "error", statusLabel: undefined, progress: undefined,
+            previewURL: undefined, errorMessage: message, conversationID: undefined,
+          }
+          : item,
+      );
+    };
     try {
       const token = await resolveAccessToken();
       if (!token) {
@@ -2482,46 +2646,67 @@ const canvasStoreImplementation = {
         updateNode(nodeID, (item) => (item.kind === "output" ? { ...item, statusLabel: undefined } : item));
         return;
       }
-      const result = await requeryMediaVideoRun(token, node.runID);
-      if (result.status === "completed" && result.attachments && result.attachments.length > 0 && labels) {
-        // 回收成功：产物直接写入本输出节点
-        const attachment = result.attachments[0];
+      // 重查后持续监听：上游仍在生成时保持运行态与进度条，直到完成、失败或再次超出等待上限
+      const deadline = Date.now() + REQUERY_WAIT_LIMIT_MS;
+      let pendingNotified = false;
+      let result = await requeryMediaVideoRun(token, node.runID);
+      while (true) {
+        if (result.status === "completed" && result.attachments && result.attachments.length > 0 && labels) {
+          // 回收成功：产物直接写入本输出节点
+          const attachment = result.attachments[0];
+          updateNode(nodeID, (item) =>
+            item.kind === "output"
+              ? {
+                ...item, status: "done", fileID: attachment.fileID, fileName: attachment.fileName,
+                mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes,
+                durationSeconds: attachment.durationSeconds, objectURL: undefined, imageLoadFailed: false,
+                errorMessage: undefined, errorDetail: undefined, statusLabel: undefined,
+                progress: undefined, previewURL: undefined, conversationID: undefined,
+                runID: undefined, completedAt: Date.now(),
+              }
+              : item,
+          );
+          void loadOutputImage(nodeID, attachment.fileID);
+          toast.success(labels.requeryRecovered);
+          return;
+        }
+        if (result.status !== "pending") {
+          break;
+        }
+        if (Date.now() >= deadline || controller.signal.aborted) {
+          // 再次超时：与生成期等待上限同一口径，保留重新查询入口供稍后再试
+          const message = labels.requeryTimeout;
+          failToError(message);
+          toast.error(message);
+          return;
+        }
+        // 上游仍在生成：回到运行态并显示上游进度；上游不报进度时保持不确定态
+        const percent = typeof result.progress === "number" && result.progress >= 0 ? result.progress : undefined;
         updateNode(nodeID, (item) =>
           item.kind === "output"
             ? {
-              ...item, status: "done", fileID: attachment.fileID, fileName: attachment.fileName,
-              mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes,
-              durationSeconds: attachment.durationSeconds, objectURL: undefined, imageLoadFailed: false,
-              errorMessage: undefined, errorDetail: undefined, statusLabel: undefined,
-              runID: undefined, completedAt: Date.now(),
+              ...item, status: "running", statusLabel: labels?.requeryPending ?? item.statusLabel,
+              progress: percent ?? item.progress,
+              errorMessage: undefined, errorDetail: undefined,
             }
             : item,
         );
-        void loadOutputImage(nodeID, attachment.fileID);
-        toast.success(labels.requeryRecovered);
-        return;
-      }
-      if (result.status === "pending") {
-        // 上游仍在执行：保持错误态但更新提示，用户可稍后再次重查
-        const message = labels?.requeryPending ?? "";
-        updateNode(nodeID, (item) =>
-          item.kind === "output" ? { ...item, statusLabel: undefined, errorMessage: message || item.errorMessage } : item,
-        );
-        toast.info(message);
-        return;
+        if (!pendingNotified) {
+          pendingNotified = true;
+          toast.info(labels.requeryPending);
+        }
+        await waitForRequeryTick(controller.signal);
+        if (controller.signal.aborted) {
+          return;
+        }
+        result = await requeryMediaVideoRun(token, node.runID);
       }
       const message = result.message?.trim() || labels.requeryUnavailable;
-      updateNode(nodeID, (item) =>
-        item.kind === "output" ? { ...item, statusLabel: undefined, errorMessage: message } : item,
-      );
+      failToError(message);
       toast.error(message);
     } catch (error) {
-      const message = error instanceof ApiError && error.message
-        ? error.message
-        : labels.requeryUnavailable;
-      updateNode(nodeID, (item) =>
-        item.kind === "output" ? { ...item, statusLabel: undefined, errorMessage: message } : item,
-      );
+      const message = resolveLocalizedErrorMessageWithoutReference(error, labels.requeryUnavailable);
+      failToError(message);
       toast.error(message);
     } finally {
       abortControllers.delete(nodeID);
@@ -2613,9 +2798,7 @@ const canvasStoreImplementation = {
       toast.error(message);
     } catch (error) {
       // 保存仍失败：保留重试引用，输出节点可继续重试
-      const message = error instanceof ApiError && error.message
-        ? error.message
-        : labels?.artifactRetryFailed ?? "";
+      const message = resolveLocalizedErrorMessageWithoutReference(error, labels?.artifactRetryFailed ?? "");
       updateNode(nodeID, (item) => item.kind === "output" ? { ...item, errorMessage: message } : item);
       toast.error(message);
     } finally {

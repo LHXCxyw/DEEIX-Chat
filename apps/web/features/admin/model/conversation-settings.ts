@@ -6,12 +6,13 @@ export type ConversationVisibilityRule =
   | { field: string; equals: string }
   | { all: ConversationVisibilityRule[] };
 
-export type ConversationSettingsSection = "conversation" | "contextManagement" | "optionPassthrough";
+export type ConversationSettingsSection = "conversation" | "contextManagement" | "optionPassthrough" | "agent";
 
 export type ConversationSettingsField = {
   section: ConversationSettingsSection;
-  namespace: "chat";
+  namespace: "chat" | "agent";
   key:
+    | "approval_model"
     | "conversation_default_model"
     | "conversation_task_model"
     | "default_system_prompt"
@@ -113,6 +114,15 @@ export const DEFAULT_MODEL_OPTION_ALLOWED_PATHS = `{
     "response_format",
     "size",
     "user"
+  ],
+  "openai_video_generations": [
+    "generate_audio",
+    "mode",
+    "ratio",
+    "resolution_name",
+    "seconds",
+    "size",
+    "watermark"
   ],
   "anthropic_messages": [
     "speed",
@@ -226,6 +236,14 @@ type ConversationSettingsTranslator = (key: string) => string;
 
 export function buildConversationSettingsFields(t: ConversationSettingsTranslator): ConversationSettingsField[] {
   return [
+    {
+      section: "agent",
+      namespace: "agent",
+      key: "approval_model",
+      label: t("agent.approvalModel"),
+      description: t("agent.description"),
+      type: "select",
+    },
     {
       section: "conversation",
       namespace: "chat",
@@ -485,6 +503,9 @@ export function flattenConversationSettings(grouped: SettingsGrouped): Record<st
   const result: Record<string, string> = {};
   for (const item of grouped.chat ?? []) {
     result[`chat.${item.key}`] = item.value ?? "";
+  }
+  for (const item of grouped.agent ?? []) {
+    result[`agent.${item.key}`] = item.value ?? "";
   }
   return applyConversationDefaults(result);
 }

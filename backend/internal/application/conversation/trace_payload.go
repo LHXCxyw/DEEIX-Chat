@@ -86,6 +86,7 @@ type traceToolCall struct {
 	OutputPreview      string                   `json:"output_preview,omitempty"`
 	OutputDetail       string                   `json:"output_detail,omitempty"`
 	DetailRunID        string                   `json:"detail_run_id,omitempty"`
+	FileDiff           *projectToolDiff         `json:"file_diff,omitempty"`
 	OutputPresentation *toolresult.Presentation `json:"output_presentation,omitempty"`
 }
 
@@ -159,6 +160,10 @@ func (p *tracePayload) clone() *tracePayload {
 	cloned.ToolCalls = make([]traceToolCall, len(p.ToolCalls))
 	for index, call := range p.ToolCalls {
 		cloned.ToolCalls[index] = call
+		if call.FileDiff != nil {
+			diff := *call.FileDiff
+			cloned.ToolCalls[index].FileDiff = &diff
+		}
 		if call.OutputPresentation != nil {
 			presentation := *call.OutputPresentation
 			cloned.ToolCalls[index].OutputPresentation = &presentation

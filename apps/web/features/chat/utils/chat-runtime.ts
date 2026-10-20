@@ -55,6 +55,11 @@ export function resolveErrorMessage(error: unknown, fallback: string): string {
 // resolveErrorReason returns the localized message without the error ID suffix, for inline alerts
 // that show the ID in its own copyable row.
 export function resolveErrorReason(error: unknown, fallback: string): string {
+  // 上游流中断的后端摘要带“原因：”行，保留它，避免被通用错误码文案覆盖掉真实原因。
+  const raw = error instanceof Error ? error.message.trim() : "";
+  if (raw.split(/\r?\n/).some((line) => line.trim().startsWith("原因："))) {
+    return raw;
+  }
   return resolveLocalizedErrorMessageWithoutReference(error, fallback);
 }
 

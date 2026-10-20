@@ -103,6 +103,10 @@ func (h *Handler) parseSendMessageInput(c *gin.Context) (appconversation.SendMes
 		response.InvalidRequestBody(c, err)
 		return appconversation.SendMessageInput{}, nil, nil, err
 	}
+	if err = appconversation.ValidateAgentPermissions(req.AgentPermissions); err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return appconversation.SendMessageInput{}, nil, nil, err
+	}
 	req.ClientRunID = appconversation.EnsureMessageGenerationRunID(req.ClientRunID)
 	req.Options = sanitizeMessageOptions(req.Options)
 	req.Controls = sanitizeMessageControls(req.Controls)
@@ -123,6 +127,7 @@ func (h *Handler) parseSendMessageInput(c *gin.Context) (appconversation.SendMes
 	}
 
 	input := appconversation.SendMessageInput{
+		AgentPermissions:        req.AgentPermissions,
 		UserID:                  userID,
 		ConversationID:          conversation.ID,
 		ProjectPublicID:         conversation.ProjectPublicID,
@@ -252,7 +257,7 @@ var errGenerationLifecycleUnavailable = errors.New("message generation lifecycle
 // handleSendMessageError 把消息发送 / 生成 / 计费路径上的错误写成 HTTP 错误响应，映射规则见 describeSendMessageError。
 func handleSendMessageError(c *gin.Context, err error) {
 	response.RecordError(c, err)
-	response.ErrorDescribed(c, describeSendMessageError(err))
+	response.ErrorDescribedWithDetails(c, describeSendMessageError(err), errorResponseDetails(err))
 }
 
 // SendMessage godoc
@@ -466,7 +471,7 @@ func (h *Handler) RequeryMediaVideoRun(c *gin.Context) {
 	}
 	result, err := h.service.RequeryMediaVideoRun(c.Request.Context(), middleware.MustUserID(c), runID)
 	if err != nil {
-		response.ErrorDescribed(c, describeSendMessageError(err))
+		response.ErrorDescribedWithDetails(c, describeSendMessageError(err), errorResponseDetails(err))
 		return
 	}
 	payload := RequeryMediaVideoRunResponse{
@@ -516,7 +521,7 @@ func (h *Handler) RetryMediaImageArtifact(c *gin.Context) {
 	}
 	result, err := h.service.RetryMediaImageArtifact(c.Request.Context(), middleware.MustUserID(c), runID, *req.Index)
 	if err != nil {
-		response.ErrorDescribed(c, describeSendMessageError(err))
+		response.ErrorDescribedWithDetails(c, describeSendMessageError(err), errorResponseDetails(err))
 		return
 	}
 	payload := RetryMediaImageArtifactResponse{

@@ -20,6 +20,7 @@ import { clampViewportScale, parseCanvasState } from "@/features/canvas/model/ca
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
+  type CanvasNodeMediaHint,
   type GraphNodeKind,
   type ImageGraphNode,
   type OutputGraphNode,
@@ -35,7 +36,7 @@ export function CanvasWorkspace() {
   const [editingNode, setEditingNode] = React.useState<OutputGraphNode | ImageGraphNode | null>(null);
   // 参考图节点编辑时的图源 blob 地址（编辑器关闭时回收）
   const [editingSourceURL, setEditingSourceURL] = React.useState<string | null>(null);
-  const [panel, setPanel] = React.useState<"projects" | "templates" | "history" | null>(null);
+  const [panel, setPanel] = React.useState<"projects" | "history" | null>(null);
   const [showStructureTip, setShowStructureTip] = React.useState(false);
   // 资产列表侧边栏折叠状态（展开时隐藏右下角小地图，避免重叠）
   const [assetsCollapsed, setAssetsCollapsed] = React.useState(false);
@@ -266,7 +267,7 @@ export function CanvasWorkspace() {
   // 移动端对话输入条发送任务：节点生成在当前视口中心附近（保持无限画布的可视上下文），
   // 提示词在生成节点左侧，参考图节点纵向排在提示词下方，全部自动连线后立即开始生成。
   // 节点媒体类型跟随所选模型（视频模型 -> 视频生成节点）
-  const handleChatTask = React.useCallback(async ({ prompt, referenceFiles, model, includeCanvasContext }: ChatTaskInput) => {
+  const handleChatTask = React.useCallback(async ({ prompt, referenceFiles, model, options, resultCount, includeCanvasContext }: ChatTaskInput) => {
     const promptSize = { width: 288, height: 224 };
     const generateSize = { width: 336, height: 512 };
     const imageSize = { height: 264 };
@@ -279,7 +280,7 @@ export function CanvasWorkspace() {
       ? `【画布上下文】\n${buildCanvasContextSummary(canvas.nodes, canvas.edges)}\n\n${prompt}`
       : prompt;
     const generateID = canvas.addGraphNode("generate", { x: generateX, y: generateY }, model.kinds.includes("video_gen") ? "video" : "image");
-    canvas.updateGraphNode(generateID, { model: model.platformModelName });
+    canvas.updateGraphNode(generateID, { model: model.platformModelName, options, resultCount });
     if (effectivePrompt) {
       const promptID = canvas.addGraphNode("prompt", { x: leftX, y: generateY });
       canvas.updateGraphNode(promptID, { text: effectivePrompt });
@@ -378,7 +379,7 @@ export function CanvasWorkspace() {
   }, [attachImageFile, previewNode]);
 
   const handleAddNode = React.useCallback(
-    (kind: GraphNodeKind, mediaType?: "image" | "video") => {
+    (kind: GraphNodeKind, mediaType?: CanvasNodeMediaHint) => {
       canvas.addGraphNode(kind, undefined, mediaType);
     },
     [canvas],
@@ -394,22 +395,6 @@ export function CanvasWorkspace() {
     operation();
     toast.success(t("operationSuccess", { action }));
   }, [t]);
-
-  const handleAlign = React.useCallback(() => {
-    if (canvas.arrangeSelected("horizontal")) {
-      toast.success(t("alignSuccess"));
-    } else {
-      toast.error(t("operationFailed", { action: t("alignDistribute") }));
-    }
-  }, [canvas, t]);
-
-  const handleLayer = React.useCallback(() => {
-    if (canvas.arrangeSelected("front")) {
-      toast.success(t("layerSuccess"));
-    } else {
-      toast.error(t("operationFailed", { action: t("layers") }));
-    }
-  }, [canvas, t]);
 
   const handleLock = React.useCallback(() => {
     const selected = [
@@ -527,6 +512,7 @@ export function CanvasWorkspace() {
         onRequeryOutputNode={(nodeID) => void canvas.requeryOutputNode(nodeID)}
         onRetryOutputSave={(nodeID) => void canvas.retryOutputNodeSave(nodeID)}
         onConnectNodes={canvas.connectGraphNodes}
+        onDropConnection={canvas.connectToNewNode}
         onRemoveEdge={canvas.removeEdge}
         onPreviewNode={setPreviewNode}
         onDownloadNode={(node) => void handleDownloadNode(node)}
@@ -555,16 +541,11 @@ export function CanvasWorkspace() {
           onAddFrame={() => reportOperation(t("addFrame"), () => addStructure("frame"))}
           onAddSection={() => reportOperation(t("addSection"), () => addStructure("section"))}
           onAddNote={() => reportOperation(t("addNote"), () => canvas.addDecoration("note", getSpawnPoint()))}
-          onGroup={() => reportOperation(t("group"), canvas.groupSelected, selectedElementCount >= 2)}
-          onUngroup={() => reportOperation(t("ungroup"), canvas.ungroupSelected, selectedElementCount > 0)}
           onLock={handleLock}
-          onAlign={handleAlign}
-          onLayer={handleLayer}
           onBookmark={() => reportOperation(t("bookmark"), canvas.addBookmark)}
           onProjectPanel={() => setPanel((value) => value === "projects" ? null : "projects")}
           onExportProject={handleExportProject}
           onImportProject={() => importInputRef.current?.click()}
-          onTemplates={() => setPanel((value) => value === "templates" ? null : "templates")}
           onHistory={() => setPanel((value) => value === "history" ? null : "history")}
           onFit={handleFit}
           onClear={canvas.clearCanvas}
@@ -576,7 +557,6 @@ export function CanvasWorkspace() {
           <aside data-canvas-ui="panel" className="pointer-events-auto absolute left-3 top-20 z-20 w-72 rounded-2xl border border-border/70 bg-background/90 p-3 shadow-xl backdrop-blur-2xl">
             <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">{t(panel)}</h2><button type="button" aria-label={t("closePanel")} title={t("closePanel")} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanel(null)}><X className="size-4" /></button></div>
             {panel === "projects" ? <div className="space-y-2"><input aria-label={t("projectName")} placeholder={t("projectName")} className="h-8 w-full rounded-lg border bg-transparent px-2 text-xs" value={canvas.projectName} onChange={(event) => canvas.setProjectName(event.target.value)} />{canvas.canvases.map((item) => <div key={item.id} className="flex items-center gap-2">{item.id === canvas.activeCanvasID ? <input aria-label={t("canvasName")} className="h-8 min-w-0 flex-1 rounded-lg bg-primary/10 px-2 text-xs text-primary outline-none focus:ring-1 focus:ring-primary/40" value={item.name} onChange={(event) => canvas.renameCanvas(item.id, event.target.value)} /> : <button type="button" className="flex-1 rounded-lg px-2 py-2 text-left text-xs hover:bg-accent" onClick={() => canvas.switchCanvas(item.id)}>{item.name}</button>}<button type="button" aria-label={t("removeCanvas")} title={t("removeCanvas")} className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-destructive disabled:pointer-events-none disabled:opacity-40" disabled={canvas.canvases.length <= 1} onClick={() => canvas.removeCanvas(item.id)}><Trash2 className="size-3.5" /></button></div>)}<button type="button" className="w-full rounded-lg border py-2 text-xs" onClick={() => canvas.addCanvas()}>{t("newCanvas")}</button>{canvas.bookmarks.map((item) => <div key={item.id} className="flex items-center gap-2"><button type="button" className="flex-1 rounded-lg bg-muted/50 px-2 py-2 text-left text-xs" onClick={() => canvas.goToBookmark(item.id)}>{item.name}</button><button type="button" aria-label={t("removeBookmark")} title={t("removeBookmark")} className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-destructive" onClick={() => canvas.removeBookmark(item.id)}><Trash2 className="size-3.5" /></button></div>)}</div> : null}
-            {panel === "templates" ? <div className="grid gap-2">{(["blank", "storyboard", "moodboard"] as const).map((item) => <button key={item} type="button" className="rounded-xl border p-3 text-left text-xs hover:bg-accent" onClick={() => { canvas.applyTemplate(item); setPanel(null); }}>{t(`template_${item}`)}</button>)}</div> : null}
             {panel === "history" ? <div className="space-y-2"><button type="button" className="w-full rounded-lg border py-2 text-xs" onClick={() => canvas.createVersion()}>{t("createVersion")}</button>{canvas.versions.map((item) => <button key={item.id} type="button" className="w-full rounded-lg bg-muted/50 px-2 py-2 text-left text-xs" onClick={() => canvas.restoreVersion(item.id)}><span className="block font-medium">{item.name}</span><span className="text-[10px] text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</span></button>)}</div> : null}
           </aside>
         ) : null}

@@ -28,6 +28,7 @@ type DeleteConversationOptions struct {
 // DeleteConversationResult 返回会话删除结果。
 type DeleteConversationResult struct {
 	Deleted          bool
+	CleanupStatus    string
 	DeletedFileCount int
 	Quota            *model.StorageQuota
 }
@@ -495,20 +496,23 @@ func (s *Service) SetConversationArchived(ctx context.Context, userID uint, publ
 	return item, nil
 }
 
-// DeleteConversation 删除会话（软删除），并按需清理不再被其他会话引用的文件。
+// DeleteConversation 删除会话并先停止执行；历史与文件保留，清理状态显式返回。
 func (s *Service) DeleteConversation(ctx context.Context, userID uint, publicID string, options DeleteConversationOptions) (*DeleteConversationResult, error) {
-	cleanupFileIDs, err := s.repo.DeleteConversationByPublicID(ctx, userID, publicID, options.DeleteFiles)
+	if err := s.beginDeletion(ctx, userID, publicID, false); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationNotFound
+		}
+		return nil, err
+	}
+	// 历史与共享对象保留，独立清理流程尚未实现。
+	_, err := s.repo.DeleteConversationByPublicID(ctx, userID, publicID, false)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, ErrConversationNotFound
 		}
 		return nil, err
 	}
-	result := &DeleteConversationResult{Deleted: true}
-	if options.DeleteFiles {
-		result.DeletedFileCount, result.Quota = s.deleteConversationFiles(ctx, userID, cleanupFileIDs)
-	}
-	return result, nil
+	return &DeleteConversationResult{Deleted: true, CleanupStatus: "retained"}, nil
 }
 
 // GetConversation 查询用户会话元信息。

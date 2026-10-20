@@ -212,6 +212,20 @@ export type PublicSharedConversationDTO = Omit<PublicSharedConversationResponse,
   messages: PublicSharedMessageDTO[];
 };
 
+// 公开分享项目文件条目。后端公开 DTO 使用 camelCase json tag。
+export type PublicSharedProjectFileDTO = {
+  publicID: string;
+  relativePath: string;
+  fileName: string;
+  entryType: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
+export type PublicSharedProjectFilesDTO = {
+  files: PublicSharedProjectFileDTO[];
+};
+
 export type SetMessageFeedbackRequest = ContractSetMessageFeedbackRequest;
 
 export type UpdateMessageRequest = ContractUpdateMessageRequest;
@@ -241,7 +255,14 @@ export type TemporaryChatUIStateInput = Omit<ContractTemporaryChatUIStateRequest
   state: MessageUIStateValue;
 };
 
-export type SendMessageRequest = Omit<ContractSendMessageRequest, "options" | "uiStates"> & {
+export type AgentPermissionMode = "manual" | "auto" | "full";
+
+export type AgentPermissions = {
+  mode: AgentPermissionMode;
+};
+
+export type SendMessageRequest = Omit<ContractSendMessageRequest, "options" | "uiStates" | "agent_permissions"> & {
+  agent_permissions?: AgentPermissions;
   options?: ConversationOptions;
   uiStates?: MessageUIStateInput[];
 };
@@ -399,6 +420,7 @@ export type ProjectWorkspaceFileDTO = {
   RelativePath: string;
   FileName: string;
   EntryType: string;
+  Version: number;
   SizeBytes: number;
   MimeType: string;
 };

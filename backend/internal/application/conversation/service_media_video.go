@@ -26,7 +26,12 @@ import (
 	"go.uber.org/zap"
 )
 
-const maxMediaVideoInputImages = 1
+// 视频生成参考素材上限：图片 7 张、参考视频 3 个、参考音频 4 个（对齐上游引用规则）。
+const (
+	maxMediaVideoInputImages = 7
+	maxMediaVideoInputVideos = 3
+	maxMediaVideoInputAudios = 4
+)
 
 // MediaVideoTaskType 区分普通视频生成与基于源视频的扩展。
 type MediaVideoTaskType string
@@ -170,7 +175,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	}()
 	cancelCtx, cancel := context.WithCancel(ctx)
 	ctx = cancelCtx
-	if err = s.generationStreams.register(ctx, runID, input.UserID, conversation.PublicID, cancel); err != nil {
+	if err = s.registerDeletionSafeGeneration(ctx, runID, input.UserID, conversation.PublicID, cancel); err != nil {
 		return nil, err
 	}
 
@@ -281,6 +286,10 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	moderationFileIDs := make([]string, 0, len(resolvedAttachments))
 	if taskType != MediaVideoTaskExtension {
 		for _, item := range resolvedAttachments {
+			// 审核屏障只覆盖提示词与图片；参考视频、参考音频不参与。
+			if normalizeAttachmentKind(item.Kind, item.MimeType) != "image" {
+				continue
+			}
 			if fileID := strings.TrimSpace(item.FileID); fileID != "" {
 				moderationFileIDs = append(moderationFileIDs, fileID)
 			}
@@ -314,6 +323,8 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		llm.SanitizeXAIVideoExtensionOptions(filteredOptions)
 	} else if llm.NormalizeAdapter(route.Protocol) == llm.AdapterXAIVideo {
 		llm.SanitizeXAIVideoOptions(filteredOptions)
+	} else if llm.NormalizeAdapter(route.Protocol) == llm.AdapterOpenAIVideo {
+		llm.SanitizeOpenAIVideoOptions(filteredOptions)
 	}
 	filteredOptions = withDefaultMediaVideoDuration(filteredOptions, route.Protocol)
 	durationSeconds := mediaDurationSecondsFromOptions(filteredOptions)
@@ -344,10 +355,32 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		Options:              filteredOptions,
 		VideoExtensionSource: videoExtensionSource,
 		// 上游任务提交成功即记录任务编号：后续失败可按此回查上游结果（任务重查）。
+		// 同时立刻落库一次，且用脱离取消的上下文写：视频轮询可长达十分钟，
+		// 若中途进程重启或请求被中断，编号只留在内存就会让上游结果永久不可回查。
+		// 收尾时的整行写入仍会覆盖兜底。
 		OnTaskStarted: func(upstreamTaskID string) {
-			if run != nil {
-				run.UpstreamTaskID = strings.TrimSpace(upstreamTaskID)
+			if run == nil {
+				return
 			}
+			run.UpstreamTaskID = strings.TrimSpace(upstreamTaskID)
+			if run.UpstreamTaskID == "" {
+				return
+			}
+			persistCtx, cancelPersist := background.WithTimeout(ctx, 5*time.Second)
+			defer cancelPersist()
+			if err := s.repo.UpdateConversationRun(persistCtx, run); err != nil && s.logger != nil {
+				s.logger.Warn("persist_upstream_task_id_failed",
+					zap.String("run_id", run.RunID),
+					zap.Error(err),
+				)
+			}
+		},
+		// 轮询期间的进度上报：转成进度事件推送前端，驱动输出节点的实时进度显示
+		OnProgress: func(percent int) {
+			if percent < 0 || percent > 100 {
+				return
+			}
+			emitMediaEvent(input.OnEvent, "progress", fmt.Sprintf("%d%%", percent), "video")
 		},
 	}
 	if len(videoInputParts) > 0 {
@@ -382,8 +415,15 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 			applyMediaRunUsage(run, result)
 			return result, nil
 		}
-		s.routeResolver.MarkRouteFailure(ctx, route, err)
-		retErr = wrapUpstreamRequestError(err)
+		switch {
+		case errors.Is(err, llm.ErrVideoPollTimeout):
+			// 平台自己放弃等待（轮询预算耗尽）：上游任务通常仍在正常执行，这不是渠道故障，
+			// 因此不计入路由失败，也不能报成"上游服务不可用"；带上运行上下文让用户能按任务号回查。
+			retErr = withRunContext(ErrMediaVideoPollTimeout, run)
+		default:
+			s.routeResolver.MarkRouteFailure(ctx, route, err)
+			retErr = wrapUpstreamRequestError(err)
+		}
 		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), textutil.TruncateTrimmed(messageErrorSummary(retErr), 255))
 		return nil, retErr
 	}
@@ -585,9 +625,6 @@ func (s *Service) resolveMediaVideoInputs(ctx context.Context, input MediaVideoI
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if len(attachments) > maxMediaVideoInputImages {
-		return nil, nil, nil, ErrMediaVideoTooManyInputs
-	}
 	if taskType == MediaVideoTaskExtension {
 		if len(attachments) != 1 {
 			return nil, nil, nil, ErrMediaVideoInputInvalid
@@ -598,19 +635,62 @@ func (s *Service) resolveMediaVideoInputs(ctx context.Context, input MediaVideoI
 		}
 		return attachments, nil, &part, nil
 	}
-	parts := make([]llm.ContentPart, 0, len(attachments))
-	for _, attachment := range attachments {
-		if normalizeAttachmentKind(attachment.Kind, attachment.MimeType) != "image" {
-			return nil, nil, nil, ErrMediaVideoInputInvalid
-		}
-		part, readErr := s.readMediaImageEditFile(ctx, input.UserID, attachment.FileID)
-		if readErr != nil {
-			return nil, nil, nil, readErr
-		}
-		part.FileName = mediaImageEditInputFileName(attachment.FileName, part.MimeType)
-		parts = append(parts, part)
+	parts, err := s.readMediaVideoReferenceParts(input.UserID, attachments)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	return attachments, parts, nil, nil
+}
+
+// readMediaVideoReferenceParts 按类别组装视频生成的参考素材：图片进入 images、
+// 视频进入 videos、音频进入 audios，顺序保持上传顺序。
+// 素材一律以服务端签发的限时公开 URL 交付上游（见 docs/adr/0003），不再读取文件字节。
+func (s *Service) readMediaVideoReferenceParts(userID uint, attachments []AttachmentInput) ([]llm.ContentPart, error) {
+	parts := make([]llm.ContentPart, 0, len(attachments))
+	imageCount, videoCount, audioCount := 0, 0, 0
+	for _, attachment := range attachments {
+		var kind string
+		switch normalizeAttachmentKind(attachment.Kind, attachment.MimeType) {
+		case "image":
+			if imageCount++; imageCount > maxMediaVideoInputImages {
+				return nil, ErrMediaVideoTooManyInputs
+			}
+			kind = llm.ContentPartImage
+		case "video":
+			if videoCount++; videoCount > maxMediaVideoInputVideos {
+				return nil, ErrMediaVideoTooManyInputs
+			}
+			kind = llm.ContentPartVideo
+		case "audio":
+			if audioCount++; audioCount > maxMediaVideoInputAudios {
+				return nil, ErrMediaVideoTooManyInputs
+			}
+			kind = llm.ContentPartAudio
+		default:
+			return nil, ErrMediaVideoInputInvalid
+		}
+		part, err := s.mediaVideoReferencePart(userID, attachment, kind)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, part)
+	}
+	return parts, nil
+}
+
+// mediaVideoReferencePart 为单个参考素材签发上游可回源拉取的限时 URL。
+// 未配置公网 API 地址或签名密钥时直接失败，不伪造地址、也不回退内联字节。
+func (s *Service) mediaVideoReferencePart(userID uint, attachment AttachmentInput, kind string) (llm.ContentPart, error) {
+	materialURL := strings.TrimSpace(s.uploadSvc.BuildSignedFileContentURL(userID, strings.TrimSpace(attachment.FileID)))
+	if materialURL == "" {
+		return llm.ContentPart{}, ErrMediaVideoReferenceURLUnavailable
+	}
+	return llm.ContentPart{
+		Kind:     kind,
+		MimeType: strings.TrimSpace(attachment.MimeType),
+		FileName: strings.TrimSpace(attachment.FileName),
+		URL:      materialURL,
+	}, nil
 }
 
 func (s *Service) readMediaVideoExtensionSource(ctx context.Context, userID uint, fileID string) (llm.ContentPart, error) {
@@ -723,7 +803,7 @@ func detectGeneratedVideoMIME(data []byte) string {
 }
 
 func generatedVideoFileName(modelName string, capturedAt time.Time, index int, total int, mimeType string) string {
-	base := sanitizeGeneratedImageFileBase(modelName)
+	base := sanitizeGeneratedImageFileBase(generatedImageModelBase(modelName))
 	if base == "image" {
 		base = "video"
 	}

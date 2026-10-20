@@ -599,6 +599,10 @@ func (h *Handler) DeleteConversation(c *gin.Context) {
 		DeleteFiles: deleteFiles,
 	})
 	if err != nil {
+		if errors.Is(err, appconversation.ErrDeletionPending) {
+			response.ErrorFrom(c, http.StatusConflict, appconversation.ErrDeletionPending)
+			return
+		}
 		if errors.Is(err, appconversation.ErrConversationNotFound) {
 			response.ErrorFrom(c, http.StatusNotFound, err)
 			return

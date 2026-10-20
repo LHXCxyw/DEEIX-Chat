@@ -497,6 +497,8 @@ func sanitizeModelOptionValues(options map[string]any, protocolKey string) {
 		llm.SanitizeXAIVideoOptions(options)
 	case "xai_video_extensions":
 		llm.SanitizeXAIVideoExtensionOptions(options)
+	case "openai_video_generations":
+		llm.SanitizeOpenAIVideoOptions(options)
 	case "openai_image_generations", "openai_image_edits":
 		value, ok := modelParamIntFromOption(options["partial_images"])
 		if !ok {

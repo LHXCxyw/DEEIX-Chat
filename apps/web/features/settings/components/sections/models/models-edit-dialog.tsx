@@ -60,6 +60,8 @@ export function ModelsEditDialog({
   const [loadError, setLoadError] = React.useState("");
   const [selectOpen, setSelectOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  // 上游目录确认后只自动取消一次勾选；用户之后手动勾回（上游只是没列出）不再被覆盖。
+  const staleDropAppliedRef = React.useRef(false);
 
   // Resets the form and loads the live model list for the provider being opened. An effect event
   // reads the latest provider and callbacks without rerunning on every parent render.
@@ -71,6 +73,7 @@ export function ModelsEditDialog({
     setAvailable(null);
     setSelected(new Map(provider.models.map((model) => [model.name, [...model.protocols]])));
     setLoadError("");
+    staleDropAppliedRef.current = false;
     setLoadingModels(true);
     onLoadModels(provider.id)
       .then((models) => {
@@ -104,14 +107,34 @@ export function ModelsEditDialog({
     return [...available, ...saved.filter((model) => !names.has(model.name))];
   }, [available, provider]);
 
+  // 上游目录已不再提供的已保存模型：默认不保留（弹窗中置顶标注、默认未勾选），保存即移除。
+  const staleNames = React.useMemo(() => {
+    if (!provider || !available) return [];
+    const names = new Set(available.map((model) => model.name));
+    return provider.models.map((model) => model.name).filter((name) => !names.has(name));
+  }, [available, provider]);
+
+  React.useEffect(() => {
+    if (!provider || !available || staleDropAppliedRef.current) return;
+    staleDropAppliedRef.current = true;
+    const stale = new Set(staleNames);
+    if (stale.size === 0) return;
+    setSelected((current) => {
+      const next = new Map([...current].filter(([name]) => !stale.has(name)));
+      return next.size === current.size ? current : next;
+    });
+  }, [available, provider, staleNames]);
+
   const handleSave = async () => {
     if (!provider) return;
     const payload: UpdatePersonalProviderPayload = {};
     if (name.trim() && name.trim() !== provider.name) payload.name = name.trim();
     if (icon !== provider.icon) payload.icon = icon;
     if (apiKey.trim()) payload.apiKey = apiKey.trim();
+    // 只按「名称+协议」比较集合：上游目录顺序与保存顺序可能不同（例如某个已保存模型已不在
+    // 目录里，会被追加到列表末尾），否则「什么都没改」也会被判定为模型变更并触发一次上游重探测。
     const signature = (items: ReadonlyArray<{ name: string; protocols: readonly string[] }>) =>
-      items.map((item) => `${item.name}=${item.protocols.join("+")}`).join("\n");
+      [...items].map((item) => `${item.name}=${item.protocols.join("+")}`).sort().join("\n");
     const chosen = listed.flatMap((model) => {
       const protocols = selected.get(model.name);
       return protocols ? [{ name: model.name, protocols }] : [];
@@ -202,6 +225,7 @@ export function ModelsEditDialog({
         models={listed}
         selected={selected}
         protocols={modelProtocols}
+        staleModels={staleNames}
         onConfirm={setSelected}
         loading={loadingModels}
       />

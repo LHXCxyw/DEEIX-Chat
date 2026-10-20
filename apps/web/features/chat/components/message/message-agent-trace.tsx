@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { Sparkles } from "lucide-react";
+import { Sparkles, Timer } from "lucide-react";
 
 import { AgentTraceStep } from "@/features/chat/components/message/message-agent-trace-step";
 import { ChevronDown } from "@/components/animate-ui/icons/chevron-down";
@@ -13,7 +13,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Marker, MarkerContent } from "@/components/ui/marker";
-import type { ChatTraceBlock, ChatTraceEvent } from "@/features/chat/types/messages";
+import type { ChatMessageProcessTrace, ChatTraceBlock, ChatTraceEvent } from "@/features/chat/types/messages";
 import {
   useChatTraceLabels,
   type ProcessTraceLabels,
@@ -27,14 +27,29 @@ import {
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import { useAutoExpandDisclosure } from "@/shared/hooks/use-auto-expand-disclosure";
 import { cn } from "@/lib/utils";
-import { TRACE_ROOT_CLASS } from "@/features/chat/components/shared/message-process-trace-shared";
+import {
+  RAGCitationList,
+  TRACE_ROOT_CLASS,
+  TraceContent,
+} from "@/features/chat/components/shared/message-process-trace-shared";
 import { useChatElapsedDurationMS } from "@/features/chat/hooks/use-chat-elapsed-duration";
 import {
   durationBetweenMS,
+  firstDurationMS,
   formatDurationMS,
+  formatTaskDurationMS,
   sumDurationsMS,
 } from "@/features/chat/model/duration";
-import type { TraceDisplayEvent } from "@/features/chat/model/message-process-trace";
+import {
+  filterProcessTraceStages,
+  isRAGTraceStage,
+  mergePromptTraceStage,
+  parseFileContextBadges,
+  parseRAGCitations,
+  parseStructuredTraceStages,
+  parseTraceStages,
+  type TraceDisplayEvent,
+} from "@/features/chat/model/message-process-trace";
 
 function traceEventToBlock(event: ChatTraceEvent): ChatTraceBlock {
   return {
@@ -53,6 +68,9 @@ function traceEventToBlock(event: ChatTraceEvent): ChatTraceBlock {
 }
 
 function isToolTraceEvent(event: ChatTraceEvent): boolean {
+  if (event.eventType === "text") {
+    return false;
+  }
   if (event.stage === "think" || event.phase === "upstream_think" || event.eventType === "think") {
     return false;
   }
@@ -60,16 +78,27 @@ function isToolTraceEvent(event: ChatTraceEvent): boolean {
 }
 
 function isThinkTraceEvent(event: ChatTraceEvent): boolean {
+  if (event.eventType === "text") {
+    return false;
+  }
   return event.stage === "think" || event.phase === "upstream_think" || event.eventType === "think";
+}
+
+// 轮次正文事件：agent 循环中间轮的正文，按 思考→正文→工具 的顺序穿插显示。
+function isTextTraceEvent(event: ChatTraceEvent): boolean {
+  return event.eventType === "text";
 }
 
 function buildTraceDisplayEvents(events: ChatTraceEvent[]): TraceDisplayEvent[] {
   return events
-    .filter((event) => isToolTraceEvent(event) || isThinkTraceEvent(event))
+    .filter((event) => isToolTraceEvent(event) || isThinkTraceEvent(event) || isTextTraceEvent(event))
     .sort((left, right) => left.seq - right.seq)
     .map((event) => {
       if (isThinkTraceEvent(event)) {
         return { event, kind: "think" };
+      }
+      if (isTextTraceEvent(event)) {
+        return { event, kind: "text" };
       }
       return { event, kind: "tool" };
     });
@@ -133,12 +162,16 @@ type TraceRoundGroup = {
   key: string;
   seq: number;
   thinkEvents: TraceDisplayEvent[];
+  textEvents: TraceDisplayEvent[];
   toolEvents: TraceDisplayEvent[];
   thinkBlock?: ChatTraceBlock;
   toolBlock?: ChatTraceBlock;
 };
 
-function traceRoundGroupKey(event: Pick<ChatTraceEvent, "roundID" | "eventID" | "seq">, kind: "think" | "tool"): string {
+function traceRoundGroupKey(
+  event: Pick<ChatTraceEvent, "roundID" | "eventID" | "seq">,
+  kind: "think" | "tool" | "text",
+): string {
   const roundID = event.roundID?.trim() || "";
   if (roundID) {
     return `round:${roundID}`;
@@ -151,9 +184,10 @@ function traceRoundGroupKey(event: Pick<ChatTraceEvent, "roundID" | "eventID" | 
 }
 
 /**
- * Group think and tool events into agent-loop rounds so each thinking step can be
- * rendered right above the tool calls it produced. Think events key their own
- * round; tool events join the preceding think round via roundID / parentEventID
+ * Group think, round-text and tool events into agent-loop rounds so each round's
+ * thinking, body text and tool calls render in chronological order:
+ * 思考1 → 正文1 → 工具 → 思考2 → 正文2. Think events key their own round;
+ * text/tool events join the preceding think round via roundID / parentEventID
  * and keep a standalone group when the round ran without thinking.
  */
 function groupTraceDisplayEvents(
@@ -168,7 +202,7 @@ function groupTraceDisplayEvents(
   const ensureGroup = (key: string, seq: number): TraceRoundGroup => {
     let group = groups.get(key);
     if (!group) {
-      group = { key, seq, thinkEvents: [], toolEvents: [] };
+      group = { key, seq, thinkEvents: [], textEvents: [], toolEvents: [] };
       groups.set(key, group);
     } else if (seq < group.seq) {
       group.seq = seq;
@@ -191,7 +225,7 @@ function groupTraceDisplayEvents(
   }
 
   for (const item of displayEvents) {
-    if (item.kind !== "tool") {
+    if (item.kind !== "text" && item.kind !== "tool") {
       continue;
     }
     const roundID = item.event.roundID?.trim() || "";
@@ -199,8 +233,13 @@ function groupTraceDisplayEvents(
     const key =
       (roundID && thinkRoundIDToKey.get(roundID)) ||
       (parentID && thinkEventIDToKey.get(parentID)) ||
-      traceRoundGroupKey(item.event, "tool");
-    ensureGroup(key, item.event.seq).toolEvents.push(item);
+      traceRoundGroupKey(item.event, item.kind);
+    const group = ensureGroup(key, item.event.seq);
+    if (item.kind === "text") {
+      group.textEvents.push(item);
+    } else {
+      group.toolEvents.push(item);
+    }
   }
 
   // Snapshot blocks enrich their matching event round; unmatched live fallbacks are appended last.
@@ -254,6 +293,47 @@ function groupTraceDisplayEvents(
   return [...groups.values()].sort((left, right) => left.seq - right.seq);
 }
 
+/**
+ * groupTraceDisplayEvents 的多思考块变体：实时流式期间每轮思考是独立块
+ * （upstream-think-store 按轮保留），按 roundID 归入对应轮次组；未匹配的
+ * （通常是当前正在流式的轮次）按稳定顺序追加在末尾。
+ */
+function groupTraceDisplayEventsWithThinkBlocks(
+  displayEvents: TraceDisplayEvent[],
+  activeThinkBlocks: ChatTraceBlock[] | undefined,
+  activeThinkBlock: ChatTraceBlock | undefined,
+  activeToolBlock: ChatTraceBlock | undefined,
+): TraceRoundGroup[] {
+  const groups = new Map<string, TraceRoundGroup>();
+  for (const group of groupTraceDisplayEvents(displayEvents, activeThinkBlock, activeToolBlock)) {
+    groups.set(group.key, group);
+  }
+  for (const block of activeThinkBlocks ?? []) {
+    if (!block) {
+      continue;
+    }
+    if (activeThinkBlock && block === activeThinkBlock) {
+      continue;
+    }
+    const roundID = block.roundID?.trim() || "";
+    const existing = roundID
+      ? [...groups.values()].find((group) => group.thinkEvents.some((item) => item.event.roundID?.trim() === roundID))
+      : undefined;
+    if (existing) {
+      existing.thinkBlock = block;
+      continue;
+    }
+    const key = roundID ? `round:${roundID}` : `active:think:${groups.size}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, seq: Number.MAX_SAFE_INTEGER, thinkEvents: [], textEvents: [], toolEvents: [] };
+      groups.set(key, group);
+    }
+    group.thinkBlock = block;
+  }
+  return [...groups.values()].sort((left, right) => left.seq - right.seq);
+}
+
 function thinkEventDurationMS(thinkEvents: TraceDisplayEvent[]): number | undefined {
   return sumDurationsMS(
     thinkEvents.map(({ event }) => durationBetweenMS(event.startedAt, event.endedAt)),
@@ -262,7 +342,23 @@ function thinkEventDurationMS(thinkEvents: TraceDisplayEvent[]): number | undefi
 
 type TraceTimelineItem =
   | { kind: "think"; key: string; block: ChatTraceBlock; streaming: boolean; durationMS?: number }
+  | { kind: "text"; key: string; block: ChatTraceBlock }
   | { kind: "tool"; key: string; step: ToolChainStep };
+
+// 轮次正文行：直接渲染 markdown，不折叠。
+function TraceTextRow({ block }: { block: ChatTraceBlock }) {
+  const text = traceBlockDisplayText(block);
+  if (!text) {
+    return null;
+  }
+  return (
+    <li className="group/agent-trace-step">
+      <div className="min-w-0 py-1 pl-7 pr-1 text-[15px] leading-8 text-foreground [overflow-wrap:anywhere]">
+        <StreamdownRender content={text} />
+      </div>
+    </li>
+  );
+}
 
 function TraceThinkRow({
   block,
@@ -338,6 +434,8 @@ function AgentTraceTimeline({
               autoExpand={autoExpandThinking}
               labels={labels}
             />
+          ) : item.kind === "text" ? (
+            <TraceTextRow key={item.key} block={item.block} />
           ) : (
             <AgentToolStepRow
               key={item.key}
@@ -354,32 +452,78 @@ function AgentTraceTimeline({
   );
 }
 
-export function MessageAgentTrace({
+// 轨迹时间跨度：取所有块/事件里最早的开始与最晚的结束，用于「任务耗时」。
+function traceTimeBounds(
+  trace: ChatMessageProcessTrace | undefined,
+  events: ChatTraceEvent[],
+): { startedAt?: string; endedAt?: string } {
+  let minStart = Number.POSITIVE_INFINITY;
+  let startedAt: string | undefined;
+  let maxEnd = Number.NEGATIVE_INFINITY;
+  let endedAt: string | undefined;
+  const consume = (start: string | undefined, end: string | undefined) => {
+    if (start) {
+      const value = new Date(start).getTime();
+      if (Number.isFinite(value) && value < minStart) {
+        minStart = value;
+        startedAt = start;
+      }
+    }
+    if (end) {
+      const value = new Date(end).getTime();
+      if (Number.isFinite(value) && value > maxEnd) {
+        maxEnd = value;
+        endedAt = end;
+      }
+    }
+  };
+  const blocks: (ChatTraceBlock | undefined)[] = [trace?.process, trace?.upstreamThink, trace?.tools];
+  for (const block of trace?.thinkBlocks ?? []) {
+    blocks.push(block);
+  }
+  for (const block of blocks) {
+    consume(block?.startedAt, block?.endedAt);
+  }
+  for (const event of events) {
+    consume(event.startedAt, event.endedAt);
+  }
+  return { startedAt, endedAt };
+}
+
+// 任务耗时折叠：把处理轨迹（文件/检索/压缩）与 agent 轮次（思考→中间轮正文→工具）
+// 合并到单个折叠里；折叠态只露出标题，最终正文由 message-bot 的正文区块照常渲染。
+export function MessageTaskTrace({
+  trace,
   events: traceEvents,
   activeToolBlock,
   activeThinkBlock,
+  activeThinkBlocks,
   messageStreaming,
   autoCollapseReady,
   autoExpandThinking = true,
   autoExpandToolCalls = true,
   runID,
   allowFullToolResults = false,
+  showProcessTrace = true,
 }: {
+  trace?: ChatMessageProcessTrace;
   events: ChatTraceEvent[];
   activeToolBlock?: ChatTraceBlock;
   activeThinkBlock?: ChatTraceBlock;
+  activeThinkBlocks?: ChatTraceBlock[];
   messageStreaming: boolean;
   autoCollapseReady: boolean;
   autoExpandThinking?: boolean;
   autoExpandToolCalls?: boolean;
   runID?: string;
   allowFullToolResults?: boolean;
+  showProcessTrace?: boolean;
 }) {
   const labels = useChatTraceLabels();
   const displayEvents = React.useMemo(() => buildTraceDisplayEvents(traceEvents), [traceEvents]);
   const groups = React.useMemo(
-    () => groupTraceDisplayEvents(displayEvents, activeThinkBlock, activeToolBlock),
-    [activeThinkBlock, activeToolBlock, displayEvents],
+    () => groupTraceDisplayEventsWithThinkBlocks(displayEvents, activeThinkBlocks, activeThinkBlock, activeToolBlock),
+    [activeThinkBlocks, activeThinkBlock, activeToolBlock, displayEvents],
   );
   const groupToolSteps = React.useMemo(
     () => groups.map((group) => buildToolGroupSteps(group.toolEvents, group.toolBlock, labels)),
@@ -392,16 +536,21 @@ export function MessageAgentTrace({
       const thinkBlock = mergeThinkTraceBlock(group.thinkEvents, group.thinkBlock);
       if (thinkBlock) {
         const streaming = Boolean(messageStreaming && thinkBlock.status === "streaming");
-        const completedDurationMS = thinkEventDurationMS(group.thinkEvents)
-          ?? durationBetweenMS(thinkBlock.startedAt, thinkBlock.endedAt);
+        const completedDurationMS =
+          thinkEventDurationMS(group.thinkEvents) ?? durationBetweenMS(thinkBlock.startedAt, thinkBlock.endedAt);
         list.push({
           kind: "think",
           key: `${group.key}:think`,
           block: thinkBlock,
           streaming,
-          durationMS: streaming
-            ? undefined
-            : completedDurationMS,
+          durationMS: streaming ? undefined : completedDurationMS,
+        });
+      }
+      for (const textEvent of group.textEvents) {
+        list.push({
+          kind: "text",
+          key: `${group.key}:text:${textEvent.event.eventID || textEvent.event.seq}`,
+          block: traceEventToBlock(textEvent.event),
         });
       }
       groupToolSteps[index].forEach((step) => {
@@ -414,68 +563,78 @@ export function MessageAgentTrace({
   }, [groupToolSteps, groups, messageStreaming]);
 
   const hasActiveStep = items.some((item) =>
-    item.kind === "think" ? item.streaming : isToolChainStepActive(item.step),
+    item.kind === "think" ? item.streaming : item.kind === "tool" ? isToolChainStepActive(item.step) : false,
   );
-  const traceRunActive = messageStreaming && (hasActiveStep || !autoCollapseReady);
+  const processStreaming = Boolean(messageStreaming && trace?.process?.status === "streaming");
+  const traceRunActive = messageStreaming && (hasActiveStep || processStreaming || !autoCollapseReady);
   const { open, onOpenChange } = useAutoExpandDisclosure({
     active: traceRunActive,
     autoExpand: true,
     collapseReady: autoCollapseReady || !messageStreaming,
   });
 
-  if (items.length === 0) {
+  // 处理轨迹内容（文件上下文/内容检索/上下文压缩/Prompt 规划），受「显示处理轨迹」设置控制。
+  const process = trace?.process;
+  const citations = process ? parseRAGCitations(process.payloadJson) : [];
+  const fileBadges = process ? parseFileContextBadges(process.payloadJson, labels) : [];
+  const structuredStages = process ? parseStructuredTraceStages(process.payloadJson, labels) : [];
+  const parsedStages = process && structuredStages.length === 0 ? parseTraceStages(process.contentMarkdown) : [];
+  const stages = process
+    ? filterProcessTraceStages(
+        mergePromptTraceStage(
+          structuredStages.length > 0 ? structuredStages : parsedStages,
+          trace?.promptTrace,
+          labels,
+        ),
+      )
+    : [];
+  const hasRAGStage = stages.some(isRAGTraceStage);
+  const hasRenderableProcessContent =
+    Boolean(process) && (stages.length > 0 || Boolean(process?.contentMarkdown.trim() && parsedStages.length === 0));
+  const hasProcessContent =
+    Boolean(showProcessTrace && trace?.enabled && process) &&
+    (hasRenderableProcessContent || citations.length > 0 || Boolean(trace?.promptTrace));
+
+  const bounds = React.useMemo(() => traceTimeBounds(trace, traceEvents), [trace, traceEvents]);
+  const liveElapsedMS = useChatElapsedDurationMS(traceRunActive, bounds.startedAt);
+  const stepDurationMS = sumDurationsMS(
+    items.map((item) => (item.kind === "think" ? item.durationMS : item.kind === "tool" ? item.step.latencyMS : 0)),
+  );
+  const completedDurationMS = firstDurationMS(durationBetweenMS(bounds.startedAt, bounds.endedAt), stepDurationMS);
+  const durationText = formatTaskDurationMS(traceRunActive ? liveElapsedMS : completedDurationMS);
+  const title = durationText ? labels.process.taskDuration(durationText) : labels.process.taskTitle;
+
+  if (items.length === 0 && !hasProcessContent) {
     return null;
   }
 
-  const renderedToolSteps = items.flatMap((item) => (item.kind === "tool" ? [item.step] : []));
-  const thinkRounds = items.filter((item) => item.kind === "think").length;
-  const traceDurationMS = sumDurationsMS(
-    items.map((item) => (item.kind === "think" ? item.durationMS : item.step.latencyMS)),
-  );
-  const durationText = traceRunActive ? undefined : formatDurationMS(traceDurationMS);
-
-  const subtitleParts: string[] = [];
-  if (thinkRounds > 0) {
-    subtitleParts.push(labels.run.thinkRounds(thinkRounds));
-  }
-  if (renderedToolSteps.length > 0) {
-    subtitleParts.push(labels.run.toolCalls(renderedToolSteps.length));
-  }
-  if (durationText) {
-    subtitleParts.push(labels.run.duration(durationText));
-  }
-  const subtitle = subtitleParts.join(labels.run.labelSeparator);
-
-  const title = traceRunActive ? labels.run.titleActive : labels.run.titleDone;
   return (
     <div className={TRACE_ROOT_CLASS}>
       <Accordion
         type="single"
         collapsible
-        value={open ? "message-trace-timeline" : ""}
-        onValueChange={(value) => onOpenChange(value === "message-trace-timeline")}
+        value={open ? "message-task-trace" : ""}
+        onValueChange={(value) => onOpenChange(value === "message-task-trace")}
         className="w-full"
       >
-        <AccordionItem value="message-trace-timeline" className="border-b-0">
+        <AccordionItem value="message-task-trace" className="border-b-0">
           <AccordionTrigger
             iconPosition="none"
-            className="group/trace min-h-0 items-start justify-between gap-1.5 py-0.5 text-left no-underline hover:no-underline"
+            className="group/trace min-h-0 items-center justify-between gap-1.5 py-0.5 text-left no-underline hover:no-underline"
           >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <Marker
-                  render={<span />}
-                  className={cn(
-                    "inline-flex min-h-0 w-auto text-[13px] font-medium transition-colors",
-                    !traceRunActive && "text-muted-foreground group-hover/trace:text-foreground",
-                  )}
-                >
-                  <MarkerContent className={cn("min-w-0", traceRunActive && "shimmer")}>{title}</MarkerContent>
-                </Marker>
-              </div>
-              {subtitle ? (
-                <div className="mt-0.5 truncate text-[11px] font-normal leading-4 text-muted-foreground/62">{subtitle}</div>
-              ) : null}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Timer
+                className={cn("size-3.5 shrink-0 text-muted-foreground/68", traceRunActive && "text-foreground/78")}
+              />
+              <Marker
+                render={<span />}
+                className={cn(
+                  "inline-flex min-h-0 w-auto text-[13px] font-medium transition-colors",
+                  !traceRunActive && "text-muted-foreground group-hover/trace:text-foreground",
+                )}
+              >
+                <MarkerContent className={cn("min-w-0", traceRunActive && "shimmer")}>{title}</MarkerContent>
+              </Marker>
             </div>
             <ChevronDown
               className={cn(
@@ -484,15 +643,30 @@ export function MessageAgentTrace({
               )}
             />
           </AccordionTrigger>
-          <AccordionContent className="px-0 pb-0 pt-1.5 duration-[350ms] ease-in-out">
-            <AgentTraceTimeline
-              items={items}
-              labels={labels}
-              autoExpandThinking={autoExpandThinking}
-              autoExpandToolCalls={autoExpandToolCalls}
-              runID={runID}
-              allowFullToolResults={allowFullToolResults}
-            />
+          <AccordionContent className="space-y-2.5 px-0 pb-0 pt-1.5 duration-[350ms] ease-in-out">
+            {hasProcessContent && process ? (
+              <>
+                <TraceContent
+                  block={process}
+                  streaming={processStreaming}
+                  citations={citations}
+                  fileBadges={fileBadges}
+                  promptTrace={trace?.promptTrace}
+                  labels={labels}
+                />
+                {!hasRAGStage ? <RAGCitationList citations={citations} labels={labels} /> : null}
+              </>
+            ) : null}
+            {items.length > 0 ? (
+              <AgentTraceTimeline
+                items={items}
+                labels={labels}
+                autoExpandThinking={autoExpandThinking}
+                autoExpandToolCalls={autoExpandToolCalls}
+                runID={runID}
+                allowFullToolResults={allowFullToolResults}
+              />
+            ) : null}
           </AccordionContent>
         </AccordionItem>
       </Accordion>

@@ -9,6 +9,7 @@ import {
   readRememberedControlSelections,
   writeRememberedControlSelections,
 } from "@/features/chat/model/chat-model-controls";
+import { chatComposerControls } from "@/features/chat/model/chat-option-controls";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import type { ModelControlValue } from "@/entities/model";
 
@@ -21,7 +22,13 @@ const EMPTY_CONTROLS: ChatModelOption["controls"] = [];
  */
 export function useChatModelControlState(selectedModel: ChatModelOption | null) {
   const platformModelName = selectedModel?.platformModelName.trim() ?? "";
-  const controls = selectedModel?.controls ?? EMPTY_CONTROLS;
+  // 管理员声明的控件优先，协议预设补齐未声明的常用参数（默认不写入请求）。
+  const controls = React.useMemo(
+    () => (selectedModel
+      ? chatComposerControls(selectedModel.controls, selectedModel.protocols, selectedModel.reasoning !== null)
+      : EMPTY_CONTROLS),
+    [selectedModel],
+  );
   const [remembered, setRemembered] = React.useState<{ model: string; selections: ChatModelControlSelections }>({
     model: "",
     selections: {},

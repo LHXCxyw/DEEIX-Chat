@@ -263,6 +263,7 @@ type generationLifecycleOwnerContextKey struct{}
 type generationStreamRegistry struct {
 	mu                       sync.Mutex
 	active                   map[string]*activeGeneration
+	executing                map[string]*activeGeneration
 	store                    repository.GenerationStreamCacheRepository
 	options                  generationStreamOptions
 	lifecycleCtx             context.Context
@@ -305,6 +306,7 @@ func newGenerationStreamRegistry(store repository.GenerationStreamCacheRepositor
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	return &generationStreamRegistry{
 		active:             map[string]*activeGeneration{},
+		executing:          map[string]*activeGeneration{},
 		store:              store,
 		options:            options,
 		lifecycleCtx:       lifecycleCtx,
@@ -484,6 +486,7 @@ func (r *generationStreamRegistry) register(ctx context.Context, runID string, u
 	}
 	r.activeWorkerWG.Add(1)
 	r.active[runID] = active
+	r.executing[runID] = active
 	go r.runActiveWorker(workerCtx, runID, active)
 	r.mu.Unlock()
 
@@ -767,6 +770,9 @@ func (r *generationStreamRegistry) finish(ctx context.Context, runID string) {
 	}
 	owner := generationLifecycleOwnerFromContext(ctx)
 	r.mu.Lock()
+	if execution := r.executing[runID]; execution != nil && execution.owner == owner {
+		delete(r.executing, runID)
+	}
 	active, ok := r.active[runID]
 	if ok && active.owner != owner {
 		r.mu.Unlock()
@@ -1007,6 +1013,9 @@ func (r *generationStreamRegistry) runActiveWorker(ctx context.Context, runID st
 		case <-ctx.Done():
 			return
 		case <-leaseTicker.C:
+			if r.isCanceled(ctx, runID) && active.cancel != nil {
+				active.cancel()
+			}
 			renewed, err := r.renewActiveLease(ctx, runID, active)
 			if err == nil && renewed {
 				leaseValidUntil = time.Now().Add(r.options.LeaseTTL)

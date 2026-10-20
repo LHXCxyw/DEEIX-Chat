@@ -1,6 +1,7 @@
+import { PROJECT_FILE_TOOL_NAMES } from "@/features/chat/model/project-file-changes";
 import { parseJSON } from "@/shared/lib/type-guards";
 
-export type ToolResultCategory = "web_search" | "code_execution" | "image_generation" | "shell" | "generic";
+export type ToolResultCategory = "web_search" | "code_execution" | "image_generation" | "shell" | "project_files" | "project_preview" | "generic";
 
 export type ToolResultDescriptor = {
   name?: string;
@@ -301,6 +302,14 @@ export function resolveToolResultCategory(descriptor: ToolResultDescriptor): Too
   const { name, type, input, output } = descriptor;
   const values = [name, type];
 
+  // 项目预览工具单独归类：其名称含 project_ 前缀，需先于项目文件工具判定，渲染为沙箱预览卡片。
+  if (name && name.trim() === "project_preview") {
+    return "project_preview";
+  }
+  // 项目文件工具优先判定：其名称可能含 search/read 等词，不能落入通用搜索分支。
+  if (name && PROJECT_FILE_TOOL_NAMES.has(name.trim())) {
+    return "project_files";
+  }
   if (
     hasSearchSemantics(name, type)
     || (collectToolSearchSources(output).length > 0 && (hasSearchPayloadShape(output) || hasQueryInput(input)))

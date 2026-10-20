@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
-	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/textutil"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/objectstorage"
@@ -17,16 +15,12 @@ import (
 
 // 原生输入策略
 //
-// 文件能否以原生内容块发送，由四个条件同时决定：
-//  1. 模型输入模态包含该类型：管理员在能力 JSON 中显式声明 inputModalities，否则取 models.dev 目录；
-//  2. 路由协议能编码该类型与格式（见 nativeProtocolSupport）；
-//  3. 上游可信：原生协议（Anthropic Messages、Gemini）按原样透传；
-//     OpenAI 兼容协议只在官方地址或显式声明时启用，第三方中转站可能不认识这些内容块；
-//  4. 大小、页数与数量在保守上限内。
+// 文件能否以原生内容块发送，仅由协议编码能力、MIME 格式与安全预算决定。
+// 模型输入能力声明仅用于展示，不参与附件过滤；上游是否接受由实际请求结果决定。
 //
 // 文件一律以 base64 内嵌在请求体中，不使用各家 Files API。PDF 不满足条件时回退到既有的文本提取；
 // 音频与视频没有文本可回退，所属轮次改为留「不支持」说明。
-// 策略按路由计算：故障转移到另一条路由时会重新判断，不会把原生内容块发给不支持它的协议。
+// 策略按路由协议计算：故障转移时重新判断，不向无法序列化的协议发送原生内容块。
 
 // 原生文件的保守上限。Anthropic 单次请求上限 32MB 且上下文窗口不足 1M 时最多 100 页；Gemini 内联数据的
 // 请求上限为 20MB（base64 后）。所有原生文件共用一份总预算，base64 膨胀约 4/3 后仍在 20MB 以内。
@@ -36,7 +30,6 @@ const (
 	maxNativePDFTotalBytes   = 8 * 1024 * 1024
 	maxNativePDFTotalPages   = 100
 	nativeDocumentMIMEPDF    = "application/pdf"
-	officialOpenRouterHost   = "openrouter.ai"
 )
 
 // nativeInputKind 是可以原生发送的文件类型。
@@ -99,9 +92,6 @@ func nativeInputMIME(att AttachmentInput) string {
 
 // nativeInputPolicy 是某条路由上可以原生发送的输入类型。
 type nativeInputPolicy struct {
-	// ImageUnsupported 为 true 时模型声明不支持图片，图片不以图片内容块发送；能力未知时保持既有行为（发送）。
-	// 用否定形式让零值表示「照常发送」。
-	ImageUnsupported bool
 	// PDF 为 true 时满足条件的 PDF 以原生文档内容块发送。
 	PDF bool
 	// AudioMIMEs / VideoMIMEs 为该路由可原生发送的音视频格式；为空表示不支持。
@@ -124,7 +114,7 @@ func (p nativeInputPolicy) accepts(att AttachmentInput) bool {
 	return false
 }
 
-// nativeProtocolSupport 是路由能原生发送的内容块，已按上游可信度收敛（见文件开头第 3 条）。
+// nativeProtocolSupport 是路由协议能编码的原生内容块。
 type nativeProtocolSupport struct {
 	pdf        bool
 	audioMIMEs map[string]struct{}
@@ -136,53 +126,26 @@ func resolveNativeInputPolicy(route *channel.ResolvedRoute) nativeInputPolicy {
 	if route == nil {
 		return nativeInputPolicy{}
 	}
-	modalities := domainchannel.ResolveInputModalities(route.ModelCapabilitiesJSON, route.CatalogInputModalities)
-	support := nativeProtocolSupportFor(route, modalities.Source == domainchannel.InputModalitiesSourceExplicit)
-	policy := nativeInputPolicy{
-		ImageUnsupported: modalities.Known() && !modalities.Supports(domainchannel.InputModalityImage),
-		PDF:              support.pdf && modalities.Supports(domainchannel.InputModalityPDF),
-	}
-	if modalities.Supports(domainchannel.InputModalityAudio) {
-		policy.AudioMIMEs = support.audioMIMEs
-	}
-	if modalities.Supports(domainchannel.InputModalityVideo) {
-		policy.VideoMIMEs = support.videoMIMEs
-	}
-	return policy
+	support := nativeProtocolSupportFor(route)
+	return nativeInputPolicy{PDF: support.pdf, AudioMIMEs: support.audioMIMEs, VideoMIMEs: support.videoMIMEs}
 }
 
-// nativeProtocolSupportFor 返回路由协议能以原生内容块发送的类型，并按上游可信度收敛。
-func nativeProtocolSupportFor(route *channel.ResolvedRoute, explicit bool) nativeProtocolSupport {
+// nativeProtocolSupportFor 返回适配器已实现的原生内容块编码能力，不依据模型声明或上游地址过滤。
+func nativeProtocolSupportFor(route *channel.ResolvedRoute) nativeProtocolSupport {
 	switch llm.NormalizeAdapter(route.Protocol) {
 	case llm.AdapterAnthropicMessages:
 		return nativeProtocolSupport{pdf: true}
 	case llm.AdapterGoogleGenerateContent:
 		return nativeProtocolSupport{pdf: true, audioMIMEs: geminiNativeAudioMIMEs, videoMIMEs: geminiNativeVideoMIMEs}
-	case llm.AdapterOpenAIResponses:
-		return nativeProtocolSupport{pdf: explicit || isOfficialOpenAIBaseURL(route.BaseURL)}
+	case llm.AdapterOpenAIResponses, llm.AdapterOpenRouterResponses:
+		return nativeProtocolSupport{pdf: true}
 	case llm.AdapterOpenAIChatCompletions:
-		if !explicit && !isOfficialOpenAIBaseURL(route.BaseURL) {
-			return nativeProtocolSupport{}
-		}
 		return nativeProtocolSupport{pdf: true, audioMIMEs: openAINativeAudioMIMEs}
 	case llm.AdapterOpenRouterChat:
-		if !explicit && !isOfficialOpenRouterBaseURL(route.BaseURL) {
-			return nativeProtocolSupport{}
-		}
 		return nativeProtocolSupport{pdf: true, audioMIMEs: openRouterNativeAudioMIMEs, videoMIMEs: openRouterNativeVideoMIMEs}
-	case llm.AdapterOpenRouterResponses:
-		return nativeProtocolSupport{pdf: explicit || isOfficialOpenRouterBaseURL(route.BaseURL)}
 	default:
 		return nativeProtocolSupport{}
 	}
-}
-
-func isOfficialOpenRouterBaseURL(raw string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return false
-	}
-	return strings.ToLower(parsed.Hostname()) == officialOpenRouterHost
 }
 
 // nativeInputKindOf 返回附件的原生输入类型；不是 PDF、音频或视频时返回空。
@@ -289,14 +252,11 @@ type nativeInputs struct {
 	Parts map[string]llm.ContentPart
 }
 
-// unsupported 判断附件在该路由上无法提供：模型不支持的图片，以及无法原生发送的用户音视频
-// （没有文本可回退）。超出预算或读取失败的音视频不算，按「无法读取」处理。
+// unsupported 判断用户音视频是否无法通过该协议原生编码（没有文本可回退）。
+// 超出预算或读取失败的音视频不算，按「无法读取」处理。
 func (n nativeInputs) unsupported(att AttachmentInput) bool {
 	if _, native := n.Parts[strings.TrimSpace(att.FileID)]; native {
 		return false
-	}
-	if strings.EqualFold(strings.TrimSpace(att.ContextMode), fileContextModeDirectImage) {
-		return n.Policy.ImageUnsupported
 	}
 	return isUserMediaAttachment(att) && !n.Policy.accepts(att)
 }
@@ -339,7 +299,7 @@ func (s *Service) resolveNativeInputs(ctx context.Context, route *channel.Resolv
 }
 
 // routeAttachmentTraceItems 把与路由相关的决定写入处理过程展示用的附件副本：
-// 原生发送的文件标记为 native_document，无法提供的图片与音视频标记为 unsupported。
+// 原生发送的文件标记为 native_document，协议无法编码的音视频标记为 unsupported。
 func routeAttachmentTraceItems(items []AttachmentInput, native nativeInputs, skipImages bool) []AttachmentInput {
 	result := make([]AttachmentInput, len(items))
 	copy(result, items)

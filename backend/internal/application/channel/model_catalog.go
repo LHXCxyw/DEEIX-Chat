@@ -37,7 +37,7 @@ const (
 	protocolOpenAIImageGenerations = llm.AdapterOpenAIImageGenerations
 	protocolOpenAIImageEdits       = llm.AdapterOpenAIImageEdits
 	protocolOpenRouterImages       = llm.AdapterOpenRouterImages
-	protocolOpenAIVideoGenerations = "openai_video_generations"
+	protocolOpenAIVideoGenerations = llm.AdapterOpenAIVideo
 	protocolGoogleImageGeneration  = llm.AdapterGoogleImageGeneration
 	protocolGeminiInteractions     = llm.AdapterGeminiInteractions
 	protocolXAIImage               = llm.AdapterXAIImage

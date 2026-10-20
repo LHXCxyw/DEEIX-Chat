@@ -1,6 +1,8 @@
 import { CANVAS_NODE_REGISTRY } from "@/features/canvas/model/canvas-node-registry";
 import {
+  type CanvasMediaKind,
   type CanvasMediaType,
+  GENERATE_CONNECTION_ROW_HEIGHT,
   type GraphEdge,
   type GraphInputPort,
   type GraphNode,
@@ -22,35 +24,71 @@ export type GraphPortDefinition = {
   offsetY: number;
 };
 
-export type GraphPortID = "out" | "prompt" | "image" | "result";
+export type GraphPortID = "out" | "prompt" | "image" | "video" | "audio" | "result";
 
-// 端口定义从节点注册表派生：新增节点类型只需在注册表登记
-export const GRAPH_NODE_PORTS: Record<GraphNodeKind, GraphPortDefinition[]> =
-  Object.fromEntries(
-    Object.values(CANVAS_NODE_REGISTRY).map((entry) => [entry.kind, entry.ports] as const),
-  ) as Record<GraphNodeKind, GraphPortDefinition[]>;
-
-export function graphNodePorts(kind: GraphNodeKind): GraphPortDefinition[] {
-  return GRAPH_NODE_PORTS[kind];
+// 端口定义从节点注册表派生：按节点类型与媒体类型取（视频生成节点有额外的参考视频 / 音频入端口）
+export function graphNodePorts(kind: GraphNodeKind, mediaType?: CanvasMediaType): GraphPortDefinition[] {
+  const entry = CANVAS_NODE_REGISTRY[kind];
+  const override = mediaType ? entry.portsByMediaType?.[mediaType] : undefined;
+  return override ?? entry.ports;
 }
 
-export function graphPortSize(kind: GraphNodeKind, portID: GraphPortID): GraphPortDefinition | null {
-  return GRAPH_NODE_PORTS[kind].find((port) => port.id === portID) ?? null;
+export function graphPortSize(
+  kind: GraphNodeKind,
+  portID: GraphPortID,
+  mediaType?: CanvasMediaType,
+): GraphPortDefinition | null {
+  return graphNodePorts(kind, mediaType).find((port) => port.id === portID) ?? null;
+}
+
+// 生成节点清单区顶部：标题栏(28) + 内容内边距(10) + 模型/参数行(70) + 间距(8)
+export const GENERATE_LIST_TOP = 116;
+
+// 生成节点单个入端口的纵向锚点：对齐该端口第一行清单的中线。
+// 端口按行数顺序排布，前序端口（含未连接端口）的行数决定本端口起点
+export function generatePortOffsetY(portIndex: number, portRowCounts: readonly number[]): number {
+  let rowsBefore = 0;
+  for (let index = 0; index < portIndex; index += 1) {
+    rowsBefore += Math.max(1, portRowCounts[index] ?? 1);
+  }
+  return GENERATE_LIST_TOP + rowsBefore * GENERATE_CONNECTION_ROW_HEIGHT + GENERATE_CONNECTION_ROW_HEIGHT / 2;
+}
+
+// 端口纵向锚点：生成节点的入端口与清单行对齐（依赖派生的 portRowCounts），其余用注册表固定值
+export function graphPortOffsetY(
+  kind: GraphNodeKind,
+  portID: GraphPortID,
+  mediaType?: CanvasMediaType,
+  portRowCounts?: readonly number[],
+): number {
+  const ports = graphNodePorts(kind, mediaType);
+  const port = ports.find((item) => item.id === portID);
+  if (!port) {
+    return 0;
+  }
+  if (kind === "generate" && port.direction === "in" && portRowCounts && portRowCounts.length > 0) {
+    const inputPorts = ports.filter((item) => item.direction === "in");
+    const inputIndex = inputPorts.findIndex((item) => item.id === portID);
+    if (inputIndex >= 0) {
+      return generatePortOffsetY(inputIndex, portRowCounts);
+    }
+  }
+  return port.offsetY;
 }
 
 // 端口在画布坐标系中的绝对位置
 export function graphPortCanvasPosition(
-  node: Pick<GraphNode, "kind" | "x" | "y">,
+  node: Pick<GraphNode, "kind" | "x" | "y"> & { mediaType?: CanvasMediaType; portRowCounts?: number[] },
   portID: GraphPortID,
   size: { width: number },
 ): { x: number; y: number } | null {
-  const port = graphPortSize(node.kind, portID);
+  const port = graphPortSize(node.kind, portID, node.mediaType);
   if (!port) {
     return null;
   }
   return {
     x: node.x + port.offsetX * size.width,
-    y: node.y + port.offsetY,
+    y: node.y + graphPortOffsetY(node.kind, portID, node.mediaType, node.portRowCounts),
   };
 }
 
@@ -93,9 +131,10 @@ const GRAPH_CONNECTION_RULES: Record<GraphNodeKind, { toKind: GraphNodeKind; toP
     Object.values(CANVAS_NODE_REGISTRY).map((entry) => [entry.kind, entry.connectionRules] as const),
   ) as Record<GraphNodeKind, { toKind: GraphNodeKind; toPort: GraphInputPort }[]>;
 
-// 媒体类型兼容性：视频产物不能作为图像参考图回灌，图像生成也不能写入视频输出节点。
+// 媒体类型兼容性：视频产物不能作为图像参考图回灌，图像生成也不能写入视频输出节点；
+// 参考视频 / 参考音频端口只接受对应素材类型的媒体节点或同类型的输出产物。
 // 未写入结果的输出节点（mediaType 未定）视为中立，可接任意媒体类型的生成节点。
-export type GraphMediaCarrier = { kind: GraphNodeKind; mediaType?: CanvasMediaType };
+export type GraphMediaCarrier = { kind: GraphNodeKind; mediaType?: CanvasMediaType; mediaKind?: CanvasMediaKind };
 
 export function graphMediaCompatible(
   from: GraphMediaCarrier | undefined,
@@ -111,6 +150,17 @@ export function graphMediaCompatible(
       return false;
     }
     return true;
+  }
+  if (toPort === "video" || toPort === "audio") {
+    // 参考素材入端口：只有视频生成节点提供，且素材类型必须与端口一致。
+    // 素材来源既可以是上传的媒体节点，也可以是同类型（视频）的生成产物
+    if (!(to?.kind === "generate" && to.mediaType === "video")) {
+      return false;
+    }
+    if (from?.kind === "media") {
+      return from.mediaKind === toPort;
+    }
+    return from?.kind === "output" && from.mediaType === toPort;
   }
   if (toPort === "result") {
     // 结果入端口：目标输出节点已定型为另一媒体类型时不兼容
@@ -162,9 +212,13 @@ export function isGraphPortCompatibleTarget(
   sourceKind: GraphNodeKind | null,
   targetKind: GraphNodeKind,
   targetPort: GraphPortID,
+  sourceMediaKind?: CanvasMediaKind,
 ): boolean {
   if (!sourceKind) {
     return false;
+  }
+  if (targetPort === "video" || targetPort === "audio") {
+    return sourceKind === "media" && sourceMediaKind === targetPort;
   }
   return GRAPH_CONNECTION_RULES[sourceKind].some(
     (rule) => rule.toKind === targetKind && rule.toPort === targetPort,
@@ -175,18 +229,65 @@ export function isGraphPortCompatibleTarget(
 export const MAX_MEDIA_REFERENCE_COUNT = 7;
 
 // ---------------------------------------------------------------------------
+// 上游连接清单：生成节点内按行展示每个入端口已连接的内容（色点标识来源类型）
+// ---------------------------------------------------------------------------
+export type GraphConnectionSummary = {
+  id: string;
+  kind: GraphNodeKind;
+  // 落点入端口：区分「参考视频 / 参考音频」等同类型来源
+  port: GraphPortID;
+  label: string;
+};
+// 入端口汇总：每个入端口一行，connections 为空表示该端口尚未连接。
+// 端口清单而非「已连接清单」——未连接的端口同样要显示，用户才知道每个点该连什么
+export type GraphNodeInputPortSummary = {
+  port: GraphPortID;
+  connections: GraphConnectionSummary[];
+};
+
+export type GraphNodeInputSummary = {
+  ports: GraphNodeInputPortSummary[];
+};
+
+// 连接行的节点显示名：按节点类型取最有语义的文本（与资产侧栏 / 画布上下文一致）
+export function graphConnectionLabel(node: GraphNode, fallback: string): string {
+  switch (node.kind) {
+    case "prompt":
+      return node.text.trim() || fallback;
+    case "image":
+      return node.reference?.fileName || fallback;
+    case "media":
+      return node.reference?.fileName || fallback;
+    case "generate":
+      return node.model || fallback;
+    case "output":
+      return (node.status === "done" ? node.fileName : null) || node.prompt?.trim() || fallback;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 图执行输入汇聚：按连线创建顺序拼接提示词，收集参考图与输出连线
 // ---------------------------------------------------------------------------
+export type GraphReference = { fileID: string; fileName: string; mimeType: string; sizeBytes: number };
+
 export type GraphGenerateInputs = {
   prompt: string;
   promptSourceIDs: string[];
-  references: { fileID: string; fileName: string; mimeType: string; sizeBytes: number }[];
+  references: GraphReference[];
   referenceSourceIDs: string[];
+  // 视频生成节点的参考视频与参考音频素材
+  videoReferences: GraphReference[];
+  videoReferenceSourceIDs: string[];
+  audioReferences: GraphReference[];
+  audioReferenceSourceIDs: string[];
   outputEdges: GraphEdge[];
 };
 
-function referenceOfNode(node: GraphNode): { fileID: string; fileName: string; mimeType: string; sizeBytes: number } | null {
+function referenceOfNode(node: GraphNode): GraphReference | null {
   if (node.kind === "image" && node.reference) {
+    return node.reference;
+  }
+  if (node.kind === "media" && node.reference) {
     return node.reference;
   }
   if (node.kind === "output" && node.status === "done" && node.fileID) {
@@ -208,8 +309,12 @@ export function gatherGraphGenerateInputs(
   const orderedEdges = [...edges].sort((a, b) => a.createdAt - b.createdAt);
   const promptTexts: string[] = [];
   const promptSourceIDs: string[] = [];
-  const references: NonNullable<ReturnType<typeof referenceOfNode>>[] = [];
+  const references: GraphReference[] = [];
   const referenceSourceIDs: string[] = [];
+  const videoReferences: GraphReference[] = [];
+  const videoReferenceSourceIDs: string[] = [];
+  const audioReferences: GraphReference[] = [];
+  const audioReferenceSourceIDs: string[] = [];
   const outputEdges: GraphEdge[] = [];
 
   const nodeByID = new Map(nodes.map((node) => [node.id, node]));
@@ -229,6 +334,22 @@ export function gatherGraphGenerateInputs(
         referenceSourceIDs.push(edge.fromNodeID);
       }
     }
+    if (edge.toNodeID === generateNodeID && edge.toPort === "video") {
+      const source = nodeByID.get(edge.fromNodeID);
+      const reference = source ? referenceOfNode(source) : null;
+      if (reference && !videoReferences.some((item) => item.fileID === reference.fileID)) {
+        videoReferences.push(reference);
+        videoReferenceSourceIDs.push(edge.fromNodeID);
+      }
+    }
+    if (edge.toNodeID === generateNodeID && edge.toPort === "audio") {
+      const source = nodeByID.get(edge.fromNodeID);
+      const reference = source ? referenceOfNode(source) : null;
+      if (reference && !audioReferences.some((item) => item.fileID === reference.fileID)) {
+        audioReferences.push(reference);
+        audioReferenceSourceIDs.push(edge.fromNodeID);
+      }
+    }
     if (edge.fromNodeID === generateNodeID && edge.toPort === "result") {
       outputEdges.push(edge);
     }
@@ -239,13 +360,20 @@ export function gatherGraphGenerateInputs(
     promptSourceIDs,
     references,
     referenceSourceIDs,
+    videoReferences,
+    videoReferenceSourceIDs,
+    audioReferences,
+    audioReferenceSourceIDs,
     outputEdges,
   };
 }
 
 // 生成节点是否具备可运行的提示词或参考图
 export function graphGenerateHasInputs(inputs: GraphGenerateInputs): boolean {
-  return inputs.prompt.trim().length > 0 || inputs.references.length > 0;
+  return inputs.prompt.trim().length > 0
+    || inputs.references.length > 0
+    || inputs.videoReferences.length > 0
+    || inputs.audioReferences.length > 0;
 }
 
 export function promptNodeTruncated(text: string): string {

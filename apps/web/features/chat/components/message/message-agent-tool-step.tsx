@@ -1,11 +1,25 @@
 "use client";
 
 import type * as React from "react";
+import { useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
-import { ArrowUpRight, Check, Copy, Wrench } from "lucide-react";
+import {
+  ArrowUpRight,
+  Check,
+  Copy,
+  FileDiff,
+  FilePlus2,
+  FileText,
+  Search,
+  Trash2,
+  Wrench,
+} from "lucide-react";
 
 import { AgentTraceStep } from "@/features/chat/components/message/message-agent-trace-step";
 import { MessageToolResultDialog } from "@/features/chat/components/message/message-tool-result-dialog";
+import { ToolProjectPreviewCard } from "@/features/chat/components/message/message-tool-project-preview";
 import { useCopyAction } from "@/shared/components/copy-action";
 import { useAutoExpandDisclosure } from "@/shared/hooks/use-auto-expand-disclosure";
 import { useChatElapsedDurationMS } from "@/features/chat/hooks/use-chat-elapsed-duration";
@@ -14,6 +28,13 @@ import type { ProcessTraceLabels } from "@/features/chat/hooks/use-chat-trace-la
 import { cn } from "@/lib/utils";
 import { formatDurationMS } from "@/features/chat/model/duration";
 import type { TraceDisplayEvent } from "@/features/chat/model/message-process-trace";
+import {
+  projectFileDiffStat,
+  projectFileEntries,
+  type ProjectFileEntry,
+} from "@/features/chat/model/project-file-changes";
+import { Diff, diffDefinition } from "@/shared/components/markdown/ui-blocks/diff";
+import { UIBlockFrame } from "@/shared/components/markdown/ui-blocks/ui-block-frame";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import {
   collectToolImageSources,
@@ -49,6 +70,7 @@ type ToolTraceCall = {
   output_preview?: string;
   output_detail?: string;
   output_presentation?: unknown;
+  file_diff?: unknown;
   input_size?: number;
 };
 
@@ -79,6 +101,7 @@ function parseToolTraceCalls(payloadJson: string | undefined): ToolTraceCall[] {
           output_preview: readToolPayloadString(value.output_preview) || undefined,
           output_detail: readToolPayloadString(value.output_detail) || undefined,
           output_presentation: value.output_presentation,
+          file_diff: value.file_diff,
           input_size: readToolPayloadNumber(value.input_size) ?? undefined,
         },
       ];
@@ -142,6 +165,8 @@ function toolTraceCallLabel(call: ToolTraceCall, category: ToolResultCategory, l
       return labels.tool.names.imageGeneration;
     case "shell":
       return labels.tool.names.shell;
+    case "project_files":
+      return call.name?.trim() || labels.tool.names.generic;
     default:
       return call.name?.trim() || call.type?.trim() || labels.tool.names.generic;
   }
@@ -342,6 +367,19 @@ function toolOutputText(call: ToolTraceCall, keys: string[]): string {
     return firstToolPayloadString(output, keys);
   }
   return readToolPayloadString(output);
+}
+
+// 项目预览目标：入口路径与项目 public_id，用于在沙箱卡片中构建预览并回写运行结果。
+function toolProjectPreviewTarget(call: ToolTraceCall): { path: string; projectID: string } {
+  const output = toolOutputPayload(call);
+  const input = toolInputPayload(call);
+  const outputRecord = isToolPayloadRecord(output) ? output : null;
+  const inputRecord = isToolPayloadRecord(input) ? input : null;
+  const path =
+    (outputRecord ? firstToolPayloadString(outputRecord, ["path", "entry_path", "entryPath"]) : "") ||
+    (inputRecord ? firstToolPayloadString(inputRecord, ["path", "file"]) : "");
+  const projectID = outputRecord ? firstToolPayloadString(outputRecord, ["project_id", "projectID"]) : "";
+  return { path, projectID };
 }
 
 function hasToolArguments(call: ToolTraceCall): boolean {
@@ -675,16 +713,140 @@ function ToolArgumentsCard({ call, labels }: { call: ToolTraceCall; labels: Proc
   );
 }
 
+function projectFileActionLabel(action: ProjectFileEntry["action"], labels: ProcessTraceLabels): string {
+  switch (action) {
+    case "read":
+      return labels.tool.actions.read;
+    case "create":
+      return labels.tool.actions.create;
+    case "modify":
+    case "diff":
+      return labels.tool.actions.modify;
+    case "delete":
+      return labels.tool.actions.delete;
+    case "search":
+      return labels.tool.actions.search;
+    default:
+      return "";
+  }
+}
+
+function projectFileActionIcon(action: ProjectFileEntry["action"]) {
+  switch (action) {
+    case "create":
+      return FilePlus2;
+    case "modify":
+    case "diff":
+      return FileDiff;
+    case "delete":
+      return Trash2;
+    case "search":
+      return Search;
+    default:
+      return FileText;
+  }
+}
+
+function projectEntrySubject(entry: ProjectFileEntry): string {
+  return entry.action === "search" ? entry.path || entry.query || "" : entry.path;
+}
+
+// 行数统计：+N 绿 / -M 红，标题属性保留 i18n 文案。
+function ProjectDiffStat({ added, removed, labels }: { added: number; removed: number; labels: ProcessTraceLabels }) {
+  return (
+    <span className="shrink-0 tabular-nums" title={labels.tool.actions.diffStat(added, removed)}>
+      <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>
+      <span className="ml-1 text-red-600 dark:text-red-400">-{removed}</span>
+    </span>
+  );
+}
+
+// 折叠态标题：读取类多文件按数量分组，其余展示动作 + 路径（含行数统计）。
+function projectStepTitle(entries: ProjectFileEntry[], labels: ProcessTraceLabels): React.ReactNode {
+  const first = entries[0];
+  if (!first) {
+    return labels.tool.names.generic;
+  }
+  if (first.action === "read" && entries.length > 1) {
+    return labels.tool.actions.readMultiple(entries.length);
+  }
+  const label = projectFileActionLabel(first.action, labels);
+  if (!label) {
+    return labels.tool.names.generic;
+  }
+  const subject = projectEntrySubject(first);
+  const stat = first.after !== undefined ? projectFileDiffStat(first) : null;
+  return (
+    <span className="inline-flex min-w-0 items-baseline gap-1.5">
+      <span className="shrink-0">{label}</span>
+      {subject ? (
+        <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/62" title={subject}>
+          {subject}
+        </span>
+      ) : null}
+      {stat ? <ProjectDiffStat added={stat.added} removed={stat.removed} labels={labels} /> : null}
+    </span>
+  );
+}
+
+function ProjectFileDiffDialog({ selected, onClose }: { selected: ProjectFileEntry | null; onClose: () => void }) {
+  const t = useTranslations("chat.markdown.uiBlock");
+  return (
+    <Dialog open={selected !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-5xl">
+        <DialogTitle>{selected?.path || t("diffView")}</DialogTitle>
+        <DialogDescription>{t(selected?.diffUnavailable === "truncated" ? "diffTruncated" : selected?.diffUnavailable ? "diffUnavailable" : "diffView")}</DialogDescription>
+        {selected?.before !== undefined && selected.after !== undefined ? (
+          <UIBlockFrame><Diff id={`project-tool-diff-${selected.key}`} props={{ before: selected.before, after: selected.after, title: selected.title }} definition={diffDefinition} /></UIBlockFrame>
+        ) : null}
+        <DialogClose className="justify-self-end rounded px-3 py-1 text-sm hover:bg-muted focus-visible:outline focus-visible:outline-2">{t("diffClose")}</DialogClose>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ToolProjectFiles({ entries, labels }: { entries: ProjectFileEntry[]; labels: ProcessTraceLabels }) {
+  const t = useTranslations("chat.markdown.uiBlock");
+  const [selected, setSelected] = useState<ProjectFileEntry | null>(null);
+  return (
+    <div className="space-y-2">
+      {entries.map((entry) => {
+        const Icon = projectFileActionIcon(entry.action);
+        const label = projectFileActionLabel(entry.action, labels);
+        const subject = projectEntrySubject(entry);
+        const stat = projectFileDiffStat(entry);
+        const change = ["create", "modify", "diff"].includes(entry.action);
+        return (
+          <div key={entry.key} className="space-y-1.5">
+            <button type="button" disabled={!change} onClick={() => setSelected(entry)} aria-label={`${t("diffView")}: ${subject}`} className="flex w-full min-w-0 items-center gap-2 rounded text-left text-[12px] leading-5 enabled:hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+              <Icon className="size-3.5 shrink-0 text-muted-foreground/62" />
+              {label ? <span className="shrink-0 text-muted-foreground/78">{label}</span> : null}
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/78" title={subject}>{subject}</span>
+              {stat ? <ProjectDiffStat added={stat.added} removed={stat.removed} labels={labels} /> : null}
+            </button>
+            {entry.diffUnavailable ? <p className="text-[11px] text-muted-foreground">{t(entry.diffUnavailable === "truncated" ? "diffTruncated" : "diffUnavailable")}</p> : null}
+          </div>
+        );
+      })}
+      <ProjectFileDiffDialog selected={selected} onClose={() => setSelected(null)} />
+    </div>
+  );
+}
+
 function ToolResultCard({
   call,
   category,
   labels,
   divided,
+  runID,
+  projectEntries = [],
 }: {
   call: ToolTraceCall;
   category: ToolResultCategory;
   labels: ProcessTraceLabels;
   divided: boolean;
+  runID?: string;
+  projectEntries?: ProjectFileEntry[];
 }) {
   const failedStatus = isToolTraceStatusFailed(call.status);
   const output = toolOutputPayload(call);
@@ -749,6 +911,21 @@ function ToolResultCard({
       const text = toolDisplayText(call);
       content = text ? <ToolPre>{text}</ToolPre> : null;
     }
+  } else if (category === "project_preview") {
+    const target = toolProjectPreviewTarget(call);
+    if (target.path && target.projectID) {
+      content = <ToolProjectPreviewCard path={target.path} projectID={target.projectID} runID={runID} />;
+    } else {
+      const text = toolDisplayText(call);
+      content = text ? <ToolReadableText>{text}</ToolReadableText> : null;
+    }
+  } else if (category === "project_files") {
+    if (projectEntries.length > 0) {
+      content = <ToolProjectFiles entries={projectEntries} labels={labels} />;
+    } else {
+      const text = toolDisplayText(call);
+      content = text ? <ToolReadableText>{text}</ToolReadableText> : null;
+    }
   } else {
     const text = toolDisplayText(call);
     if (text) {
@@ -759,7 +936,7 @@ function ToolResultCard({
   if (!content) {
     return null;
   }
-  const showHeading = category !== "generic" || Boolean(meta);
+  const showHeading = (category !== "generic" && category !== "project_files") || Boolean(meta);
   return (
     <div className={cn("pb-1 pt-1", divided && "mt-1.5 pt-1.5")}>
       {showHeading ? (
@@ -778,11 +955,13 @@ function ToolCallDetailCard({
   labels,
   runID,
   allowFullResult,
+  projectEntries,
 }: {
   step: ToolChainStep;
   labels: ProcessTraceLabels;
   runID?: string;
   allowFullResult: boolean;
+  projectEntries?: ProjectFileEntry[];
 }) {
   const call = step.toolCall;
   const hasArguments = Boolean(call && hasToolArguments(call));
@@ -813,6 +992,8 @@ function ToolCallDetailCard({
               category={step.toolCategory || toolResultCategory(call)}
               labels={labels}
               divided={hasArguments}
+              runID={detailRunID}
+              projectEntries={projectEntries}
             />
           </>
         ) : step.detail ? (
@@ -843,27 +1024,42 @@ export function AgentToolStepRow({
   const expandable = Boolean(step.toolCall || step.detail);
   const liveDurationMS = useChatElapsedDurationMS(active, step.startedAt);
   const durationText = formatDurationMS(active ? liveDurationMS : step.latencyMS);
+  const projectEntries = useMemo(
+    () =>
+      (step.toolCategory === "project_files" || step.toolCategory === "project_preview") && step.toolCall
+        ? projectFileEntries(step.toolCall)
+        : [],
+    [step.toolCategory, step.toolCall],
+  );
+  const [diffOpen, setDiffOpen] = useState(false);
+  const directDiff = projectEntries.length === 1 && ["create", "modify", "diff"].includes(projectEntries[0].action) ? projectEntries[0] : null;
+  const title = projectEntries.length > 0 ? projectStepTitle(projectEntries, labels) : labels.tool.names.generic;
 
   return (
     <li className="group/agent-trace-step">
       <AgentTraceStep
         icon={<ToolStepStatusIcon step={step} />}
-        title={labels.tool.names.generic}
+        title={title}
         status={statusText || undefined}
         duration={durationText}
         open={open}
         expandable={expandable}
         failed={failed}
         loading={active}
-        onOpenChange={onOpenChange}
+        onOpenChange={(next) => {
+          if (directDiff && !active && !failed) setDiffOpen(true);
+          else onOpenChange(next);
+        }}
       >
         <ToolCallDetailCard
           step={step}
           labels={labels}
           runID={runID}
           allowFullResult={allowFullResult}
+          projectEntries={projectEntries}
         />
       </AgentTraceStep>
+      <ProjectFileDiffDialog selected={diffOpen ? directDiff : null} onClose={() => setDiffOpen(false)} />
     </li>
   );
 }

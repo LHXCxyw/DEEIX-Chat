@@ -98,7 +98,8 @@ func TestResolveModelControlsOrderAndSources(t *testing.T) {
 	for _, control := range controls {
 		ids = append(ids, control.ID)
 	}
-	if want := []string{"verbosity-fast", "reasoning", "temperature", "text.verbosity", "parallel_tool_calls"}; !reflect.DeepEqual(ids, want) {
+	// 末尾三个是按 openai_responses 协议补缺的常用参数控件；reasoning.effort 由「思考强度」接管，不重复补缺。
+	if want := []string{"verbosity-fast", "reasoning", "temperature", "text.verbosity", "parallel_tool_calls", "top_p", "max_output_tokens", "text.format.type"}; !reflect.DeepEqual(ids, want) {
 		t.Fatalf("unexpected control order %v, want %v", ids, want)
 	}
 	byID := map[string]ModelControl{}
@@ -122,7 +123,7 @@ func TestResolveModelControlsOrderAndSources(t *testing.T) {
 func TestResolveModelControlsCatalogReasoningHasAuto(t *testing.T) {
 	catalog := &ReasoningCapability{Format: ReasoningFormatOpenAI, Levels: []string{"low", "high"}, Default: "low"}
 	controls := ResolveModelControls(`{}`, []string{ReasoningProtocolOpenAIChat}, catalog, ReasoningSourceCatalog)
-	if len(controls) != 1 || controls[0].Default != ModelControlReasoningAuto || controls[0].Options[0].Value != ModelControlReasoningAuto {
+	if len(controls) == 0 || controls[0].ID != ModelControlReasoningID || controls[0].Default != ModelControlReasoningAuto || controls[0].Options[0].Value != ModelControlReasoningAuto {
 		t.Fatalf("expected catalog reasoning control with auto default, got %#v", controls)
 	}
 	locked := ResolveModelControls(`{"lockedOptionPaths":["reasoning_effort"]}`, []string{ReasoningProtocolOpenAIChat}, catalog, ReasoningSourceCatalog)
@@ -144,12 +145,71 @@ func TestResolveModelControlsReasoningDefaultsToToolbar(t *testing.T) {
 	}
 	for name, raw := range cases {
 		controls := ResolveModelControls(raw, []string{ReasoningProtocolOpenAIChat}, capability, ReasoningSourceExplicit)
-		if len(controls) != 1 || controls[0].ID != ModelControlReasoningID || controls[0].Placement != ModelControlPlacementToolbar {
+		reasoning, ok := modelControlByID(controls, ModelControlReasoningID)
+		if !ok || reasoning.Placement != ModelControlPlacementToolbar {
 			t.Fatalf("%s: expected toolbar placement, got %#v", name, controls)
 		}
 	}
 	menu := ResolveModelControls(`{"controls":[{"kind":"reasoning","placement":"menu"}]}`, []string{ReasoningProtocolOpenAIChat}, capability, ReasoningSourceExplicit)
-	if len(menu) != 1 || menu[0].Placement != ModelControlPlacementMenu {
+	if reasoning, ok := modelControlByID(menu, ModelControlReasoningID); !ok || reasoning.Placement != ModelControlPlacementMenu {
 		t.Fatalf("expected an explicit menu placement to win, got %#v", menu)
+	}
+}
+
+func modelControlByID(controls []ModelControl, id string) (ModelControl, bool) {
+	for _, control := range controls {
+		if control.ID == id {
+			return control, true
+		}
+	}
+	return ModelControl{}, false
+}
+
+func modelControlIDs(controls []ModelControl) []string {
+	ids := make([]string, 0, len(controls))
+	for _, control := range controls {
+		ids = append(ids, control.ID)
+	}
+	return ids
+}
+
+// 协议预设控件按协议补缺常用参数：无默认值、收在菜单；具备推理能力时跳过由「思考强度」接管的路径。
+func TestSynthesizeProtocolChatControls(t *testing.T) {
+	chat := synthesizeProtocolChatControls([]string{ReasoningProtocolOpenAIChat}, false)
+	if want := []string{"temperature", "top_p", "max_completion_tokens", "reasoning_effort", "response_format"}; !reflect.DeepEqual(modelControlIDs(chat), want) {
+		t.Fatalf("unexpected chat preset ids %v", modelControlIDs(chat))
+	}
+	for _, control := range chat {
+		if control.Kind != ModelControlKindGeneric || control.Placement != ModelControlPlacementMenu || control.Default != "" {
+			t.Fatalf("unexpected preset control %#v", control)
+		}
+	}
+	if number, ok := modelControlByID(chat, "temperature"); !ok || number.Type != ModelControlTypeNumber || number.Path != "temperature" {
+		t.Fatalf("unexpected number preset %#v", number)
+	}
+	if selectControl, ok := modelControlByID(chat, "response_format"); !ok ||
+		selectControl.Type != ModelControlTypeSelect ||
+		!reflect.DeepEqual(selectControl.Options[0].Patch, map[string]any{"response_format": "json_object"}) {
+		t.Fatalf("unexpected select preset %#v", selectControl)
+	}
+
+	withReasoning := synthesizeProtocolChatControls([]string{ReasoningProtocolOpenAIChat}, true)
+	if want := []string{"temperature", "top_p", "max_completion_tokens", "response_format"}; !reflect.DeepEqual(modelControlIDs(withReasoning), want) {
+		t.Fatalf("expected reasoning preset paths to be skipped, got %v", modelControlIDs(withReasoning))
+	}
+
+	responses := synthesizeProtocolChatControls([]string{ReasoningProtocolOpenAIResponses}, false)
+	if format, ok := modelControlByID(responses, "text.format.type"); !ok ||
+		!reflect.DeepEqual(format.Options[0].Patch, map[string]any{"text": map[string]any{"format": map[string]any{"type": "json_object"}}}) {
+		t.Fatalf("unexpected nested select patch %#v", format)
+	}
+
+	merged := synthesizeProtocolChatControls([]string{ReasoningProtocolOpenAIChat, ReasoningProtocolAnthropic}, false)
+	counts := map[string]int{}
+	for _, id := range modelControlIDs(merged) {
+		counts[id]++
+	}
+	if counts["temperature"] != 1 || counts["top_p"] != 1 || counts["max_tokens"] != 1 {
+		t.Fatalf("expected cross-protocol dedup, got %v", modelControlIDs(merged))
 	}
 }

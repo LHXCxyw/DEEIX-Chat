@@ -10,12 +10,13 @@ import (
 
 // ListFileObjectsInput 定义用户文件列表的分页、筛选与排序条件。
 type ListFileObjectsInput struct {
-	UserID      uint
-	Offset      int
-	Limit       int
-	SearchQuery string
-	FilterKind  string
-	SortBy      string
+	UserID       uint
+	Offset       int
+	Limit        int
+	SearchQuery  string
+	FilterKind   string
+	FilterSource string
+	SortBy       string
 }
 
 // FileListingRepository 封装文件列表查询能力。

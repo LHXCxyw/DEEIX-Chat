@@ -7,6 +7,7 @@ import (
 	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
 	domainuicomponent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/uicomponent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/channelconfig"
 	"gorm.io/gorm"
 )
@@ -14,6 +15,7 @@ import (
 // Models 返回应用使用的全部持久化 Gorm 模型。
 func Models() []any {
 	return []any{
+		&repository.ToolApproval{},
 		&models.User{},
 		&models.UserContactVerification{},
 		&models.UserCredential{},
@@ -43,6 +45,8 @@ func Models() []any {
 		&models.FileObject{},
 		&models.UserStorageQuota{},
 		&models.ConversationRun{},
+		&models.AgentOperation{},
+		&models.AgentCommandSlot{},
 		&models.ContentModerationEvent{},
 		&models.ContentModerationDailyStat{},
 		&models.ChatRunEvent{},

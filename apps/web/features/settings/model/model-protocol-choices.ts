@@ -18,6 +18,7 @@ const PROTOCOLS: Record<string, { vendor: string; name: string; kind: ModelProto
   openai_responses: { vendor: "OpenAI", name: "Responses", kind: "chat" },
   openai_image_generations: { vendor: "OpenAI", name: "Images Generations", kind: "image" },
   openai_image_edits: { vendor: "OpenAI", name: "Images Edits", kind: "image" },
+  openai_video_generations: { vendor: "OpenAI", name: "Video Generations", kind: "video" },
   anthropic_messages: { vendor: "Anthropic", name: "Messages", kind: "chat" },
   google_generate_content: { vendor: "Google", name: "Generate Content", kind: "chat" },
   google_image_generation: { vendor: "Google", name: "Image Generation", kind: "image" },

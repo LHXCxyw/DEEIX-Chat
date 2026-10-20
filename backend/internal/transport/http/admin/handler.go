@@ -44,6 +44,7 @@ type conversationExportManifest struct {
 type Handler struct {
 	service            *appadmin.Service
 	conversationExport conversationExporter
+	commandSlots       *appadmin.CommandSlotService
 }
 
 // NewHandler 创建处理器。

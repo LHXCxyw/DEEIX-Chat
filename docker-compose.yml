@@ -1,70 +1,135 @@
-# DEEIX Chat 单文件 Docker 部署
-# 运行方式：在项目根目录执行 `docker compose up -d --build`（本地编译镜像）
-# 数据持久化到项目根目录的 ./data，布局与旧版一致，可直接接管旧数据目录
+# 唯一入口：docker compose -f docker-compose.yml build && docker compose -f docker-compose.yml up -d
+# 运行中常驻容器只有 app、postgres、redis；config-init 与两个 agent 服务均为一次性容器。
 name: deeix-chat
-
 services:
+  config-init:
+    # 复用 app 镜像内的可信入口生成/保留配置，不再构建独立初始化镜像。
+    image: deeix-chat:local
+    pull_policy: never
+    user: "0:0"
+    command: ["config"]
+    network_mode: none
+    restart: "no"
+    volumes:
+      - .:/repository
+
   app:
     build:
       context: .
-      dockerfile: ./Dockerfile
+      dockerfile: Dockerfile
+      target: runtime-agent
     image: deeix-chat:local
+    pull_policy: never
     container_name: deeix-chat-app
+    user: "0:0"
     restart: unless-stopped
     depends_on:
+      config-init:
+        condition: service_completed_successfully
+        restart: true
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      # 沿用旧版映射：宿主机 3700 -> 容器 8080
-      - "3700:8080"
+      agent-command:
+        condition: service_completed_successfully
+        restart: true
+      agent-browser:
+        condition: service_completed_successfully
+        restart: true
+    environment:
+      # 同机默认空端点（Unix socket）；独立节点由管理员注入远程端点与 TLS 配置。
+      AGENT_DOCKER_HOST: ${AGENT_DOCKER_HOST:-}
+      AGENT_DOCKER_TLS_VERIFY: ${AGENT_DOCKER_TLS_VERIFY:-false}
+      AGENT_DOCKER_CERT_PATH: ${AGENT_DOCKER_CERT_PATH:-}
+      AGENT_DOCKER_ALLOW_INSECURE_TCP: ${AGENT_DOCKER_ALLOW_INSECURE_TCP:-false}
+    ports: ["3700:8080"]
     volumes:
       - ./data/storage:/app/storage
       - ./data/app:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - deeix-chat
+      - ./data/agent-deploy:/run/deeix-config:ro
+      # 同机默认挂载宿主 socket；独立节点设置 DEEIX_DOCKER_SOCKET=/dev/null 即不挂 Docker socket。
+      - ${DEEIX_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "5", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 30s
+    networks: [deeix-chat]
 
   postgres:
     image: pgvector/pgvector:pg16
+    pull_policy: missing
     container_name: deeix-chat-postgres
     restart: unless-stopped
+    depends_on:
+      config-init:
+        condition: service_completed_successfully
+        restart: true
     environment:
-      # 与旧库保持一致：复用旧 data/postgres 时密码必须相同
       POSTGRES_USER: deeix_chat
-      POSTGRES_PASSWORD: deeix_chat_change_me
       POSTGRES_DB: deeix_chat
+    # 官方入口会切换到 postgres UID；先由 root 读取 0600 密码，再通过环境传递。
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - 'export POSTGRES_PASSWORD="$$(cat /run/deeix-config/postgres-password)"; exec /usr/local/bin/docker-entrypoint.sh postgres'
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+      - ./data/agent-deploy:/run/deeix-config:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: ["CMD-SHELL", "pg_isready -U deeix_chat -d deeix_chat"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
-    networks:
-      - deeix-chat
+    networks: [deeix-chat]
 
   redis:
     image: redis:7-bookworm
+    pull_policy: missing
     container_name: deeix-chat-redis
     restart: unless-stopped
-    command: ["redis-server", "--requirepass", "deeix_chat_change_me"]
-    environment:
-      REDIS_PASSWORD: deeix_chat_change_me
+    depends_on:
+      config-init:
+        condition: service_completed_successfully
+        restart: true
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - 'password=$$(cat /run/deeix-config/redis-password); exec /usr/local/bin/docker-entrypoint.sh redis-server --requirepass "$$password"'
     volumes:
       - ./data/redis:/data
+      - ./data/agent-deploy:/run/deeix-config:ro
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$(cat /run/deeix-config/redis-password)" redis-cli ping | grep -qx PONG']
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 5s
-    networks:
-      - deeix-chat
+    networks: [deeix-chat]
+
+  # build-only：仅负责构建本地镜像，启动即退出，不进入常驻运行集合。
+  agent-command:
+    build:
+      context: deploy/services/agent-command
+    image: deeix-agent-command:local
+    pull_policy: never
+    entrypoint: ["/bin/true"]
+    command: []
+    network_mode: none
+    restart: "no"
+
+  agent-browser:
+    build:
+      context: deploy/services/agent-browser
+      target: project-browser
+    image: deeix-agent-browser:local
+    pull_policy: never
+    entrypoint: ["/bin/true"]
+    command: []
+    network_mode: none
+    restart: "no"
 
 networks:
   deeix-chat:

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { useFileExtract } from "@/features/files/hooks/use-file-extract";
 import { useFileInvalidation } from "@/features/files/hooks/use-file-invalidation";
 import { useFilePreview } from "@/features/files/hooks/use-file-preview";
-import type { FileFilterValue, FileSortKey } from "@/features/files/types/files";
+import type { FileFilterValue, FileSortKey, FileSourceFilter } from "@/features/files/types/files";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import {
   deleteFile,
@@ -72,6 +72,7 @@ type UseFilePageResult = {
   query: string;
   sortKey: FileSortKey;
   filterKeys: FileFilterValue[];
+  sourceFilter: FileSourceFilter;
   isSidebarCollapsed: boolean;
   isSearchOpen: boolean;
   renamingFileID: string | null;
@@ -91,6 +92,7 @@ type UseFilePageResult = {
   onToggleSearch: () => void;
   onQueryChange: (value: string) => void;
   onFilterToggle: (value: FileFilterValue | "all") => void;
+  onSourceChange: (value: FileSourceFilter) => void;
   onSortChange: (value: FileSortKey) => void;
   onRenameStart: (item: FileObjectDTO) => void;
   onRenameValueChange: (value: string) => void;
@@ -150,6 +152,7 @@ export function useFilePage(): UseFilePageResult {
   const debouncedQuery = useDebouncedValue(query.trim(), FILE_SEARCH_DEBOUNCE_MS);
   const [sortKey, setSortKey] = React.useState<FileSortKey>("created");
   const [filterKeys, setFilterKeys] = React.useState<FileFilterValue[]>([]);
+  const [sourceFilter, setSourceFilter] = React.useState<FileSourceFilter>("all");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState(false);
   const [renamingFileID, setRenamingFileID] = React.useState<string | null>(null);
@@ -188,6 +191,12 @@ export function useFilePage(): UseFilePageResult {
   React.useEffect(() => {
     setContentTab(requestedContentTab);
   }, [requestedContentTab]);
+
+  React.useEffect(() => {
+    setSelectedFileIDs([]);
+    setNextPage(2);
+    setHasMore(false);
+  }, [sourceFilter]);
 
   React.useEffect(() => {
     if (!requestedFileID) {
@@ -266,6 +275,7 @@ export function useFilePage(): UseFilePageResult {
           query: debouncedQuery,
           kind: filterKeys,
           sort: sortKey,
+          source: sourceFilter === "all" ? undefined : sourceFilter,
         }, requestController.signal);
         if (!isMountedRef.current || !isLatestRequest()) {
           return;
@@ -284,6 +294,7 @@ export function useFilePage(): UseFilePageResult {
             pageSize: 1,
             query: explicitPreferredFileID,
             sort: "created",
+            source: sourceFilter === "all" ? undefined : sourceFilter,
           }, requestController.signal);
           if (!isMountedRef.current || !isLatestRequest()) {
             return;
@@ -330,7 +341,7 @@ export function useFilePage(): UseFilePageResult {
         }
       }
     },
-    [debouncedQuery, ensureAccessToken, filterKeys, resolveErrorMessage, sortKey, t],
+    [debouncedQuery, ensureAccessToken, filterKeys, resolveErrorMessage, sortKey, sourceFilter, t],
   );
 
   React.useEffect(() => {
@@ -504,6 +515,9 @@ export function useFilePage(): UseFilePageResult {
                 return false;
               }
               seenUploadedFileIDs.add(item.fileID);
+              if (sourceFilter === "generated") {
+                return false;
+              }
               if (normalizedQuery && !item.fileName.toLowerCase().includes(normalizedQuery)) {
                 return false;
               }
@@ -559,7 +573,7 @@ export function useFilePage(): UseFilePageResult {
         }
       }
     },
-    [debouncedQuery, ensureAccessToken, filterKeys, loadFiles, resolveErrorMessage, t],
+    [debouncedQuery, ensureAccessToken, filterKeys, loadFiles, resolveErrorMessage, sourceFilter, t],
   );
 
   const onDeleteFile = React.useCallback(
@@ -829,6 +843,10 @@ export function useFilePage(): UseFilePageResult {
     });
   }, []);
 
+  const onSourceChange = React.useCallback((value: FileSourceFilter) => {
+    setSourceFilter(value);
+  }, []);
+
   const onSelectFile = React.useCallback((fileID: string) => {
     setSelectedFileID(fileID);
     setContentTab("preview");
@@ -942,6 +960,7 @@ export function useFilePage(): UseFilePageResult {
     query,
     sortKey,
     filterKeys,
+    sourceFilter,
     isSidebarCollapsed,
     isSearchOpen,
     renamingFileID,
@@ -961,6 +980,7 @@ export function useFilePage(): UseFilePageResult {
     onToggleSearch,
     onQueryChange: setQuery,
     onFilterToggle,
+    onSourceChange,
     onSortChange: setSortKey,
     onRenameStart,
     onRenameValueChange: setRenameValue,

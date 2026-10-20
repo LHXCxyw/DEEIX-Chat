@@ -41,6 +41,8 @@ import type {
   PromptTraceDTO,
   PromptTraceSourceDTO,
   PublicSharedConversationDTO,
+  PublicSharedProjectFilesDTO,
+  ProjectWorkspaceFileDTO,
   ProjectWorkspaceViewDTO,
   RenameConversationRequest,
   ReorderConversationProjectsRequest,
@@ -213,6 +215,24 @@ type UnrecognizedStreamEvent = {
   requestId?: string;
   debug?: unknown;
 };
+
+// 心跳帧是合法 JSON 文档但不携带业务语义：媒体任务长时间无事件时由服务端周期性写出，
+// 只用于保活长连接，必须在事件分派前丢弃，否则会被当作未知事件终止流。
+function isStreamHeartbeatDocument(value: unknown): boolean {
+  return isRecord(value) && value.type === "ping";
+}
+
+// media_artifact_pending 是媒体链路的专用扩展事件（上游已生成、产物保存待重试），
+// 不在固定事件契约里，所以不参与类型分派，直接交给专用回调，避免被当成未知事件终止流。
+export type MediaArtifactPendingEvent = {
+  run_id: string;
+  media_type: "image" | "video" | string;
+  indexes?: number[];
+};
+
+function isMediaArtifactPendingEvent(value: unknown): value is MediaArtifactPendingEvent {
+  return isRecord(value) && value.type === "media_artifact_pending";
+}
 
 type ParsedStreamEvent = StreamMessageEvent | UnrecognizedStreamEvent;
 
@@ -409,10 +429,17 @@ function handleStreamEvent(event: ParsedStreamEvent, options: ConversationStream
   throw new ApiError(
     event.message || "stream failed",
     event.status ?? responseStatus,
-    event.debug,
+    // 结构化详情（上游响应 / 定位上下文）信息量大于脱敏快照，存在时优先交给渲染层
+    readStreamEventDetails(event) ?? event.debug,
     event.errorCode,
     event.requestId,
   );
+}
+
+// 流式终态错误可携带结构化 details；事件契约是生成产物，这里按运行时字段读取。
+function readStreamEventDetails(event: ParsedStreamEvent): unknown {
+  const details = (event as { details?: unknown }).details;
+  return isRecord(details) ? details : undefined;
 }
 
 type ListConversationsOptions = {
@@ -876,6 +903,13 @@ export async function getSharedConversation(shareID: string): Promise<PublicShar
   );
 }
 
+// 读取公开分享快照内冻结的项目文件树（公开请求，不带 token）。
+export async function getSharedProjectFiles(shareID: string): Promise<PublicSharedProjectFilesDTO> {
+  return apiRequest<PublicSharedProjectFilesDTO>(
+    `/api/v1/shared-conversations/${pathParam(shareID)}/project/files`,
+  );
+}
+
 export async function cloneSharedConversation(
   accessToken: string,
   shareID: string,
@@ -1186,6 +1220,8 @@ export type MediaVideoRequeryResult = {
   status: "completed" | "pending" | "failed";
   runID: string;
   message?: string;
+  // 上游上报的进度百分比；-1 表示上游未提供（显示不确定态）
+  progress?: number;
   attachments?: {
     fileID: string;
     fileName: string;
@@ -1340,6 +1376,7 @@ export type ConversationStreamOptions = {
   onRagSearch?: (message: string) => void;
   onMediaStatus?: (event: Extract<StreamMessageEvent, { type: "media_status" }>) => void;
   onMediaImageDelta?: (event: Extract<StreamMessageEvent, { type: "media_image_delta" }>) => void;
+  onMediaArtifactPending?: (event: MediaArtifactPendingEvent) => void;
   onCompactDone?: (event: CompactDoneEvent) => void;
   onProcessUpdate?: (event: Extract<StreamMessageEvent, { type: "process_update" }>) => void;
   onUpstreamThinkDelta?: (event: Extract<StreamMessageEvent, { type: "upstream_think_delta" }>) => void;
@@ -1379,6 +1416,19 @@ async function readConversationStream(
     }
   };
 
+  // 单文档分派：心跳与产物待重试事件不参与固定类型分派，其余交给常规事件处理
+  const dispatchDocument = (document: string) => {
+    const parsed = JSON.parse(document);
+    if (isStreamHeartbeatDocument(parsed)) {
+      return;
+    }
+    if (isMediaArtifactPendingEvent(parsed)) {
+      options.onMediaArtifactPending?.(parsed);
+      return;
+    }
+    consumeEvent(normalizeStreamEvent(parsed));
+  };
+
   while (true) {
     let readResult: ReadableStreamReadResult<Uint8Array>;
     try {
@@ -1397,7 +1447,7 @@ async function readConversationStream(
     buffer = remainder;
 
     for (const document of documents) {
-      consumeEvent(normalizeStreamEvent(JSON.parse(document)));
+      dispatchDocument(document);
     }
 
     if (done) {
@@ -1407,7 +1457,7 @@ async function readConversationStream(
 
   const tail = buffer.trim();
   if (tail) {
-    consumeEvent(normalizeStreamEvent(JSON.parse(tail)));
+    dispatchDocument(tail);
   }
 
   return { completed, moderationBlocked };
@@ -1642,6 +1692,49 @@ function normalizeRewindPreviewItem(item: unknown): ConversationRewindPreviewIte
   };
 }
 
+// 读取普通会话的独立工作区；有项目的会话继续使用项目接口。
+export async function getConversationWorkspace(
+  accessToken: string,
+  conversationPublicID: string,
+): Promise<ProjectWorkspaceViewDTO> {
+  return authedRequest<ProjectWorkspaceViewDTO>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/workspace`,
+    { accessToken },
+    true,
+  );
+}
+
+// 显式授权后创建普通会话工作副本，不覆盖已有路径。
+export async function importConversationFileFromAttachment(
+  accessToken: string,
+  conversationPublicID: string,
+  input: { fileID: string; path: string; editAuthorized: true },
+): Promise<ProjectWorkspaceFileDTO> {
+  return authedRequest<ProjectWorkspaceFileDTO>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/workspace/files/from-attachment`,
+    {
+      accessToken,
+      method: "POST",
+      body: { file_id: input.fileID, path: input.path, edit_authorized: input.editAuthorized },
+    },
+    true,
+  );
+}
+
+// 读取会话工作副本原始内容，供文本查看与下载使用。
+export async function fetchConversationWorkspaceFileBlob(
+  accessToken: string,
+  conversationPublicID: string,
+  filePublicID: string,
+): Promise<Blob> {
+  const response = await authedFetch(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/workspace/files/${pathParam(filePublicID)}/content`,
+    { accessToken },
+    true,
+  );
+  return response.blob();
+}
+
 // 读取项目工作区清单（工作区元信息 + 文件树）。
 export async function getProjectWorkspace(
   accessToken: string,
@@ -1682,16 +1775,34 @@ export async function fetchProjectFileBlob(
   return response.blob();
 }
 
+// 显式授权后将只读附件复制为新项目文件；后端拒绝覆盖同名文件。
+export async function importProjectFileFromAttachment(
+  accessToken: string,
+  projectPublicID: string,
+  input: { fileID: string; path: string; editAuthorized: true },
+): Promise<ProjectWorkspaceFileDTO> {
+  return authedRequest<ProjectWorkspaceFileDTO>(
+    `/api/v1/conversation-projects/${pathParam(projectPublicID)}/files/from-attachment`,
+    {
+      accessToken,
+      method: "POST",
+      body: { file_id: input.fileID, path: input.path, edit_authorized: input.editAuthorized },
+    },
+    true,
+  );
+}
+
 // 新建或覆盖项目文本文件。
 export async function saveProjectFile(
   accessToken: string,
   projectPublicID: string,
   relativePath: string,
   content: string,
-): Promise<void> {
-  await authedRequest<unknown>(
+  expectedVersion?: number,
+): Promise<ProjectWorkspaceFileDTO> {
+  return authedRequest<ProjectWorkspaceFileDTO>(
     `/api/v1/conversation-projects/${pathParam(projectPublicID)}/files`,
-    { accessToken, method: "PUT", body: { path: relativePath, content } },
+    { accessToken, method: "PUT", body: { path: relativePath, content, expected_version: expectedVersion } },
     true,
   );
 }
@@ -1705,6 +1816,36 @@ export async function deleteProjectFile(
   await authedRequest<unknown>(
     `/api/v1/conversation-projects/${pathParam(projectPublicID)}/files/${pathParam(filePublicID)}`,
     { accessToken, method: "DELETE" },
+    true,
+  );
+}
+
+// 项目预览沙箱回写的运行结果。
+export type ProjectPreviewRunResult = {
+  runID?: string;
+  entryPath: string;
+  console: string[];
+  errors: string[];
+};
+
+// 回写项目预览沙箱捕获的运行信息，作为工具结果持久化到会话供模型下一轮读取。
+export async function submitProjectPreviewResult(
+  accessToken: string,
+  conversationPublicID: string,
+  result: ProjectPreviewRunResult,
+): Promise<void> {
+  await authedRequest<unknown>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/project-preview-result`,
+    {
+      accessToken,
+      method: "POST",
+      body: {
+        run_id: result.runID ?? "",
+        entry_path: result.entryPath,
+        console: result.console,
+        errors: result.errors,
+      },
+    },
     true,
   );
 }

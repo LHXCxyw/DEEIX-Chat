@@ -5,17 +5,16 @@ import * as React from "react";
 import { toast } from "sonner";
 import { parseCanvasState } from "@/features/canvas/model/canvas-persist";
 import { type CanvasStoreLabels, canvasStore } from "@/features/canvas/model/canvas-store";
-import {
-  CANVAS_CLOUD_SETTING_KEY,
-  type CanvasNodeReference,
-} from "@/features/canvas/model/canvas-types";
+import type { CanvasNodeReference } from "@/features/canvas/model/canvas-types";
+import { getCanvasState, putCanvasState } from "@/shared/api/canvas-state";
 import { uploadFile } from "@/shared/api/file";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import {
-  loadUserSettingsSnapshot,
-  updateUserSettings,
-} from "@/entities/user-settings";
+
+// 画布快照推送防抖：变更停止后写入服务端，避免拖动过程中高频提交
+const CLOUD_PERSIST_DEBOUNCE_MS = 1200;
+// 云端拉取节流：切回标签页时 focus 与 visibilitychange 会先后触发，5 秒内只拉一次
+const CLOUD_PULL_THROTTLE_MS = 5000;
 
 export type CanvasReferenceImage = CanvasNodeReference & {
   previewURL?: string;
@@ -69,6 +68,7 @@ export function useCanvasStore({
       nodeRequery: t("nodeRequery"),
       requeryStarted: t("requeryStarted"),
       requeryPending: t("requeryPending"),
+      requeryTimeout: t("requeryTimeout"),
       requeryUnavailable: t("requeryUnavailable"),
       requeryRecovered: t("requeryRecovered"),
       artifactSavePending: t("artifactSavePending"),
@@ -91,7 +91,8 @@ export function useCanvasStore({
     void canvasStore.resumePendingGenerations();
   }, [accessToken]);
 
-  // 登录用户优先恢复云端状态；云端不可用或无有效状态时回退本地记录。
+  // 登录用户走服务端权威同步：打开与切回前台都读服务端，改动防抖写回。
+  // 服务端是唯一事实来源，本地 localStorage 仅作首屏缓存与离线回退。
   React.useEffect(() => {
     let active = true;
     if (!accessToken) {
@@ -108,21 +109,26 @@ export function useCanvasStore({
       cloudTimer = null;
       const raw = pendingCloudRaw;
       pendingCloudRaw = "";
-      if (raw) {
-        // 推送失败仅记录日志，不打断画布使用；本地 localStorage 始终是最新状态
-        void updateUserSettings(accessToken, { [CANVAS_CLOUD_SETTING_KEY]: raw }).catch((error) => {
+      if (!raw) {
+        return;
+      }
+      // 推送失败仅记录日志，不打断画布使用；本地 localStorage 仍保留最新内容
+      void putCanvasState(accessToken, raw)
+        .then((snapshot) => {
+          canvasStore.markSynced(snapshot.updatedAt);
+        })
+        .catch((error) => {
           console.warn("[canvas] cloud persist failed", error);
         });
-      }
     };
     canvasStore.setCloudPersist((raw) => {
       pendingCloudRaw = raw;
       if (cloudTimer) {
         clearTimeout(cloudTimer);
       }
-      cloudTimer = setTimeout(persistCloud, 1200);
+      cloudTimer = setTimeout(persistCloud, CLOUD_PERSIST_DEBOUNCE_MS);
     });
-    // 页面隐藏或关闭时立即推送挂起的快照，避免防抖丢尾导致云端落后于本地
+    // 页面隐藏或关闭时立即推送挂起的快照，避免防抖丢尾导致服务端落后于本地
     const flushPendingCloud = () => {
       if (cloudTimer !== null) {
         clearTimeout(cloudTimer);
@@ -131,30 +137,37 @@ export function useCanvasStore({
       persistCloud();
     };
 
-    // 云端快照拉取：多端同步的另一半。推送端 ~1.6s 内落云；
-    // 本端采用事件驱动拉取（切回标签页 / 窗口聚焦时），空闲时零请求。
-    // seedPersistedState 内部按 savedAt 取更新的一方，云端更旧时自动回推本地，幂等无回环。
+    // 云端拉取：仅在本地没有未落盘变更时进行，避免打断正在进行的编辑。
+    // 服务端 updatedAt 比本端已同步版本新，说明其他设备写过，此时才采纳。
     let lastPullAt = 0;
     const pullCloud = () => {
-      // 节流：切回标签页时 focus 与 visibilitychange 会先后触发，5 秒内只拉一次
       const now = Date.now();
-      if (now - lastPullAt < 5000) {
+      if (now - lastPullAt < CLOUD_PULL_THROTTLE_MS) {
         return;
       }
-      // 生成中不拉取，避免云端旧快照打断进行中的任务展示；
-      // 本端有未落盘变更时跳过，等防抖推送完成后再拉，防止覆盖本端编辑
-      if (canvasStore.getState().generatingCount > 0 || canvasStore.hasUnsavedChanges()) {
+      // 生成中不拉取，避免云端快照打断进行中的任务展示；
+      // 本端有未落盘变更或推送挂起时跳过，等本端写入完成后再拉，避免刚做的编辑被云端覆盖
+      if (
+        canvasStore.getState().generatingCount > 0
+        || canvasStore.hasUnsavedChanges()
+        || cloudTimer !== null
+      ) {
         return;
       }
       lastPullAt = now;
-      void loadUserSettingsSnapshot(accessToken, { refresh: true })
-        .then((settings) => {
-          const cloudState = parseCanvasState(settings[CANVAS_CLOUD_SETTING_KEY] ?? "");
-          if (cloudState) {
-            canvasStore.seedPersistedState(cloudState);
-            // 云端快照采纳可能替换节点图：其中的运行中节点同样需要恢复
-            void canvasStore.resumePendingGenerations();
+      void getCanvasState(accessToken)
+        .then((snapshot) => {
+          if (!snapshot.state || snapshot.updatedAt <= canvasStore.getSyncedAt()) {
+            return;
           }
+          const cloudState = parseCanvasState(snapshot.state);
+          if (!cloudState) {
+            return;
+          }
+          canvasStore.seedPersistedState(cloudState);
+          canvasStore.markSynced(snapshot.updatedAt);
+          // 采纳的云端快照可能含运行中节点，同样需要恢复
+          void canvasStore.resumePendingGenerations();
         })
         .catch(() => {
           // 拉取失败静默跳过，下次回到前台再拉
@@ -183,21 +196,30 @@ export function useCanvasStore({
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    // 初始加载强制取新鲜快照：认证层的缓存快照可能滞后，误判云端新旧会导致错误采纳
-    void loadUserSettingsSnapshot(accessToken, { refresh: true }).then((settings) => {
-      if (!active) {
-        return;
-      }
-      const cloudState = parseCanvasState(settings[CANVAS_CLOUD_SETTING_KEY] ?? "");
-      if (cloudState) {
-        canvasStore.seedPersistedState(cloudState);
+
+    // 首次加载以服务端为准：有快照即采用；从未保存过时用本地内容初始化服务端
+    void getCanvasState(accessToken)
+      .then((snapshot) => {
+        if (!active) {
+          return;
+        }
+        const cloudState = snapshot.state ? parseCanvasState(snapshot.state) : null;
+        if (cloudState) {
+          canvasStore.seedPersistedState(cloudState);
+          canvasStore.markSynced(snapshot.updatedAt);
+        } else {
+          canvasStore.restore();
+          canvasStore.pushCurrentStateToCloud();
+        }
         void canvasStore.resumePendingGenerations();
-      } else {
-        canvasStore.restore();
-        canvasStore.pushCurrentStateToCloud();
-        void canvasStore.resumePendingGenerations();
-      }
-    });
+      })
+      .catch(() => {
+        // 服务端不可用时回退本地内容，回到前台后再同步
+        if (active) {
+          canvasStore.restore();
+          void canvasStore.resumePendingGenerations();
+        }
+      });
 
     return () => {
       active = false;
@@ -218,7 +240,7 @@ export function useCanvasStore({
   const addGraphNode = React.useCallback((
     kind: Parameters<typeof canvasStore.addGraphNode>[0],
     point?: { x: number; y: number },
-    mediaType?: "image" | "video",
+    mediaType?: Parameters<typeof canvasStore.addGraphNode>[2],
   ) => {
     // 调用方显式指定坐标时优先使用，否则回退到视口中心生成点
     return canvasStore.addGraphNode(kind, point ?? spawnPointRef.current?.(), mediaType);
@@ -289,10 +311,7 @@ export function useCanvasStore({
     updateDecoration: canvasStore.updateDecoration,
     moveDecoration: canvasStore.moveDecoration,
     removeSelected: canvasStore.removeSelected,
-    groupSelected: canvasStore.groupSelected,
-    ungroupSelected: canvasStore.ungroupSelected,
     toggleLockSelected: canvasStore.toggleLockSelected,
-    arrangeSelected: canvasStore.arrangeSelected,
     addBookmark: canvasStore.addBookmark,
     goToBookmark: canvasStore.goToBookmark,
     removeBookmark: canvasStore.removeBookmark,
@@ -300,7 +319,6 @@ export function useCanvasStore({
     restoreVersion: canvasStore.restoreVersion,
     exportProject: canvasStore.exportProject,
     importProject: canvasStore.importProject,
-    applyTemplate: canvasStore.applyTemplate,
     beginNodeMove: canvasStore.beginNodeMove,
     moveNodes: canvasStore.moveNodes,
     endNodeMove: canvasStore.endNodeMove,
@@ -311,6 +329,7 @@ export function useCanvasStore({
     removeNode: canvasStore.removeNode,
     removeNodes: canvasStore.removeNodes,
     connectGraphNodes: canvasStore.connectGraphNodes,
+    connectToNewNode: canvasStore.connectToNewNode,
     removeEdge: canvasStore.removeEdge,
     runGenerateNode: canvasStore.runGenerateNode,
     cancelNode: canvasStore.cancelNode,

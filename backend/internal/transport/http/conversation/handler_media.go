@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	appconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/background"
@@ -13,6 +15,11 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
 )
+
+// mediaStreamHeartbeatInterval 是媒体任务流的保活间隔。
+// 视频生成最长可轮询十分钟，期间可能长时间没有业务事件；
+// 没有字节流出的空闲连接会被反向代理与桌面 WebView 掐断，因此按固定周期写一帧心跳。
+const mediaStreamHeartbeatInterval = 20 * time.Second
 
 // StreamImageGeneration 处理会话内图片生成流式状态接口。
 // @Summary 生成会话图片
@@ -299,6 +306,8 @@ func (h *Handler) streamMediaTask(
 	c.Status(http.StatusOK)
 
 	var clientDisconnected atomic.Bool
+	// 心跳与业务事件共用同一写出路径：ResponseWriter 不支持并发写，必须串行化
+	var writeGuard sync.Mutex
 	writeStreamEvent := func(payload map[string]any) error {
 		if clientDisconnected.Load() {
 			return nil
@@ -307,6 +316,8 @@ func (h *Handler) streamMediaTask(
 		if marshalErr != nil {
 			return marshalErr
 		}
+		writeGuard.Lock()
+		defer writeGuard.Unlock()
 		if _, writeErr := c.Writer.Write(append(encoded, '\n')); writeErr != nil {
 			clientDisconnected.Store(true)
 			return nil
@@ -323,6 +334,29 @@ func (h *Handler) streamMediaTask(
 	}
 
 	defer h.service.FinishMessageGeneration(generationCtx, clientRunID)
+
+	heartbeatStop := make(chan struct{})
+	var heartbeat sync.WaitGroup
+	heartbeat.Add(1)
+	go func() {
+		defer heartbeat.Done()
+		ticker := time.NewTicker(mediaStreamHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatStop:
+				return
+			case <-c.Request.Context().Done():
+				return
+			case <-ticker.C:
+				if clientDisconnected.Load() {
+					return
+				}
+				_ = writeStreamEvent(map[string]any{"type": "ping"})
+			}
+		}
+	}()
+
 	result, err := run(func(eventType string, payload map[string]any) error {
 		owned, flushErr := flushStreamEvent(normalizeStreamEventPayload(eventType, payload))
 		if !owned {
@@ -330,6 +364,9 @@ func (h *Handler) streamMediaTask(
 		}
 		return flushErr
 	})
+	// 业务流结束后立即停心跳：终态事件之后不再写出任何帧
+	close(heartbeatStop)
+	heartbeat.Wait()
 
 	if err == nil && result != nil && result.IsModerationBlocked() {
 		if !result.ModerationTerminalEmitted() {

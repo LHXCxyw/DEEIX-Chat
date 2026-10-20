@@ -30,7 +30,7 @@ func (r *Repo) ListByUserID(ctx context.Context, userID uint) ([]domainusersetti
 }
 
 // GetByKey 查询指定用户的单个配置项，不存在时返回 nil。
-func (r *Repo) GetByKey(ctx context.Context, userID uint, key string) (*models.UserSetting, error) {
+func (r *Repo) GetByKey(ctx context.Context, userID uint, key string) (*domainusersettings.UserSetting, error) {
 	var item models.UserSetting
 	err := r.db.WithContext(ctx).Where("user_id = ? AND key = ?", userID, key).First(&item).Error
 	if err != nil {
@@ -39,7 +39,14 @@ func (r *Repo) GetByKey(ctx context.Context, userID uint, key string) (*models.U
 		}
 		return nil, dberror.Translate(err)
 	}
-	return &item, nil
+	result := domainusersettings.UserSetting{
+		ID:        item.ID,
+		UserID:    item.UserID,
+		Key:       item.Key,
+		Value:     item.Value,
+		UpdatedAt: item.UpdatedAt,
+	}
+	return &result, nil
 }
 
 // Upsert 批量写入或更新用户配置（基于 user_id+key 唯一约束）。

@@ -188,7 +188,7 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	}()
 	cancelCtx, cancel := context.WithCancel(ctx)
 	ctx = cancelCtx
-	if err = s.generationStreams.register(ctx, runID, input.UserID, conversation.PublicID, cancel); err != nil {
+	if err = s.registerDeletionSafeGeneration(ctx, runID, input.UserID, conversation.PublicID, cancel); err != nil {
 		return nil, err
 	}
 
@@ -910,12 +910,22 @@ func detectGeneratedImageMIME(data []byte) string {
 
 // generatedImageFileName 使用模型名和生成时间构造稳定可读的文件名。
 func generatedImageFileName(modelName string, capturedAt time.Time, index int, total int, mimeType string) string {
-	base := sanitizeGeneratedImageFileBase(modelName)
+	base := sanitizeGeneratedImageFileBase(generatedImageModelBase(modelName))
 	timestamp := fmt.Sprintf("%s-%03d", capturedAt.Format("20060102-150405"), capturedAt.Nanosecond()/int(time.Millisecond))
 	if total > 1 {
 		return fmt.Sprintf("%s-%s-%02d%s", base, timestamp, index+1, filetype.ImageExtension(mimeType))
 	}
 	return fmt.Sprintf("%s-%s%s", base, timestamp, filetype.ImageExtension(mimeType))
+}
+
+// generatedImageModelBase 只保留模型短名，避免把个人渠道的
+// personal:<providerID>/<model> 前缀写进用户可见的文件名。
+func generatedImageModelBase(modelName string) string {
+	name := strings.TrimSpace(modelName)
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	return strings.TrimPrefix(name, "personal:")
 }
 
 // sanitizeGeneratedImageFileBase 清理模型名，确保生成文件名不含路径分隔符或不可控字符。

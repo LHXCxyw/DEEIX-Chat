@@ -5,4 +5,5 @@
 # those scripts write with "\n". A CRLF checkout (core.autocrlf=true on
 # Windows) changes the hash and dirties the tree on every start.
 *.svg text eol=lf
+*.sh text eol=lf
 apps/web/shared/generated/** text eol=lf

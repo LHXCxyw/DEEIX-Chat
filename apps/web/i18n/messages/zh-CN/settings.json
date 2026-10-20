@@ -788,7 +788,9 @@
       "empty": "没有匹配的模型",
       "emptySelected": "尚未选择模型",
       "protocolColumn": "接口协议",
-      "protocolFor": "{model} 的接口协议"
+      "protocolFor": "{model} 的接口协议",
+      "stale": "上游已不再提供",
+      "staleHint": "该模型已不在上游目录中，默认不勾选，保存后移除。"
     },
     "importLink": {
       "open": "导入链接",

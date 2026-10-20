@@ -58,6 +58,17 @@ export {
   parseModelControls,
 } from "@/entities/model/lib/model-controls";
 export { parseProtocolsJSON } from "@/entities/model/lib/model-protocols";
+export {
+  ASPECT_RATIO_VALUES,
+  IMAGE_OPTION_PATHS,
+  IMAGE_SIZE_VALUES,
+  PROTOCOL_IMAGE_CONTROLS,
+  PROTOCOL_VIDEO_CONTROLS,
+  type ProtocolMediaOptionControl,
+  resolveProtocolImageControls,
+  resolveProtocolVideoControls,
+  VIDEO_OPTION_PATHS,
+} from "@/entities/model/lib/protocol-media-controls";
 export { localizedNativeToolText } from "@/entities/model/lib/native-tool-i18n";
 export {
   nativeToolDefinitionVariantsFromConfig,

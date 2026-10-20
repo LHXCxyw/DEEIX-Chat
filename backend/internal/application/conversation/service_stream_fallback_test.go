@@ -137,6 +137,26 @@ func TestMessageErrorSummaryHidesRawSSEForSuccessfulHTTPStatus(t *testing.T) {
 	}
 }
 
+// 建流后的失败必须报告“流中断 + 真实原因”，不能再显示成“HTTP 200 格式不兼容”。
+func TestMessageErrorSummaryReportsStreamInterruptionCause(t *testing.T) {
+	err := wrapUpstreamRequestError(&llm.UpstreamError{
+		StatusCode:        200,
+		Message:           "stream idle timeout: no data received for 2m0s",
+		StreamInterrupted: true,
+	})
+
+	summary := messageErrorSummary(err)
+	if !strings.Contains(summary, "模型响应流中断") {
+		t.Fatalf("expected stream interruption summary, got %q", summary)
+	}
+	if strings.Contains(summary, "格式不兼容") {
+		t.Fatalf("stream interruption must not be reported as format incompatibility: %q", summary)
+	}
+	if !strings.Contains(summary, "原因：stream idle timeout: no data received for 2m0s") {
+		t.Fatalf("expected real cause in summary, got %q", summary)
+	}
+}
+
 func TestMessageGenerationCanceledUsesWrappedCause(t *testing.T) {
 	err := llm.MarkRequestAccepted(&llm.UpstreamError{
 		StatusCode: 200,

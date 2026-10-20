@@ -334,6 +334,32 @@ func TestCreateOnlyAcceptsModelsTheUpstreamReports(t *testing.T) {
 	}
 }
 
+func TestUpdateKeepsModelsTheUpstreamNoLongerLists(t *testing.T) {
+	fixture := newFixture(t, nil)
+	fixture.lister.models = []llm.ModelItem{{ID: "gpt-4o"}, {ID: "o4-mini"}}
+	item, err := fixture.service.Create(context.Background(), 1, validCreate(), RequestMeta{})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// 上游目录不再列出已保存的 gpt-4o：保留它的保存必须成功，否则用户连重命名都做不到。
+	fixture.lister.models = []llm.ModelItem{{ID: "o4-mini"}}
+	kept := []ModelInput{{Name: "gpt-4o"}, {Name: "o4-mini"}}
+	updated, err := fixture.service.Update(context.Background(), 1, item.PublicID, UpdateInput{Models: &kept}, RequestMeta{})
+	if err != nil {
+		t.Fatalf("update keeping a saved model: %v", err)
+	}
+	if len(updated.Models) != 2 {
+		t.Fatalf("models = %#v, want the saved and the listed one", updated.Models)
+	}
+
+	// 新增的模型名仍必须出现在本次目录里。
+	added := []ModelInput{{Name: "not-offered"}}
+	if _, err := fixture.service.Update(context.Background(), 1, item.PublicID, UpdateInput{Models: &added}, RequestMeta{}); !errors.Is(err, ErrInvalidModels) {
+		t.Fatalf("err = %v, want ErrInvalidModels", err)
+	}
+}
+
 func TestFeatureGate(t *testing.T) {
 	disabled := newFixture(t, func(cfg *config.Config) { cfg.PersonalProvidersEnabled = false })
 	if _, err := disabled.service.Create(context.Background(), 1, validCreate(), RequestMeta{}); !errors.Is(err, ErrFeatureDisabled) {
@@ -541,6 +567,11 @@ func (f *fakePlatform) BuildExternalRoute(input channel.ExternalRouteInput) (*ch
 	return (&channel.Service{}).BuildExternalRoute(input)
 }
 
+// BuildRouteForUpstream 定点重建路由供异步媒体任务重查；本测试不覆盖该路径，返回未找到。
+func (f *fakePlatform) BuildRouteForUpstream(context.Context, uint, string, string) (*channel.ResolvedRoute, error) {
+	return nil, channel.ErrRouteNotFound
+}
+
 func TestRouteResolverNeverFallsBackToPlatformForPersonalRefs(t *testing.T) {
 	fixture := newFixture(t, nil)
 	item, err := fixture.service.Create(context.Background(), 1, validCreate(), RequestMeta{})
@@ -681,7 +712,6 @@ func TestModelsCarryTheirOwnProtocols(t *testing.T) {
 
 	for name, protocols := range map[string][]string{
 		"unknown":          {"made_up_protocol"},
-		"not implemented":  {"openai_video_generations"},
 		"bad combination":  {llm.AdapterOpenAIChatCompletions, llm.AdapterOpenAIImageGenerations},
 		"cross-vendor set": {llm.AdapterOpenAIImageGenerations, llm.AdapterXAIImageEdits},
 	} {

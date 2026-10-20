@@ -1,6 +1,6 @@
 "use client";
 
-import { RotateCcw, SlidersHorizontal } from "lucide-react";
+import { Braces, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ import {
   setOptionAtPath,
   type CanvasModelOption,
 } from "@/features/canvas/model/canvas-image-options";
+import { CanvasCustomParamsDialog } from "@/features/canvas/components/canvas-custom-params-dialog";
 import type { CanvasMediaType } from "@/features/canvas/model/canvas-types";
 import type { ModelOptionControl } from "@/features/chat";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ export function CanvasImageParams({
   onResultCountChange,
   onOpenChange,
   disabled,
+  iconOnly,
   className,
 }: {
   model: CanvasModelOption | null;
@@ -54,6 +56,8 @@ export function CanvasImageParams({
   onResultCountChange: (count: number) => void;
   onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
+  // 紧凑模式：只显示图标（已设参数时带角标），用于对话输入条等横向空间受限的位置
+  iconOnly?: boolean;
   className?: string;
 }) {
   const t = useTranslations("canvas");
@@ -63,6 +67,7 @@ export function CanvasImageParams({
     () => countActiveImageOptions(controls, options),
     [controls, options],
   );
+  const [customParamsOpen, setCustomParamsOpen] = React.useState(false);
   // 视频由上游单产物输出，生成数量不可配
   const isVideo = mediaType === "video";
   // 选择"自定义"后切换为输入框的 select 控件（如视频分辨率）
@@ -77,6 +82,16 @@ export function CanvasImageParams({
       const translationKey = control.path.replaceAll(".", "__");
       const hasKey = typeof tOptionLabels.has === "function" ? tOptionLabels.has(translationKey) : false;
       return hasKey ? tOptionLabels(translationKey) : control.path;
+    },
+    [tOptionLabels],
+  );
+
+  // 候选值文案：键为「控件路径（. 替换为 __）__候选值」，缺失时回退原始候选值。
+  const resolveValueLabel = React.useCallback(
+    (path: string, value: string): string => {
+      const translationKey = `${path.replaceAll(".", "__")}__${value}`;
+      const hasKey = typeof tOptionLabels.has === "function" ? tOptionLabels.has(translationKey) : false;
+      return hasKey ? tOptionLabels(translationKey) : value;
     },
     [tOptionLabels],
   );
@@ -104,14 +119,26 @@ export function CanvasImageParams({
         className={cn(
           "flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-background/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-accent hover:text-accent-foreground",
           "disabled:pointer-events-none disabled:opacity-50",
+          iconOnly && "relative size-9 justify-center rounded-xl px-0",
           className,
         )}
       >
-        <SlidersHorizontal className="size-3.5 text-muted-foreground" strokeWidth={1.8} />
-        <span className="hidden sm:inline">{isVideo ? t("videoParams") : t("imageParams")}</span>
-        <span className="tabular-nums text-muted-foreground">
-          {displayCount}/{totalCount}
-        </span>
+        <SlidersHorizontal className={cn("text-muted-foreground", iconOnly ? "size-4" : "size-3.5")} strokeWidth={1.8} />
+        {iconOnly ? (
+          // 紧凑模式用角标提示「已设参数」，避免在图标按钮上挤文字
+          displayCount > 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
+              {displayCount}
+            </span>
+          ) : null
+        ) : (
+          <>
+            <span className="hidden sm:inline">{isVideo ? t("videoParams") : t("imageParams")}</span>
+            <span className="tabular-nums text-muted-foreground">
+              {displayCount}/{totalCount}
+            </span>
+          </>
+        )}
       </PopoverTrigger>
       <PopoverContent
         data-canvas-ui="image-params"
@@ -119,20 +146,41 @@ export function CanvasImageParams({
         side="top"
         sideOffset={8}
         className="w-72 p-2"
+        // 高级参数弹窗渲染在 Popover 之外，打开期间不能因为交互落在弹窗上而关掉本面板
+        onInteractOutside={(event) => {
+          if (customParamsOpen) {
+            event.preventDefault();
+          }
+        }}
+        onEscapeKeyDown={(event) => {
+          if (customParamsOpen) {
+            event.preventDefault();
+          }
+        }}
       >
         <div className="flex items-center justify-between gap-2 px-1 pb-1.5">
           <p className="text-xs font-medium text-foreground/80">{isVideo ? t("videoParams") : t("imageParams")}</p>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            onClick={() => {
-              onOptionsChange({});
-              onResultCountChange(1);
-            }}
-          >
-            <RotateCcw className="size-3" strokeWidth={1.8} />
-            {t("imageParamsReset")}
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={() => setCustomParamsOpen(true)}
+            >
+              <Braces className="size-3" strokeWidth={1.8} />
+              {t("imageParamsAdvanced")}
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={() => {
+                onOptionsChange({});
+                onResultCountChange(1);
+              }}
+            >
+              <RotateCcw className="size-3" strokeWidth={1.8} />
+              {t("imageParamsReset")}
+            </button>
+          </div>
         </div>
         <div className="max-h-72 space-y-2 overflow-y-auto overscroll-contain pr-0.5">
           {!isVideo ? (
@@ -158,6 +206,8 @@ export function CanvasImageParams({
             const selectValues = (control.options ?? []).map((item) => item.trim()).filter(Boolean);
             const isSelect = (control.type ?? (selectValues.length > 0 ? "select" : "text")) === "select";
             const isNumber = control.type === "number";
+            // 布尔参数用「默认 / 是 / 否」下拉，比自由文本输入更明确
+            const isBoolean = control.type === "boolean";
             const label = resolveLabel(control);
             const showSelect = isSelect && selectValues.length > 0 && !customSelectPaths.has(control.path);
 
@@ -171,7 +221,23 @@ export function CanvasImageParams({
                     {control.path}
                   </code>
                 </div>
-                {showSelect ? (
+                {isBoolean ? (
+                  <Select
+                    value={typeof value === "boolean" ? String(value) : DEFAULT_VALUE}
+                    onValueChange={(next) => {
+                      updateValue(control.path, next === DEFAULT_VALUE ? undefined : next === "true");
+                    }}
+                  >
+                    <SelectTrigger size="sm" className="w-full">
+                      <SelectValue placeholder={t("imageParamsDefault")} />
+                    </SelectTrigger>
+                    <SelectContent data-canvas-ui="image-params-select">
+                      <SelectItem value={DEFAULT_VALUE}>{t("imageParamsDefault")}</SelectItem>
+                      <SelectItem value="true">{t("paramYes")}</SelectItem>
+                      <SelectItem value="false">{t("paramNo")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : showSelect ? (
                   <Select
                     value={
                       typeof value === "string" || typeof value === "number"
@@ -201,7 +267,7 @@ export function CanvasImageParams({
                       <SelectItem value={DEFAULT_VALUE}>{t("imageParamsDefault")}</SelectItem>
                       {selectValues.map((item) => (
                         <SelectItem key={item} value={item}>
-                          {item}
+                          {resolveValueLabel(control.path, item)}
                         </SelectItem>
                       ))}
                       <SelectItem value={CUSTOM_VALUE}>{t("imageParamsCustom")}</SelectItem>
@@ -242,6 +308,12 @@ export function CanvasImageParams({
             );
           })}
         </div>
+        <CanvasCustomParamsDialog
+          open={customParamsOpen}
+          onOpenChange={setCustomParamsOpen}
+          options={options}
+          onSave={onOptionsChange}
+        />
       </PopoverContent>
     </Popover>
   );

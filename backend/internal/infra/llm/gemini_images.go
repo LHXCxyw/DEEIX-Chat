@@ -130,7 +130,7 @@ func (c *Client) generateGeminiImageGenerationStream(
 	idleReader := newIdleTimeoutReader(resp.Body, resolveStreamIdleTimeout(route.StreamIdleTimeoutMS))
 	streamBody := newUpstreamBodyRecorder(idleReader)
 	if err = consumeGeminiStream(streamBody, result, onEvent); err != nil {
-		return nil, attachUpstreamDebug(err, upstreamDebugSnapshot(req, payload, resp, streamErrorBody(streamBody, err)))
+		return nil, attachStreamUpstreamDebug(err, upstreamDebugSnapshot(req, payload, resp, streamErrorBody(streamBody, err)))
 	}
 	for i := range result.GeneratedImages {
 		result.GeneratedImages[i].RevisedPrompt = strings.TrimSpace(result.Text)

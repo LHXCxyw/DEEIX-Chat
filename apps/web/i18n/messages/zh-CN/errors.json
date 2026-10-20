@@ -299,7 +299,9 @@
     "imageEditInputInvalid": "图片编辑只支持有效的图片文件。",
     "artifactUnavailable": "生成结果暂时无法获取，请稍后重试；若问题持续，请联系管理员。",
     "imageStreamUnsupported": "Tips：当前上游可能不支持流式响应，请管理员在模型能力中关闭“图像流式调用”（设置 image.stream=false）后重试。",
-    "routeProtocolMismatch": "当前模型路由协议与图片任务不匹配，请检查模型绑定。",
+    "routeProtocolMismatch": "当前模型的路由协议与任务类型不匹配，请检查该模型的路由绑定。",
+    "requeryUnavailable": "该任务缺少回查上游结果所需的信息（上游任务编号或渠道），无法回收结果，请重新生成。",
+    "videoPollTimeout": "视频任务等待超时：上游仍在生成，结果可稍后点「重新查询」回收。",
     "invalidTask": "图片任务参数无效。",
     "videoInputInvalid": "视频生成输入无效。",
     "videoPromptRequired": "请输入视频提示词。",
@@ -487,7 +489,11 @@
     "invalidId": "上游 ID 无效。",
     "notFound": "上游不存在。",
     "rateLimited": "上游请求正在限流，请稍后重试。",
-    "unavailable": "上游服务不可用。"
+    "unavailable": "上游服务不可用。",
+    "timeout": "上游请求超时（在超时时间内没有响应）。"
+  },
+  "network": {
+    "unavailable": "网络连接中断，请检查网络后重试。"
   },
   "upstreamModel": {
     "notFound": "上游模型不存在。"

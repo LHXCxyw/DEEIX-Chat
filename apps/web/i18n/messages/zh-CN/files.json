@@ -20,6 +20,12 @@
     "pdf": "PDF",
     "code": "代码"
   },
+  "source": {
+    "label": "来源",
+    "all": "全部来源",
+    "generated": "AI 产出",
+    "uploaded": "用户上传"
+  },
   "sort": {
     "size": "大小",
     "name": "名称",

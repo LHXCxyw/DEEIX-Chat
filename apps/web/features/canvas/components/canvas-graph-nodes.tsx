@@ -26,18 +26,23 @@ import {
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
-import { GraphNodeShell } from "@/features/canvas/components/canvas-graph-node-shell";
-import { HtmlGraphNodeView } from "@/features/canvas/components/canvas-html-node";
+import { GRAPH_NODE_ACCENTS, GraphNodeShell } from "@/features/canvas/components/canvas-graph-node-shell";
+import { MediaGraphNodeView } from "@/features/canvas/components/canvas-media-node";
 import { CanvasImageParams } from "@/features/canvas/components/canvas-image-params";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
 import { PromptTemplateLibrary } from "@/features/canvas/components/canvas-prompt-template-library";
+import { CopyActionButton } from "@/shared/components/copy-action";
 import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
 import {
+  type GraphConnectionSummary,
+  type GraphNodeInputSummary,
   type GraphPortID,
   graphNodePorts,
   isGraphPortCompatibleTarget,
 } from "@/features/canvas/model/canvas-graph";
 import {
+  GENERATE_CONNECTION_ROW_HEIGHT,
+  type CanvasMediaKind,
   type GenerateGraphNode,
   type GraphNode,
   type GraphNodeUpdate,
@@ -106,12 +111,17 @@ export function canvasImageDragPayload(event: React.DragEvent): CanvasImageDragP
 }
 
 // 指向当前节点的连线端口高亮：拖拽连线时提示可落点
-function useCompatiblePort(node: GraphNode, connecting: { kind: string; port: GraphPortID } | null): boolean {
+function useCompatiblePort(
+  node: GraphNode,
+  connecting: { kind: string; port: GraphPortID; mediaKind?: CanvasMediaKind } | null,
+): boolean {
+  // 端口布局按媒体类型取（视频生成节点含参考视频 / 参考音频入端口）
+  const mediaType = node.kind === "generate" || node.kind === "output" ? node.mediaType : undefined;
   return React.useMemo(() => {
     if (!connecting) {
       return false;
     }
-    const ports = graphNodePorts(node.kind);
+    const ports = graphNodePorts(node.kind, mediaType);
     return ports.some(
       (port) =>
         port.direction === "in" &&
@@ -119,9 +129,10 @@ function useCompatiblePort(node: GraphNode, connecting: { kind: string; port: Gr
           connecting.kind as GraphNode["kind"],
           node.kind,
           port.id,
+          connecting.mediaKind,
         ),
     );
-  }, [connecting, node.kind]);
+  }, [connecting, mediaType, node.kind]);
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +440,86 @@ function ImageGraphNodeView({
 // ---------------------------------------------------------------------------
 // 生成节点：模型选择、参数配置、运行状态与结果预览
 // ---------------------------------------------------------------------------
+// 上游清单行：端口名按类型独立编号（参考视频1 / 参考视频2），随后是已连接节点名。
+// 未连接的端口也占一行（不带编号），新用户据此知道每个连接点该连什么
+function GenerateConnectionRow({ port, connection, index }: {
+  port: GraphPortID;
+  connection: GraphConnectionSummary | null;
+  index: number;
+}) {
+  const t = useTranslations("canvas");
+  const portLabel = port === "prompt"
+    ? t("nodeKindPrompt")
+    : port === "image"
+      ? t("nodeKindImage")
+      : port === "video"
+        ? t("nodeKindMediaVideo")
+        : t("nodeKindMediaAudio");
+  return (
+    <li
+      style={{ height: GENERATE_CONNECTION_ROW_HEIGHT }}
+      className="flex items-center gap-1.5 px-1 text-[10px]"
+    >
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          connection ? GRAPH_NODE_ACCENTS[connection.kind].dot : "bg-muted-foreground/30",
+        )}
+        aria-hidden="true"
+      />
+      <span className={cn("shrink-0 tabular-nums", connection ? "text-muted-foreground/70" : "text-muted-foreground/45")}>
+        {connection ? `${portLabel}${index}` : portLabel}
+      </span>
+      <span className={cn("min-w-0 flex-1 truncate", connection ? "text-foreground/75" : "text-muted-foreground/45")}>
+        {connection ? connection.label : t("inputPortEmpty")}
+      </span>
+    </li>
+  );
+}
+
+// 错误原始响应：可折叠的脱敏上游详情（含 HTTP 状态与上游正文），附复制按钮便于用户反馈排障
+function ErrorDetailPanel({ detail }: { detail: string }) {
+  const t = useTranslations("canvas");
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-center gap-1">
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpen((current) => !current);
+          }}
+        >
+          <ChevronDown className={cn("size-3 transition-transform", open && "rotate-180")} strokeWidth={1.8} />
+          {t("nodeErrorRawResponse")}
+        </button>
+        <CopyActionButton
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-5 text-muted-foreground/80 hover:text-foreground"
+          value={detail}
+          aria-label={t("nodeCopyError")}
+          title={t("nodeCopyError")}
+          messages={{ copied: t("copyErrorSuccess"), failed: t("copyPromptFailed") }}
+          copyIcon={<Copy className="size-3" strokeWidth={1.8} />}
+        />
+      </div>
+      {open ? (
+        <pre
+          data-canvas-selectable
+          className="mt-1 max-h-28 w-full overflow-auto rounded-md bg-muted/60 p-1.5 text-left font-mono text-[9px] leading-relaxed whitespace-pre-wrap break-words text-muted-foreground select-text"
+        >
+          {detail}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
 function GenerateGraphNodeView({
   node,
   selected,
@@ -441,12 +532,11 @@ function GenerateGraphNodeView({
   selected: boolean;
   compatible: boolean;
   imageModels: CanvasModelOption[];
-  inputSummary: { prompts: number; references: number };
+  inputSummary: GraphNodeInputSummary;
   handlers: GraphNodeActionHandlers;
 }) {
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
-  const [detailOpen, setDetailOpen] = React.useState(false);
   const mediaType = node.mediaType ?? "image";
   const isVideo = mediaType === "video";
   // 按节点媒体类型过滤可选模型：视频节点只列视频模型，图像节点只列图像模型
@@ -474,6 +564,8 @@ function GenerateGraphNodeView({
     <GraphNodeShell
       nodeID={node.id}
       kind="generate"
+      mediaType={mediaType}
+      portRowCounts={node.portRowCounts}
       title={isVideo ? t("nodeKindGenerateVideo") : t("nodeKindGenerate")}
       icon={isVideo
         ? <Clapperboard className="size-3.5 shrink-0 text-violet-500" strokeWidth={1.8} />
@@ -487,26 +579,6 @@ function GenerateGraphNodeView({
       removeLabel={t("nodeDelete")}
     >
       <div className="flex h-full flex-col gap-2 p-2.5">
-        {/* 上游输入摘要 */}
-        <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span
-            className={cn(
-              "rounded-sm px-1.5 py-0.5 font-medium",
-              inputSummary.prompts > 0 ? "bg-violet-500/10 text-violet-600 dark:text-violet-300" : "bg-muted text-muted-foreground/60",
-            )}
-          >
-            {t("inputPromptCount", { count: inputSummary.prompts })}
-          </span>
-          <span
-            className={cn(
-              "rounded-sm px-1.5 py-0.5 font-medium",
-              inputSummary.references > 0 ? "bg-sky-500/10 text-sky-600 dark:text-sky-300" : "bg-muted text-muted-foreground/60",
-            )}
-          >
-            {t("inputReferenceCount", { count: inputSummary.references })}
-          </span>
-        </div>
-
         {/* 模型与参数 */}
         <div data-canvas-selectable className="shrink-0 space-y-1.5">
           <CanvasModelSelect
@@ -535,9 +607,11 @@ function GenerateGraphNodeView({
           />
         </div>
 
-        {/* 运行状态区：任务创建即转交输出节点，等待/进度在输出节点上呈现；
+        {/* 生成区：上游连接清单 + 运行状态。清单按连接顺序编号，与左侧入端口对应；
+            任务创建即转交输出节点，等待/进度在输出节点上呈现，
             兼容旧数据的生成节点运行态仍在此展示 */}
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border/50 bg-muted/25">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-muted/25">
+          <div className="relative min-h-0 flex-1">
           {legacyRunning ? (
             node.previewURL ? (
               <>
@@ -610,46 +684,33 @@ function GenerateGraphNodeView({
                   </button>
                 </>
               )}
-              {node.errorDetail ? (
-                <div className="w-full">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setDetailOpen((current) => !current);
-                    }}
-                  >
-                    <ChevronDown className={cn("size-3 transition-transform", detailOpen && "rotate-180")} strokeWidth={1.8} />
-                    {t("nodeErrorRawResponse")}
-                  </button>
-                  {detailOpen ? (
-                    <pre
-                      data-canvas-selectable
-                      className="mt-1 max-h-28 w-full overflow-auto rounded-md bg-muted/60 p-1.5 text-left font-mono text-[9px] leading-relaxed whitespace-pre-wrap break-words text-muted-foreground select-text"
-                    >
-                      {node.errorDetail}
-                    </pre>
-                  ) : null}
-                </div>
-              ) : null}
+              {node.errorDetail ? <ErrorDetailPanel detail={node.errorDetail} /> : null}
             </div>
           ) : (
-            <div className="flex size-full items-center justify-center gap-1.5 text-muted-foreground/50">
-              {isVideo ? (
-                <>
-                  <Clapperboard className="size-4" strokeWidth={1.6} />
-                  <span className="text-[11px]">{t("generateNodeIdleHintVideo")}</span>
-                </>
-              ) : (
-                <>
-                  <Images className="size-4" strokeWidth={1.6} />
-                  <span className="text-[11px]">{t("generateNodeIdleHint")}</span>
-                </>
+            // 空闲态即上游连接描述：逐行列出每个入端口连什么、当前连了谁
+            <ul className="flex size-full min-h-0 flex-col justify-start px-1.5">
+              {inputSummary.ports.flatMap((row) =>
+                row.connections.length > 0
+                  ? row.connections.map((connection, index) => (
+                    <GenerateConnectionRow
+                      key={`${row.port}-${connection.id}`}
+                      port={row.port}
+                      connection={connection}
+                      index={index + 1}
+                    />
+                  ))
+                  : [
+                    <GenerateConnectionRow
+                      key={row.port}
+                      port={row.port}
+                      connection={null}
+                      index={0}
+                    />,
+                  ],
               )}
-            </div>
+            </ul>
           )}
+          </div>
         </div>
 
         {/* 运行按钮：生成节点不继承输出节点的运行状态，可连续点击发起多次生成；
@@ -709,7 +770,6 @@ function OutputGraphNodeView({
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
   const [imageLoaded, setImageLoaded] = React.useState(false);
-  const [detailOpen, setDetailOpen] = React.useState(false);
   const isVideo = (node.mediaType ?? (node.mimeType?.startsWith("video/") ? "video" : "image")) === "video";
   // 运行中任务的取消目标：运行控制器按 runID 登记（并发多次生成互不影响）
   const cancelTargetID = node.status === "running" ? node.runID ?? node.sourceGenerateID ?? null : null;
@@ -761,19 +821,37 @@ function OutputGraphNodeView({
                     {node.statusLabel || t("nodePreparing")}
                   </span>
                   {cancelTargetID ? (
-                    <button
-                      type="button"
-                      data-canvas-selectable
-                      aria-label={t("nodeCancel")}
-                      className="shrink-0 rounded-sm px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handlers.onCancelNode(cancelTargetID);
-                      }}
-                    >
-                      {t("nodeCancel")}
-                    </button>
+                    <span className="flex shrink-0 items-center gap-1">
+                      {/* 未完成的任务允许手动重查进度：上游可能已产出结果而当前流尚未收到 */}
+                      {isVideo ? (
+                        <button
+                          type="button"
+                          data-canvas-selectable
+                          aria-label={t("nodeRequery")}
+                          className="rounded-sm px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handlers.onRequeryOutputNode(node.id);
+                          }}
+                        >
+                          {t("nodeRequery")}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        data-canvas-selectable
+                        aria-label={t("nodeCancel")}
+                        className="shrink-0 rounded-sm px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handlers.onCancelNode(cancelTargetID);
+                        }}
+                      >
+                        {t("nodeCancel")}
+                      </button>
+                    </span>
                   ) : null}
                 </div>
               </>
@@ -801,21 +879,39 @@ function OutputGraphNodeView({
                     </span>
                   </div>
                 ) : null}
-                {cancelTargetID ? (
-                  <button
-                    type="button"
-                    data-canvas-selectable
-                    className="pointer-events-auto relative inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handlers.onCancelNode(cancelTargetID);
-                    }}
-                  >
-                    <Square className="size-3" strokeWidth={1.8} />
-                    {t("nodeCancel")}
-                  </button>
-                ) : null}
+                <div className="relative flex items-center gap-1.5">
+                  {/* 未完成的任务允许手动重查进度：上游可能已产出结果而当前流尚未收到 */}
+                  {isVideo ? (
+                    <button
+                      type="button"
+                      data-canvas-selectable
+                      className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handlers.onRequeryOutputNode(node.id);
+                      }}
+                    >
+                      <Search className="size-3" strokeWidth={1.8} />
+                      {t("nodeRequery")}
+                    </button>
+                  ) : null}
+                  {cancelTargetID ? (
+                    <button
+                      type="button"
+                      data-canvas-selectable
+                      className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handlers.onCancelNode(cancelTargetID);
+                      }}
+                    >
+                      <Square className="size-3" strokeWidth={1.8} />
+                      {t("nodeCancel")}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             )
           ) : node.status === "error" && node.pendingRetry ? (
@@ -885,30 +981,7 @@ function OutputGraphNodeView({
                   ) : null}
                 </>
               )}
-              {node.errorDetail ? (
-                <div className="w-full">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setDetailOpen((current) => !current);
-                    }}
-                  >
-                    <ChevronDown className={cn("size-3 transition-transform", detailOpen && "rotate-180")} strokeWidth={1.8} />
-                    {t("nodeErrorRawResponse")}
-                  </button>
-                  {detailOpen ? (
-                    <pre
-                      data-canvas-selectable
-                      className="mt-1 max-h-28 w-full overflow-auto rounded-md bg-muted/60 p-1.5 text-left font-mono text-[9px] leading-relaxed whitespace-pre-wrap break-words text-muted-foreground select-text"
-                    >
-                      {node.errorDetail}
-                    </pre>
-                  ) : null}
-                </div>
-              ) : null}
+              {node.errorDetail ? <ErrorDetailPanel detail={node.errorDetail} /> : null}
             </div>
           ) : node.status === "done" && isVideo && displaySource ? (
             <>
@@ -1066,9 +1139,9 @@ export function GraphNodeView({
 }: {
   node: GraphNode;
   selected: boolean;
-  connecting: { kind: string; port: GraphPortID } | null;
+  connecting: { kind: string; port: GraphPortID; mediaKind?: CanvasMediaKind } | null;
   imageModels: CanvasModelOption[];
-  inputSummary: { prompts: number; references: number };
+  inputSummary: GraphNodeInputSummary;
   handlers: GraphNodeActionHandlers;
 }) {
   const compatible = useCompatiblePort(node, connecting);
@@ -1090,7 +1163,7 @@ export function GraphNodeView({
       );
     case "output":
       return <OutputGraphNodeView node={node} selected={selected} compatible={compatible} handlers={handlers} />;
-    case "html":
-      return <HtmlGraphNodeView node={node} selected={selected} compatible={compatible} handlers={handlers} />;
+    case "media":
+      return <MediaGraphNodeView node={node} selected={selected} compatible={compatible} handlers={handlers} />;
   }
 }

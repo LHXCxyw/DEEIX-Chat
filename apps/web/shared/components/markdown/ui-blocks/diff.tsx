@@ -180,7 +180,7 @@ function LineText({ row }: { row: Row }) {
   );
 }
 
-function Diff({ id, props }: UIBlockRenderProps<DiffProps>) {
+export function Diff({ id, props }: UIBlockRenderProps<DiffProps>) {
   const t = useTranslations("chat.markdown.uiBlock");
   const [expanded, setExpanded] = React.useState(false);
   const [split, setSplit] = React.useState(false);

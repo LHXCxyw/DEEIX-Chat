@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/traceid"
@@ -15,6 +16,33 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"go.uber.org/zap"
 )
+
+// buildMediaRunRoute 为已提交的媒体任务重建路由。
+// 平台上游按上游 ID 定点重建：回查必须回到原上游，不能负载均衡到别的渠道。
+// 个人模型路由不带平台上游 ID，此时按生成时同口径（模型名 + 用户作用域）重新解析；
+// 个人模型只有一条路由（见 personalprovider.RouteResolver），不会选到别的上游。
+func (s *Service) buildMediaRunRoute(ctx context.Context, run *model.Run, userID uint) (*channel.ResolvedRoute, error) {
+	if run == nil {
+		return nil, ErrModelRouteNotConfigured
+	}
+	if run.UpstreamID != 0 {
+		return s.routeResolver.BuildRouteForUpstream(ctx, run.UpstreamID, run.ProviderProtocol, run.UpstreamModelName)
+	}
+	platformModelName := strings.TrimSpace(run.RequestedModelName)
+	if platformModelName == "" {
+		platformModelName = strings.TrimSpace(run.PlatformModelName)
+	}
+	if platformModelName == "" {
+		return nil, ErrMediaRequeryUnavailable
+	}
+	return s.routeResolver.ResolveRoute(ctx, channel.ResolveRouteInput{
+		PlatformModelName: platformModelName,
+		TaskType:          strings.TrimSpace(run.TaskType),
+		Scope:             channel.RouteScopeUser,
+		UserID:            userID,
+		ConversationID:    run.ConversationID,
+	})
+}
 
 // 任务重查：异步媒体任务（视频生成）在 DEEIX 侧报错后，上游任务可能仍在执行并成功。
 // 重查按 run 上记录的上游任务 ID 定点回原上游查询，completed 时回收产物：
@@ -47,13 +75,16 @@ type MediaVideoRequeryResult struct {
 	Message     string                        `json:"message,omitempty"`
 	RunID       string                        `json:"runID"`
 	Attachments []MediaVideoRequeryAttachment `json:"attachments,omitempty"`
+	// Progress 是上游上报的进度百分比；-1 表示上游未提供，客户端应显示不确定态。
+	Progress int `json:"progress"`
 }
 
 // requeryableVideoProtocols 支持任务重查的协议：具备异步任务 ID 的视频协议。
-// sync 基底仅实现 xAI 视频协议族，故只登记两者。
+// sync 基底仅实现 xAI 视频协议族与 OpenAI Sora 兼容视频协议。
 var requeryableVideoProtocols = map[string]struct{}{
 	llm.AdapterXAIVideo:           {},
 	llm.AdapterXAIVideoExtensions: {},
+	llm.AdapterOpenAIVideo:        {},
 }
 
 // RequeryMediaVideoRun 对失败的视频生成运行执行一次上游任务重查。
@@ -74,23 +105,22 @@ func (s *Service) RequeryMediaVideoRun(ctx context.Context, userID uint, runID s
 		return nil, err
 	}
 	if run.TaskType != string(MediaVideoTaskGeneration) {
-		return nil, ErrMediaRouteProtocolMismatch
+		return nil, withRunContext(ErrMediaRouteProtocolMismatch, run)
 	}
 	adapter := llm.NormalizeAdapter(run.ProviderProtocol)
 	if _, ok := requeryableVideoProtocols[adapter]; !ok {
-		return nil, ErrMediaRouteProtocolMismatch
+		return nil, withRunContext(ErrMediaRouteProtocolMismatch, run)
 	}
 	if strings.TrimSpace(run.UpstreamTaskID) == "" {
 		// 上游任务从未提交成功（如提交即被拒），没有可回查的对象
-		return nil, ErrMediaVideoInputInvalid
+		return nil, withRunContext(ErrMediaRequeryUnavailable, run)
 	}
-	if run.Status == "success" {
-		return nil, ErrMediaVideoInputInvalid
-	}
+	// 运行状态为 success 时同样允许重查：上游生成成功但产物未能落盘时，运行会被记为 success
+	// 并把保存职责移交输出节点，此时重查正是唯一的回收路径；产物已落盘时重查只会重新下载一次。
 
-	route, err := s.routeResolver.BuildRouteForUpstream(ctx, run.UpstreamID, run.ProviderProtocol, run.UpstreamModelName)
+	route, err := s.buildMediaRunRoute(ctx, run, userID)
 	if err != nil {
-		return nil, mapRouteResolutionError(err)
+		return nil, withRunContext(mapRouteResolutionError(err), run)
 	}
 	routeConfig := llm.RouteConfig{
 		Protocol:         route.Protocol,
@@ -110,15 +140,17 @@ func (s *Service) RequeryMediaVideoRun(ctx context.Context, userID uint, runID s
 	switch retrieval.Status {
 	case "pending":
 		return &MediaVideoRequeryResult{
-			Status:  MediaVideoRequeryPending,
-			RunID:   run.RunID,
-			Message: retrieval.Message,
+			Status:   MediaVideoRequeryPending,
+			RunID:    run.RunID,
+			Message:  retrieval.Message,
+			Progress: retrieval.Progress,
 		}, nil
 	case "failed":
 		return &MediaVideoRequeryResult{
-			Status:  MediaVideoRequeryFailed,
-			RunID:   run.RunID,
-			Message: retrieval.Message,
+			Status:   MediaVideoRequeryFailed,
+			RunID:    run.RunID,
+			Message:  retrieval.Message,
+			Progress: -1,
 		}, nil
 	}
 

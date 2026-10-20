@@ -16,6 +16,9 @@ import (
 )
 
 type selectedToolRuntime struct {
+	conversationID      uint
+	workspaceID         uint
+	agentPermissions    AgentPermissions
 	definitions         []llm.ToolDefinition
 	nameMap             map[string]string
 	mcpBindings         map[string]mcpToolCallBinding
@@ -54,7 +57,9 @@ func addProjectToolDefinitions(runtime *selectedToolRuntime) {
 		{Name: "project_write_file", Description: "创建或完整覆盖当前项目文件。用户要求创建、生成、保存或覆盖项目文件时必须调用；仅在回复中给出代码块、补丁或声称已完成不等于文件写入。路径已存在时会覆盖并递增版本。", InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"项目内相对路径，不得为绝对路径或包含上级目录穿越"},"content":{"type":"string","description":"要写入的完整文件内容"}},"required":["path","content"]}`)},
 		{Name: "project_patch_file", Description: "像 IDE 一样对已有项目文件做片段编辑：提供文件中唯一且连续的原始片段 old 与替换文本 new，或多处修改时用 patches 数组一次提交多个片段（全部成功才写入，任一 old 未命中则整体失败并提示片段序号）。用户要求编辑、修复或更新已有文件时优先使用本工具，不要用 project_write_file 重写整个文件。调用前必须实际读取目标文件，回复中的 diff 不能替代修改。", InputSchema: json.RawMessage(`{"type":"object","properties":{"file":{"type":"string","description":"文件 public_id 或项目内相对路径"},"old":{"type":"string","description":"单片段模式：文件中唯一且连续的原始文本"},"new":{"type":"string","description":"单片段模式：替换后的文本"},"patches":{"type":"array","description":"多片段模式：一次提交多处修改，全部命中才写入","items":{"type":"object","properties":{"old":{"type":"string","description":"文件中唯一且连续的原始文本"},"new":{"type":"string","description":"替换后的文本"}},"required":["old","new"]}}},"required":["file"]}`)},
 		{Name: "project_delete_file", Description: "删除当前项目文件。用户要求删除项目文件时必须调用；口头确认、空内容覆盖或建议用户自行删除均不能替代此工具。", InputSchema: json.RawMessage(`{"type":"object","properties":{"file":{"type":"string","description":"文件 public_id 或项目内相对路径"}},"required":["file"]}`)},
-		{Name: "project_create_archive", Description: "创建当前项目 ZIP 归档。归档通过界面的下载按钮交付给用户，调用成功后只需说明归档已生成；严禁输出任何下载 URL、链接或路径，直接链接因需要鉴权而无法访问。", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+		{Name: "project_create_archive", Description: "创建当前项目的固定版本 ZIP，默认排除秘密文件及依赖缓存。成功后归档保存为当前助手消息附件，可通过消息附件下载；后续项目编辑不会改变该附件。严禁输出下载 URL、链接或路径。", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+		{Name: "project_show_diff", Description: "在界面中以 diff 卡片内联展示某个项目文件的变更对比。需要向用户直观呈现某文件的修改前后差异、或需要把补丁效果可视化时调用；只做展示，不写入文件，真正的修改仍必须用 project_write_file 或 project_patch_file。", InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"项目内相对路径，用于标识该 diff 对应的文件"},"before":{"type":"string","description":"修改前的内容"},"after":{"type":"string","description":"修改后的内容"},"title":{"type":"string","description":"可选的展示标题"}},"required":["path"]}`)},
+		{Name: "project_preview", Description: "在界面沙箱中运行当前项目的 HTML/SVG 页面以验证渲染效果。需要确认页面能否正常显示、检查运行时报错或调试 Web 效果时调用。调用只校验入口文件是否存在并返回结构化信息，真正的运行、console 与错误捕获由前端沙箱完成；捕获到的运行信息会在下一轮以工具结果形式回传，可据此迭代修复。", InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"可选的入口文件相对路径（HTML/SVG），缺省时自动回退到 index.html 等常见入口"}}}`)},
 	}
 	for _, definition := range definitions {
 		runtime.definitions = append(runtime.definitions, definition)
@@ -67,6 +72,7 @@ func (r selectedToolRuntime) withoutProjectTools() selectedToolRuntime {
 	projectNames := map[string]struct{}{
 		"project_list_files": {}, "project_read_file": {}, "project_search_files": {},
 		"project_write_file": {}, "project_patch_file": {}, "project_delete_file": {}, "project_create_archive": {},
+		"project_show_diff": {}, "project_preview": {},
 	}
 	definitions := make([]llm.ToolDefinition, 0, len(r.definitions))
 	for _, definition := range r.definitions {
@@ -86,7 +92,7 @@ func (r selectedToolRuntime) withoutProjectTools() selectedToolRuntime {
 func hasProjectToolDefinitions(runtime selectedToolRuntime) bool {
 	for _, definition := range runtime.definitions {
 		switch definition.Name {
-		case "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive":
+		case "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive", "project_show_diff", "project_preview":
 			return true
 		}
 	}
@@ -154,11 +160,15 @@ func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint
 	}
 
 	cfg := s.cfg.Snapshot()
-	result.definitions = make([]llm.ToolDefinition, 0, len(tools)+7)
+	result.definitions = make([]llm.ToolDefinition, 0, len(tools)+8)
 	addProjectToolDefinitions(&result)
 	usedNames := map[string]int{
-		"project_list_files": 1, "project_read_file": 1, "project_search_files": 1,
+		"workspace_run_command":     1,
+		"project_browser_run":       1,
+		"project_render_screenshot": 1,
+		"project_list_files":        1, "project_read_file": 1, "project_search_files": 1,
 		"project_write_file": 1, "project_patch_file": 1, "project_delete_file": 1, "project_create_archive": 1,
+		"project_show_diff": 1, "project_preview": 1,
 	}
 	serverCache := map[uint]*domainmcp.Server{}
 	for _, tool := range tools {

@@ -8,9 +8,13 @@ import { toast } from "sonner";
 import { type GraphNodeActionHandlers, GraphNodeView } from "@/features/canvas/components/canvas-graph-nodes";
 import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
 import {
+  type GraphConnectionSummary,
+  type GraphNodeInputSummary,
   type GraphPortID,
+  graphConnectionLabel,
   graphEdgeMidpoint,
   graphEdgePath,
+  graphNodePorts,
   graphPortCanvasPosition,
 } from "@/features/canvas/model/canvas-graph";
 import {
@@ -24,6 +28,8 @@ import {
 import { zoomViewportAt } from "@/features/canvas/model/canvas-persist";
 import type {
   CanvasDecoration,
+  CanvasMediaKind,
+  CanvasMediaType,
   CanvasPointerMode,
   GraphEdge,
   GraphNode,
@@ -73,6 +79,10 @@ type ConnectionDragState = {
   fromPort: GraphPortID;
   fromDirection: "in" | "out";
   fromKind: GraphNodeKind;
+  // 来源为媒体节点时的素材类型：参考视频 / 参考音频入端口的落点高亮依赖该值
+  fromMediaKind?: CanvasMediaKind;
+  // 来源为生成节点时的媒体类型：拖到空白处据此创建对应媒体类型的输出节点
+  fromMediaType?: CanvasMediaType;
   pointer: { x: number; y: number };
 };
 
@@ -177,6 +187,7 @@ export function CanvasViewport({
   onRequeryOutputNode,
   onRetryOutputSave,
   onConnectNodes,
+  onDropConnection,
   onRemoveEdge,
   onPreviewNode,
   onDownloadNode,
@@ -218,6 +229,18 @@ export function CanvasViewport({
   onRequeryOutputNode: (nodeID: string) => void;
   onRetryOutputSave: (nodeID: string) => void;
   onConnectNodes: (attempt: { fromNodeID: string; fromPort: "out"; toNodeID: string; toPort: "prompt" | "image" | "result" }) => boolean;
+  // 连线拖到空白处：按起拖端口自动创建匹配类型的节点并立即连线
+  onDropConnection: (
+    drag: {
+      fromNodeID: string;
+      fromPort: GraphPortID;
+      fromDirection: "in" | "out";
+      fromKind: GraphNodeKind;
+      fromMediaKind?: CanvasMediaKind;
+      fromMediaType?: CanvasMediaType;
+    },
+    point: { x: number; y: number },
+  ) => void;
   onRemoveEdge: (edgeID: string) => void;
   onPreviewNode: (node: OutputGraphNode) => void;
   onDownloadNode: (node: OutputGraphNode) => void;
@@ -469,6 +492,9 @@ export function CanvasViewport({
         fromPort: portID,
         fromDirection: direction,
         fromKind: node.kind,
+        fromMediaKind: node.kind === "media" ? node.mediaKind : undefined,
+        // 生成节点与输出节点都携带媒体类型：前者决定输出节点的类型，后者决定回灌的参考端口
+        fromMediaType: node.kind === "generate" || node.kind === "output" ? node.mediaType : undefined,
         pointer,
       };
       connectionDragRef.current = drag;
@@ -489,6 +515,8 @@ export function CanvasViewport({
       const element = document.elementFromPoint(clientX, clientY);
       const portElement = element?.closest("[data-graph-port]") as HTMLElement | null;
       if (!portElement) {
+        // 松开在空白处：按起拖端口自动补一个匹配类型的节点并连线
+        onDropConnection(drag, toCanvasPoint(clientX, clientY));
         return;
       }
       const direction = portElement.dataset.graphPort;
@@ -516,7 +544,7 @@ export function CanvasViewport({
       }
       onConnectNodes(attempt);
     },
-    [onConnectNodes],
+    [onConnectNodes, onDropConnection, toCanvasPoint],
   );
 
   const handlePointerDown = React.useCallback(
@@ -959,23 +987,37 @@ export function CanvasViewport({
     });
   }, [edges, presentableNodes, visibleNodeIDs]);
 
-  // 各生成节点的上游输入摘要（连线计数，用于节点内徽标显示）
+  // 各生成节点的上游输入：按其全部入端口展开（含未连接的端口），
+  // 供节点内逐行展示「这个点连什么、当前连了谁」
   const inputSummaries = React.useMemo(() => {
-    const summaries = new Map<string, { prompts: number; references: number }>();
+    const grouped = new Map<string, Map<GraphPortID, GraphConnectionSummary[]>>();
+    const nodeByID = new Map(nodes.map((node) => [node.id, node]));
     for (const edge of edges) {
-      if (edge.toPort !== "prompt" && edge.toPort !== "image") {
+      const source = nodeByID.get(edge.fromNodeID);
+      const perPort = grouped.get(edge.toNodeID) ?? new Map<GraphPortID, GraphConnectionSummary[]>();
+      const list = perPort.get(edge.toPort) ?? [];
+      list.push({
+        id: edge.fromNodeID,
+        kind: source?.kind ?? "prompt",
+        port: edge.toPort,
+        label: source ? graphConnectionLabel(source, t("assetUntitled")) : t("assetUntitled"),
+      });
+      perPort.set(edge.toPort, list);
+      grouped.set(edge.toNodeID, perPort);
+    }
+    const summaries = new Map<string, GraphNodeInputSummary>();
+    for (const node of nodes) {
+      if (node.kind !== "generate") {
         continue;
       }
-      const summary = summaries.get(edge.toNodeID) ?? { prompts: 0, references: 0 };
-      if (edge.toPort === "prompt") {
-        summary.prompts += 1;
-      } else {
-        summary.references += 1;
-      }
-      summaries.set(edge.toNodeID, summary);
+      const perPort = grouped.get(node.id);
+      const ports = graphNodePorts("generate", node.mediaType ?? "image")
+        .filter((port) => port.direction === "in")
+        .map((port) => ({ port: port.id, connections: perPort?.get(port.id) ?? [] }));
+      summaries.set(node.id, { ports });
     }
     return summaries;
-  }, [edges]);
+  }, [edges, nodes, t]);
 
   // 连线拖拽中的临时路径：源端口 -> 指针位置
   const connectionDragPath = React.useMemo(() => {
@@ -1337,9 +1379,11 @@ export function CanvasViewport({
             <GraphNodeView
               node={node}
               selected={selectedSet.has(node.id)}
-              connecting={connectionDrag ? { kind: connectionDrag.fromKind, port: connectionDrag.fromPort } : null}
+              connecting={connectionDrag
+                ? { kind: connectionDrag.fromKind, port: connectionDrag.fromPort, mediaKind: connectionDrag.fromMediaKind }
+                : null}
               imageModels={imageModels}
-              inputSummary={inputSummaries.get(node.id) ?? { prompts: 0, references: 0 }}
+              inputSummary={inputSummaries.get(node.id) ?? { ports: [] }}
               handlers={nodeHandlers}
             />
           </motion.div>

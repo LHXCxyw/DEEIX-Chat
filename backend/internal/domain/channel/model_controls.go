@@ -539,8 +539,8 @@ func validateModelControlPath(path string) error {
 // ---------------------------------------------------------------------------
 
 // ResolveModelControls 汇总模型在可用协议上的生效控件，顺序为：思考强度（可被显式条目重新定位）、
-// 显式 controls、由旧版 optionControls 编译的控件。reasoning 为已解析的推理能力（可为 nil），
-// reasoningSource 为其来源；目录来源的思考强度控件带「自动」档并默认选中。
+// 显式 controls、由旧版 optionControls 编译的控件、按协议补缺的常用参数控件。reasoning 为已解析的推理能力
+// （可为 nil），reasoningSource 为其来源；目录来源的思考强度控件带「自动」档并默认选中。
 func ResolveModelControls(capabilitiesJSON string, protocolKeys []string, reasoning *ReasoningCapability, reasoningSource string) []ModelControl {
 	payload, _ := parseCapabilities(capabilitiesJSON)
 	explicit, err := parseExplicitModelControls(payload)
@@ -596,7 +596,144 @@ func ResolveModelControls(capabilitiesJSON string, protocolKeys []string, reason
 		covered[control.ID] = struct{}{}
 		controls = append(controls, control)
 	}
+	// 按协议补缺的常用参数控件：管理员显式声明（含旧版编译）的同 id 控件优先，只补未声明项。
+	for _, control := range synthesizeProtocolChatControls(protocolKeys, hasReasoning) {
+		if _, skip := covered[control.ID]; skip {
+			continue
+		}
+		covered[control.ID] = struct{}{}
+		controls = append(controls, control)
+	}
 	return controls
+}
+
+// ---------------------------------------------------------------------------
+// 协议预设聊天控件
+// ---------------------------------------------------------------------------
+
+// protocolChatControl 是一个按协议补缺的常用参数控件描述：id 即参数路径，number 写入该路径，
+// select 的候选项把所选值写入该路径。
+type protocolChatControl struct {
+	id      string
+	kind    string
+	options []string
+}
+
+// geminiProtocolChatControls 是 Gemini 系（generate content / interactions）的常用参数。
+var geminiProtocolChatControls = []protocolChatControl{
+	{id: "generationConfig.temperature", kind: ModelControlTypeNumber},
+	{id: "generationConfig.topP", kind: ModelControlTypeNumber},
+	{id: "generationConfig.topK", kind: ModelControlTypeNumber},
+	{id: "generationConfig.maxOutputTokens", kind: ModelControlTypeNumber},
+	{id: "generationConfig.responseMimeType", kind: ModelControlTypeSelect, options: []string{"text/plain", "application/json", "text/x.enum"}},
+	{id: "generationConfig.thinkingConfig.thinkingBudget", kind: ModelControlTypeNumber},
+	{id: "generationConfig.thinkingConfig.thinkingLevel", kind: ModelControlTypeSelect, options: []string{"low", "medium", "high"}},
+}
+
+// responsesProtocolChatControls 是 OpenAI Responses 系（openai / xai）的常用参数。
+var responsesProtocolChatControls = []protocolChatControl{
+	{id: "temperature", kind: ModelControlTypeNumber},
+	{id: "top_p", kind: ModelControlTypeNumber},
+	{id: "max_output_tokens", kind: ModelControlTypeNumber},
+	{id: "reasoning.effort", kind: ModelControlTypeSelect, options: []string{"low", "medium", "high"}},
+	{id: "text.format.type", kind: ModelControlTypeSelect, options: []string{"json_object", "json_schema", "text"}},
+}
+
+// protocolChatControlsByProtocol 按协议列出经官方文档核实的常用参数，作为管理员未声明控件时的补缺来源。
+// 参数路径、类型与候选项与前端 apps/web/features/chat/model/chat-option-controls.ts 的 PROTOCOL_CHAT_CONTROLS
+// 保持一致；后端推理协议键为 gemini_generate_content，google_generate_content 是路由层原始写法，一并兼容。
+var protocolChatControlsByProtocol = map[string][]protocolChatControl{
+	ReasoningProtocolOpenAIChat: {
+		{id: "temperature", kind: ModelControlTypeNumber},
+		{id: "top_p", kind: ModelControlTypeNumber},
+		{id: "max_completion_tokens", kind: ModelControlTypeNumber},
+		{id: "reasoning_effort", kind: ModelControlTypeSelect, options: []string{"minimal", "low", "medium", "high", "xhigh"}},
+		{id: "response_format", kind: ModelControlTypeSelect, options: []string{"json_object", "json_schema", "text"}},
+	},
+	ReasoningProtocolOpenRouterChat: {
+		{id: "temperature", kind: ModelControlTypeNumber},
+		{id: "top_p", kind: ModelControlTypeNumber},
+		{id: "max_completion_tokens", kind: ModelControlTypeNumber},
+		{id: "reasoning_effort", kind: ModelControlTypeSelect, options: []string{"minimal", "low", "medium", "high", "xhigh"}},
+		{id: "response_format", kind: ModelControlTypeSelect, options: []string{"json_object", "json_schema", "text"}},
+		{id: "top_k", kind: ModelControlTypeNumber},
+	},
+	ReasoningProtocolOpenAIResponses: responsesProtocolChatControls,
+	ReasoningProtocolOpenRouterResponses: append(append([]protocolChatControl{}, responsesProtocolChatControls...),
+		protocolChatControl{id: "top_k", kind: ModelControlTypeNumber}),
+	ReasoningProtocolXAIResponses: responsesProtocolChatControls,
+	ReasoningProtocolAnthropic: {
+		{id: "temperature", kind: ModelControlTypeNumber},
+		{id: "top_p", kind: ModelControlTypeNumber},
+		{id: "top_k", kind: ModelControlTypeNumber},
+		{id: "max_tokens", kind: ModelControlTypeNumber},
+		{id: "thinking.type", kind: ModelControlTypeSelect, options: []string{"enabled", "adaptive", "disabled"}},
+		{id: "thinking.budget_tokens", kind: ModelControlTypeNumber},
+	},
+	ReasoningProtocolGeminiGenerate:     geminiProtocolChatControls,
+	"google_generate_content":           geminiProtocolChatControls,
+	ReasoningProtocolGeminiInteractions: geminiProtocolChatControls,
+}
+
+// reasoningPresetControlPaths 是模型具备推理能力时由统一「思考强度」控件接管的参数路径；
+// 与前端 REASONING_PRESET_PATHS 保持一致，合成时跳过以避免重复控件。
+var reasoningPresetControlPaths = map[string]struct{}{
+	"reasoning_effort":       {},
+	"reasoning.effort":       {},
+	"thinking.type":          {},
+	"thinking.budget_tokens": {},
+	"generationConfig.thinkingConfig.thinkingBudget": {},
+	"generationConfig.thinkingConfig.thinkingLevel":  {},
+}
+
+// synthesizeProtocolChatControls 按协议合成常用参数控件：id 即参数路径，默认值为空（用户未选择时不写入参数），
+// placement 收在「更多对话参数」菜单中。模型具备推理能力时跳过由「思考强度」接管的路径；
+// 跨协议按 id 去重，协议顺序优先。
+func synthesizeProtocolChatControls(protocolKeys []string, hasReasoning bool) []ModelControl {
+	if len(protocolKeys) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	controls := make([]ModelControl, 0, 8)
+	for _, protocolKey := range protocolKeys {
+		for _, spec := range protocolChatControlsByProtocol[protocolKey] {
+			if _, exists := seen[spec.id]; exists {
+				continue
+			}
+			seen[spec.id] = struct{}{}
+			if hasReasoning {
+				if _, skip := reasoningPresetControlPaths[spec.id]; skip {
+					continue
+				}
+			}
+			controls = append(controls, newProtocolChatControl(spec))
+		}
+	}
+	return controls
+}
+
+// newProtocolChatControl 把参数描述编译为无默认值的 generic 控件：number 写入声明路径；
+// select 的每个候选项把所选值写入该路径，与前端 applyOptionControlValue 的落盘规则一致。
+func newProtocolChatControl(spec protocolChatControl) ModelControl {
+	control := ModelControl{
+		ID:        spec.id,
+		Kind:      ModelControlKindGeneric,
+		Type:      spec.kind,
+		Placement: ModelControlPlacementMenu,
+	}
+	if spec.kind == ModelControlTypeNumber {
+		control.Path = spec.id
+		return control
+	}
+	segments := strings.Split(spec.id, ".")
+	control.Options = make([]ModelControlOption, 0, len(spec.options))
+	for _, value := range spec.options {
+		control.Options = append(control.Options, ModelControlOption{
+			Value: value,
+			Patch: modelControlPathPatch(segments, value),
+		})
+	}
+	return control
 }
 
 // reasoningModelControl 由推理能力生成思考强度控件。

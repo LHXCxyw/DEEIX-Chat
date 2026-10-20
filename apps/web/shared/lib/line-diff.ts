@@ -6,8 +6,8 @@ export type DiffLine = { kind: "same" | "added" | "removed"; text: string; oldNo
 const MAX_LINES = 2000;
 
 export function diffLines(before: string, after: string): DiffLine[] {
-  const a = before.split("\n");
-  const b = after.split("\n");
+  const a = before.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  const b = after.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   if (a.length > MAX_LINES || b.length > MAX_LINES) {
     return [
       ...a.map((text, index): DiffLine => ({ kind: "removed", text, oldNo: index + 1 })),
@@ -47,7 +47,7 @@ export function diffLines(before: string, after: string): DiffLine[] {
   for (; j < b.length; j += 1) {
     result.push({ kind: "added", text: b[j] ?? "", newNo: j + 1 });
   }
-  return result;
+  return result.map((line) => ({ ...line, text: line.text.replace(/\r?\n$/, "") }));
 }
 
 export type DiffSegment = { changed: boolean; text: string };

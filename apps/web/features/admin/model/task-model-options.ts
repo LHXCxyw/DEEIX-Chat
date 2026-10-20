@@ -30,6 +30,7 @@ export function buildTaskModelOptions({
         platformModelName,
         vendor: item.vendor ?? "",
         icon: item.icon ?? "",
+        vendorIcon: item.vendorIcon ?? "",
       }),
     });
   }

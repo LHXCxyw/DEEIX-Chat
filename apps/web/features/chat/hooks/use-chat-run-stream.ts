@@ -1,5 +1,6 @@
 "use client";
 
+import { loadUserSettingsSnapshot } from "@/entities/user-settings";
 import { UI_BLOCK_FORMAT_VERSION } from "@deeix/core";
 import { splitControlSelections } from "@/features/chat/model/chat-model-controls";
 import { useTranslations } from "next-intl";
@@ -23,6 +24,7 @@ import {
   streamVideoGeneration,
 } from "@/shared/api/conversation";
 import type {
+  AgentPermissions,
   ConversationOptions,
   MediaImageRequest,
   MediaVideoExtensionRequest,
@@ -99,6 +101,7 @@ export function useChatRunStream({
       selectedKnowledgeBaseIDs: string[];
       uiComponentIDs: number[];
       uiStates?: MessageUIStateInput[];
+      agentPermissions?: AgentPermissions;
       htmlVisualPromptEnabled: boolean;
       parentMessagePublicID: string | null;
       sourceMessagePublicID: string | null;
@@ -253,8 +256,11 @@ export function useChatRunStream({
       };
       let completed: SendMessageResult;
       if (submitTask === "chat") {
+        const settings = await loadUserSettingsSnapshot(token);
+        const selectedMode = settings["chat.agent_permission_mode"];
         const chatPayload: SendMessageRequest = {
           ...commonStreamPayload,
+          agent_permissions: { mode: selectedMode === "auto" || selectedMode === "full" ? selectedMode : "manual" },
           contentType: effectiveAttachments.length > 0 ? "mixed" : "text",
           content,
           controls,

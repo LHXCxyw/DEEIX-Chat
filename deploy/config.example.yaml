@@ -1,3 +1,17 @@
+# 命令隔离仅支持管理员启动环境变量，默认 disabled，不从聊天或动态设置启用：
+# AGENT_COMMAND_ENABLED=true
+# AGENT_COMMAND_IMAGE / AGENT_COMMAND_ALLOWED_IMAGES 由容器入口从本地镜像 ID 注入，
+# 不需要手填 digest；浏览器使用对应的 AGENT_PROJECT_BROWSER_* 变量。
+# 先用 deploy/services/agent-command/Dockerfile 构建 runner；基础镜像默认使用公开
+# Python 镜像，也可通过 --build-arg BASE_IMAGE=<审核过的Python Linux镜像@sha256:digest> 指定。
+# runner 固定 /usr/local/bin/python3 -I /opt/deeix/runner.py 读取stdin JSON v1，
+# --healthcheck 输出 runner=deeix-agent-command、version=1.0.0、protocol=1；
+# readiness 实际调用 Docker info/image inspect，核对本地镜像 ID、非 root 用户、
+# 固定入口、版本/协议标签与健康检查入口；不会仅凭环境变量报告可用，也不启动探针容器。
+# 离线自检与镜像元数据校验不等于实际 Docker/Linux 隔离验收。
+# 不依赖普通Python镜像自动执行stdin。需要本地Docker及Linux资源隔离支持；
+# 无网络、只读根文件系统、限额 /workspace tmpfs、drop ALL capabilities、禁止提权；
+# 无宿主挂载、无宿主环境或秘密；命令生成文件不回写工作区。
 app:
   name: DEEIX Chat
   # Required. Use prod and replace security values before public deployment.

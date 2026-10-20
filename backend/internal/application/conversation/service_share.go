@@ -56,6 +56,29 @@ type PublicSharedRunModel struct {
 	ModelIcon         string
 }
 
+// PublicSharedProjectFile 是公开分享页可读取的项目文件条目（不暴露 storage_key 等敏感字段）。
+type PublicSharedProjectFile struct {
+	PublicID     string
+	RelativePath string
+	FileName     string
+	EntryType    string
+	MimeType     string
+	SizeBytes    int64
+}
+
+// sharedProjectFileSnapshot 是分享时冻结的单个项目文件快照；
+// storage_key/version 指向不可变原件，保证文件被后续改写/删除后仍能读取当时产出内容。
+type sharedProjectFileSnapshot struct {
+	FileID       string `json:"file_id"`
+	RelativePath string `json:"relative_path"`
+	FileName     string `json:"file_name"`
+	EntryType    string `json:"entry_type"`
+	MimeType     string `json:"mime_type"`
+	StorageKey   string `json:"storage_key"`
+	Version      int    `json:"version"`
+	SizeBytes    int64  `json:"size_bytes"`
+}
+
 type sharedAttachmentSnapshot struct {
 	FileID                 string `json:"file_id"`
 	Kind                   string `json:"kind"`
@@ -121,21 +144,27 @@ func (s *Service) createConversationShare(ctx context.Context, userID uint, conv
 	if err != nil {
 		return nil, err
 	}
+	// 冻结分享时点的项目工作区文件快照；会话未绑定项目或无文件时为空数组。
+	projectFileSnapshotJSON, err := s.buildSharedProjectFileSnapshot(ctx, userID, conversation)
+	if err != nil {
+		return nil, err
+	}
 	var regeneratedAt *time.Time
 	if regenerated {
 		now := time.Now().UTC()
 		regeneratedAt = &now
 	}
 	share := &model.ConversationShare{
-		ShareID:               normalizePublicID(uuid.NewString()),
-		ConversationID:        conversation.ID,
-		UserID:                userID,
-		Status:                conversationShareStatusActive,
-		TitleSnapshot:         conversation.Title,
-		ModelSnapshot:         conversation.Model,
-		MessageIDsJSON:        string(encoded),
-		DefaultMessageIDsJSON: string(encodedDefault),
-		RegeneratedAt:         regeneratedAt,
+		ShareID:                 normalizePublicID(uuid.NewString()),
+		ConversationID:          conversation.ID,
+		UserID:                  userID,
+		Status:                  conversationShareStatusActive,
+		TitleSnapshot:           conversation.Title,
+		ModelSnapshot:           conversation.Model,
+		MessageIDsJSON:          string(encoded),
+		DefaultMessageIDsJSON:   string(encodedDefault),
+		ProjectFileSnapshotJSON: projectFileSnapshotJSON,
+		RegeneratedAt:           regeneratedAt,
 	}
 	if err = s.repo.ReplaceActiveConversationShare(ctx, share); err != nil {
 		if s.logger != nil {
@@ -1077,6 +1106,143 @@ func sharedMessagesIncludeFile(messages []model.Message, fileID string) bool {
 		}
 	}
 	return false
+}
+
+// buildSharedProjectFileSnapshot 在分享创建时冻结会话所绑定项目工作区的文件清单。
+// 会话未绑定项目、项目无工作区时返回空数组，绝不因快照缺失而阻断分享创建。
+func (s *Service) buildSharedProjectFileSnapshot(ctx context.Context, userID uint, conversation *model.Conversation) (string, error) {
+	if conversation == nil || strings.TrimSpace(conversation.ProjectPublicID) == "" {
+		return "[]", nil
+	}
+	project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, conversation.ProjectPublicID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return "[]", nil
+		}
+		return "", err
+	}
+	workspace, err := s.repo.GetProjectWorkspaceByProject(ctx, userID, project.ID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return "[]", nil
+		}
+		return "", err
+	}
+	files, err := s.repo.ListProjectFiles(ctx, userID, workspace.ID)
+	if err != nil {
+		return "", err
+	}
+	items := make([]sharedProjectFileSnapshot, 0, len(files))
+	for _, file := range files {
+		if file.EntryType != model.ProjectFileEntryTypeFile {
+			continue
+		}
+		items = append(items, sharedProjectFileSnapshot{
+			FileID:       file.PublicID,
+			RelativePath: file.RelativePath,
+			FileName:     file.FileName,
+			EntryType:    file.EntryType,
+			MimeType:     file.MimeType,
+			StorageKey:   file.StorageKey,
+			Version:      file.Version,
+			SizeBytes:    file.SizeBytes,
+		})
+	}
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func decodeSharedProjectFileSnapshot(raw string) []sharedProjectFileSnapshot {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil
+	}
+	items := []sharedProjectFileSnapshot{}
+	if err := json.Unmarshal([]byte(value), &items); err != nil {
+		return nil
+	}
+	return items
+}
+
+// ListPublicSharedProjectFiles 读取公开分享快照内冻结的项目文件树（不含 storage_key 等敏感字段）。
+func (s *Service) ListPublicSharedProjectFiles(ctx context.Context, shareID string) ([]PublicSharedProjectFile, error) {
+	normalizedShareID := strings.TrimSpace(shareID)
+	if normalizedShareID == "" {
+		return nil, ErrConversationShareNotFound
+	}
+	share, _, err := s.repo.GetActiveConversationShareByShareID(ctx, normalizedShareID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationShareNotFound
+		}
+		return nil, err
+	}
+	snapshots := decodeSharedProjectFileSnapshot(share.ProjectFileSnapshotJSON)
+	result := make([]PublicSharedProjectFile, 0, len(snapshots))
+	for _, item := range snapshots {
+		result = append(result, PublicSharedProjectFile{
+			PublicID:     item.FileID,
+			RelativePath: item.RelativePath,
+			FileName:     item.FileName,
+			EntryType:    item.EntryType,
+			MimeType:     item.MimeType,
+			SizeBytes:    item.SizeBytes,
+		})
+	}
+	return result, nil
+}
+
+// OpenSharedConversationProjectFileContent 按公开分享快照内的 storage_key 读取项目文件原件。
+// 仅当 file_id 命中快照时放行，避免越权读取分享范围外的文件。
+func (s *Service) OpenSharedConversationProjectFileContent(ctx context.Context, shareID string, fileID string) (*appupload.FileContentResult, error) {
+	normalizedShareID := strings.TrimSpace(shareID)
+	normalizedFileID := strings.TrimSpace(fileID)
+	if normalizedShareID == "" {
+		return nil, ErrConversationShareNotFound
+	}
+	if normalizedFileID == "" {
+		return nil, ErrInvalidFileReference
+	}
+	share, _, err := s.repo.GetActiveConversationShareByShareID(ctx, normalizedShareID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationShareNotFound
+		}
+		return nil, err
+	}
+	var snapshot *sharedProjectFileSnapshot
+	for _, item := range decodeSharedProjectFileSnapshot(share.ProjectFileSnapshotJSON) {
+		if item.FileID == normalizedFileID {
+			candidate := item
+			snapshot = &candidate
+			break
+		}
+	}
+	if snapshot == nil || strings.TrimSpace(snapshot.StorageKey) == "" {
+		return nil, ErrFileNotFound
+	}
+	store, err := s.storeProvider.Open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reader, info, err := store.Open(ctx, snapshot.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+	mimeType := strings.TrimSpace(snapshot.MimeType)
+	if mimeType == "" {
+		mimeType = info.ContentType
+	}
+	return &appupload.FileContentResult{
+		File:        model.FileObject{FileID: snapshot.FileID, FileName: snapshot.FileName, MimeType: mimeType, SizeBytes: snapshot.SizeBytes},
+		Reader:      reader,
+		ContentType: info.ContentType,
+		SizeBytes:   info.SizeBytes,
+		ModTime:     info.ModTime,
+	}, nil
 }
 
 func toConversationShareResult(share *model.ConversationShare) *ConversationShareResult {

@@ -10,6 +10,10 @@ export type FileFilterValue = Exclude<FileFilterKey, "all">;
 
 export type FileSortKey = "created" | "name" | "size" | "last_used";
 
+export type FileSourceFilter = "all" | "generated" | "uploaded";
+
 export type FileFilterOption = { value: FileFilterKey; icon: LucideIcon };
+
+export type FileSourceFilterOption = { value: FileSourceFilter; icon: LucideIcon };
 
 export type FileSortOption = { value: FileSortKey };

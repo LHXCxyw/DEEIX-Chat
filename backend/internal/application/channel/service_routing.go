@@ -513,9 +513,9 @@ func (s *Service) BuildRouteForUpstream(ctx context.Context, upstreamID uint, pr
 	if err != nil {
 		return nil, err
 	}
-	if upstream.Status != "" && upstream.Status != "active" {
-		return nil, ErrRouteNotFound
-	}
+	// 这里刻意不校验渠道启用状态：本方法只服务于"回到原上游回收已提交任务"的重查场景，不引入新流量。
+	// 启用状态是给新请求路由用的门槛，若照搬到回收上，渠道一旦被停用或降级，
+	// 上游已经跑完的任务就再也取不回来（对外还会退化成"路由未配置"）。
 	keyCfg, err := s.parseAPIKeysConfig(upstream.APIKeysEnc)
 	if err != nil {
 		return nil, err

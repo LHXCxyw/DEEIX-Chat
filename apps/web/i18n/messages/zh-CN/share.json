@@ -6,5 +6,16 @@
   "signInToContinue": "登录 DEEIX Chat 继续对话",
   "notFoundTitle": "分享不可用",
   "notFoundDescription": "分享不存在、已关闭，或原会话已被删除。",
-  "cloneFailed": "继续对话失败"
+  "cloneFailed": "继续对话失败",
+  "files": "文件",
+  "filesCount": "{count} 个文件",
+  "filesExpand": "展开文件",
+  "filesCollapse": "收起文件",
+  "previewSelect": "选择文件以查看预览",
+  "previewLoading": "加载中…",
+  "previewUnavailable": "该文件类型暂不支持预览",
+  "previewFailed": "预览加载失败",
+  "previewTitle": "{path} 预览",
+  "unresolvedResources": "未解析资源：{items}",
+  "unresolvedMore": "，另有 {count} 个"
 }

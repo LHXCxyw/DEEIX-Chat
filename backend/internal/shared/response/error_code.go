@@ -103,6 +103,8 @@ var codeMessages = map[string]string{
 	"llm.upstream_model_conflict":                   "model upstream source conflict",
 	"media.artifact_unavailable":                    "generated media artifact is temporarily unavailable",
 	"media.image_stream_unsupported":                "upstream may not support image streaming; disable image.stream for this model",
+	"media.video_poll_timeout":                      "video task is still processing upstream; waiting limit exceeded",
+	"upstream.timeout":                              "upstream request timed out",
 	"payment.checkout_failed":                       "create checkout failed",
 	"payment.epay_gateway_invalid":                  "epay gateway url is invalid",
 	"payment.provider_unavailable":                  "payment provider is unavailable",

@@ -43,6 +43,7 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAdminToolsMCPServers } from "@/features/admin/hooks/use-admin-tools-mcp-servers";
+import { ToolsCommandSlots } from "@/features/admin/components/sections/tools/tools-command-slots";
 import { useAdminToolsSettings } from "@/features/admin/hooks/use-admin-tools-settings";
 import type { AdminMCPServerDTO, AdminMCPServerPayload } from "@/features/admin/api/mcp-types";
 import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableLoadingRow, TableRow } from "@/components/ui/table";
@@ -433,6 +434,7 @@ export function AdminToolsPage() {
 
   return (
     <SettingsPage>
+      <ToolsCommandSlots />
       <SettingsSection
         title={t("sections.mcpTools")}
         actions={

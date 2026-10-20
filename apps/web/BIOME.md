@@ -83,6 +83,8 @@ Vendored registry code (`components/ui`, `components/animate-ui`, `components/re
 | `features/auth/components/shared/turnstile-widget.tsx`, `components/ui/live-waveform.tsx`, `types/tauri-globals.d.ts` | `style/useConsistentTypeDefinitions` | Augmenting the global `Window` requires `interface` declaration merging. |
 | `shared/components/theme-bootstrap-script.tsx` | `security/noDangerouslySetInnerHtml` | Build-time constant inline `<script>` that must run before paint; no user input. |
 | `shared/components/markdown/ui-blocks/function-plot.tsx` | `security/noDangerouslySetInnerHtml` | KaTeX markup rendered from a parsed expression AST. |
+| `features/canvas/components/canvas-media-node.tsx` | `a11y/useMediaCaption` | Node preview of user-uploaded reference video/audio, for which no caption track exists. |
+| `features/canvas/components/canvas-graph-nodes.tsx` | `a11y/useMediaCaption` | In-node playback of a generated or reference video, which has no caption source. |
 
 ## Exception policy
 

@@ -58,6 +58,54 @@ export function escapeStyleContent(value: string): string {
   return value.replace(STYLE_CLOSE_RE, "<\\/style");
 }
 
+// 沙箱运行信息上报的消息来源标识：父窗口据此识别来自项目预览沙箱的 postMessage。
+export const SANDBOX_RUNTIME_REPORT_SOURCE = "deeix-project-preview";
+
+// 构建沙箱文档时的可选项：reportRuntime 开启后注入运行信息上报脚本。
+export type SandboxDocumentOptions = {
+  reportRuntime?: boolean;
+};
+
+// 运行信息上报脚本：把 console 与运行时错误通过 postMessage 回传父窗口。
+// 仅使用 postMessage，不发起任何网络请求，因此沙箱 CSP（connect-src 'none'）保持不变。
+function artifactRuntimeReportScript(): string {
+  return `<script>
+(() => {
+  const source = "${SANDBOX_RUNTIME_REPORT_SOURCE}";
+  const send = (kind, level, text) => {
+    try {
+      window.parent.postMessage({ source, kind, level, text: String(text) }, "*");
+    } catch (error) {
+      // 父窗口不可达时忽略：上报失败不能影响沙箱内页面运行。
+    }
+  };
+  const stringify = (value) => {
+    if (typeof value === "string") return value;
+    if (value instanceof Error) return value.stack || value.message || String(value);
+    try {
+      return JSON.stringify(value);
+    } catch (error) {
+      return String(value);
+    }
+  };
+  for (const level of ["log", "info", "warn", "error", "debug"]) {
+    const original = typeof console[level] === "function" ? console[level].bind(console) : null;
+    console[level] = (...args) => {
+      send("console", level, args.map(stringify).join(" "));
+      if (original) original(...args);
+    };
+  }
+  window.addEventListener("error", (event) => {
+    const error = event.error;
+    send("error", "error", error ? error.stack || error.message : event.message);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    send("error", "error", stringify(event.reason));
+  });
+})();
+</script>`;
+}
+
 function artifactRuntimeScript(): string {
   return `<script>
 (() => {
@@ -109,7 +157,11 @@ html, body { color: var(--foreground); background: var(--background); }
 </style>`;
 }
 
-export function sandboxDocumentHead(title: string, theme: HTMLVisualThemeSnapshot): string {
+export function sandboxDocumentHead(
+  title: string,
+  theme: HTMLVisualThemeSnapshot,
+  options?: SandboxDocumentOptions,
+): string {
   return [
     `<meta charset="utf-8">`,
     `<meta name="viewport" content="width=device-width, initial-scale=1">`,
@@ -118,6 +170,7 @@ export function sandboxDocumentHead(title: string, theme: HTMLVisualThemeSnapsho
     artifactThemeStyle(theme),
     artifactPreviewResetStyle(),
     artifactRuntimeScript(),
+    options?.reportRuntime ? artifactRuntimeReportScript() : "",
   ].join("");
 }
 

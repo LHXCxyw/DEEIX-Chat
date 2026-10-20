@@ -1,6 +1,9 @@
 package conversation
 
-import "encoding/json"
+import (
+	"encoding/json"
+	appconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
+)
 
 // CreateConversationRequest 创建会话请求。
 type CreateConversationRequest struct {
@@ -9,10 +12,18 @@ type CreateConversationRequest struct {
 	ProjectID string `json:"projectID,omitempty" binding:"omitempty,max=32"`
 }
 
+// ImportProjectAttachmentRequest 显式授权将只读附件复制到项目工作区。
+type ImportProjectAttachmentRequest struct {
+	FileID         string `json:"file_id" binding:"required,max=128"`
+	Path           string `json:"path" binding:"required,max=1024"`
+	EditAuthorized bool   `json:"edit_authorized"`
+}
+
 // WriteProjectFileRequest 手动创建或覆盖项目文件请求。
 type WriteProjectFileRequest struct {
-	Path    string `json:"path" binding:"required,max=1024"`
-	Content string `json:"content" binding:"max=20971520"`
+	Path            string `json:"path" binding:"required,max=1024"`
+	Content         string `json:"content" binding:"max=20971520"`
+	ExpectedVersion *int   `json:"expected_version,omitempty" binding:"omitempty,gte=0"`
 }
 
 // CreateConversationProjectRequest 创建会话项目请求。
@@ -52,6 +63,14 @@ type ReorderConversationProjectsRequest struct {
 // SetConversationProjectRequest 设置会话项目归属请求。
 type SetConversationProjectRequest struct {
 	ProjectID string `json:"projectID,omitempty" binding:"omitempty,max=32"`
+}
+
+// RecordProjectPreviewResultRequest 前端沙箱回写的项目预览运行结果。
+type RecordProjectPreviewResultRequest struct {
+	RunID     string   `json:"run_id,omitempty" binding:"omitempty,max=128"`
+	EntryPath string   `json:"entry_path" binding:"required,max=1024"`
+	Console   []string `json:"console,omitempty" binding:"max=500,dive,max=8192"`
+	Errors    []string `json:"errors,omitempty" binding:"max=500,dive,max=8192"`
 }
 
 // BatchSetConversationProjectRequest 批量设置会话项目归属请求。
@@ -118,9 +137,10 @@ type GetConversationRunStatusesRequest struct {
 
 // SendMessageRequest 发送消息请求。
 type SendMessageRequest struct {
-	ContentType string `json:"contentType" binding:"required,oneof=text markdown image file mixed"`
-	Content     string `json:"content" binding:"required"`
-	Model       string `json:"model,omitempty" binding:"omitempty,max=128"`
+	AgentPermissions appconversation.AgentPermissions `json:"agent_permissions,omitempty"`
+	ContentType      string                           `json:"contentType" binding:"required,oneof=text markdown image file mixed"`
+	Content          string                           `json:"content" binding:"required"`
+	Model            string                           `json:"model,omitempty" binding:"omitempty,max=128"`
 	// Options 为高级参数 JSON：仅管理员生效；普通用户只保留原生工具选择（tools）。
 	Options map[string]any `json:"options,omitempty"`
 	// Controls 为模型控件选择 {控件 id: 取值}，取值为字符串、布尔或数值；未知控件与无效取值被忽略。
@@ -215,7 +235,7 @@ type MediaVideoRequest struct {
 	Model                 string         `json:"model,omitempty" binding:"omitempty,max=128"`
 	Options               map[string]any `json:"options,omitempty"`
 	ClientRunID           string         `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
-	FileIDs               []string       `json:"fileIDs,omitempty" binding:"max=1"`
+	FileIDs               []string       `json:"fileIDs,omitempty" binding:"max=20"`
 	ParentMessagePublicID string         `json:"parentMessagePublicID,omitempty" binding:"omitempty,max=32"`
 	SourceMessagePublicID string         `json:"sourceMessagePublicID,omitempty" binding:"omitempty,max=32"`
 	BranchReason          string         `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit"`

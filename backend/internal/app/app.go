@@ -42,6 +42,8 @@ import (
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/usersettings"
+	agentoperation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/agentoperation"
+	agentinfra "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/agentruntime"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/cache"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/catalogdata"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
@@ -64,6 +66,7 @@ import (
 	stripepayment "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/payment/stripe"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence"
 	filecache "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/filecache"
+	agentoperationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/agentoperation"
 	announcementrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/announcement"
 	auditrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/audit"
 	billingrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/billing"
@@ -130,6 +133,8 @@ type App struct {
 	runtimeCfg             *config.Runtime
 	tracingShutdown        platformtracing.ShutdownFunc
 	backgroundCancel       context.CancelFunc
+	agentExecutor          *agentinfra.Docker
+	agentReconcileDone     <-chan struct{}
 	// shutdown 是进程关停排空信号：翻转就绪探针并断开订阅型长连接。
 	shutdown *lifecycle.Shutdown
 	// stopCh 由 RequestShutdown 关闭，与 SIGTERM 等价。
@@ -455,6 +460,98 @@ func NewAppWithOptions(opts Options) (*App, error) {
 		RAGService:               ragService,
 		Logger:                   log,
 	})
+	commandCfg, err := config.LoadAgentCommandConfig()
+	if err != nil {
+		return nil, err
+	}
+	var agentExecutor *agentinfra.Docker
+	var commandReconciler *agentoperation.Reconciler
+	if commandCfg.Enabled {
+		cli, cliErr := agentinfra.NewCLI()
+		if cliErr != nil {
+			return nil, fmt.Errorf("命令隔离不可用：需要本地 Docker CLI: %w", cliErr)
+		}
+		executor, runtimeErr := agentinfra.NewDocker(cli, commandCfg.AllowedImages)
+		if runtimeErr != nil {
+			return nil, runtimeErr
+		}
+		agentExecutor = executor
+		operationRepo := agentoperationrepo.NewRepo(db)
+		commandReconciler = &agentoperation.Reconciler{Store: operationRepo}
+		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		n, reconcileErr := (agentoperation.Reconciler{Store: operationRepo}).Reconcile(reconcileCtx)
+		reconcileCancel()
+		if reconcileErr != nil {
+			log.Warn("命令操作过期租约核对失败", zap.Error(reconcileErr))
+		} else if n > 0 {
+			log.Info("命令操作过期租约已标记不确定", zap.Int64("count", n))
+		}
+		if err := conversationService.SetAgentRuntime(executor, operationRepo, commandCfg); err != nil {
+			return nil, err
+		}
+	}
+	screenshotCfg, err := config.LoadAgentScreenshotConfig()
+	if err != nil {
+		return nil, err
+	}
+	if screenshotCfg.Enabled {
+		for _, image := range commandCfg.AllowedImages {
+			for _, screenshotImage := range screenshotCfg.AllowedImages {
+				if image == screenshotImage {
+					return nil, fmt.Errorf("命令与离线截图镜像白名单必须分离")
+				}
+			}
+		}
+		cli, cliErr := agentinfra.NewCLI()
+		if cliErr != nil {
+			return nil, fmt.Errorf("离线截图需要本地 Docker CLI: %w", cliErr)
+		}
+		executor, runtimeErr := agentinfra.NewOfflineScreenshot(cli, screenshotCfg.AllowedImages)
+		if runtimeErr != nil {
+			return nil, runtimeErr
+		}
+		operationRepo := agentoperationrepo.NewRepo(db)
+		if err := conversationService.SetScreenshotRuntime(executor, operationRepo, screenshotCfg); err != nil {
+			return nil, err
+		}
+		if agentExecutor == nil {
+			agentExecutor = executor.Docker
+		}
+		if commandReconciler == nil {
+			commandReconciler = &agentoperation.Reconciler{Store: operationRepo}
+		}
+	}
+	browserCfg, err := config.LoadAgentProjectBrowserConfig()
+	if err != nil {
+		return nil, err
+	}
+	if browserCfg.Enabled {
+		for _, image := range browserCfg.AllowedImages {
+			for _, other := range append(append([]string{}, commandCfg.AllowedImages...), screenshotCfg.AllowedImages...) {
+				if image == other {
+					return nil, fmt.Errorf("项目浏览器镜像白名单必须与命令和静态截图分离")
+				}
+			}
+		}
+		cli, cliErr := agentinfra.NewCLI()
+		if cliErr != nil {
+			return nil, fmt.Errorf("项目浏览器需要本地 Docker CLI: %w", cliErr)
+		}
+		executor, runtimeErr := agentinfra.NewProjectBrowser(cli, browserCfg.AllowedImages)
+		if runtimeErr != nil {
+			return nil, runtimeErr
+		}
+		operationRepo := agentoperationrepo.NewRepo(db)
+		if err := conversationService.SetProjectBrowserRuntime(executor, operationRepo, browserCfg); err != nil {
+			return nil, err
+		}
+		if agentExecutor == nil {
+			agentExecutor = executor.Docker
+		}
+		if commandReconciler == nil {
+			commandReconciler = &agentoperation.Reconciler{Store: operationRepo}
+		}
+	}
 	conversationService.SetBillingService(billingService)
 	conversationService.SetAuditWriter(auditService)
 	conversationService.SetObjectStoreProvider(objectStoreProvider)
@@ -495,11 +592,17 @@ func NewAppWithOptions(opts Options) (*App, error) {
 	adminService.SetPermissionGroupModelLookup(channelRepo)
 	adminService.SetPermissionGroupBillingPlanReferenceChecker(billingService)
 	adminHandler := adminhttp.NewHandler(adminService)
+	commandSlotService := admin.NewCommandSlotService(agentoperationrepo.NewRepo(db), cfg.JWTSecret)
+	if agentExecutor != nil {
+		commandSlotService = admin.NewCommandSlotService(agentoperationrepo.NewRepo(db), cfg.JWTSecret, agentExecutor)
+	}
+	adminHandler.SetCommandSlotService(commandSlotService)
 	adminHandler.SetConversationExporter(conversationService)
 	adminModule := adminhttp.NewModule(adminHandler)
 	contentModerationHandler.SetUserLabelResolver(adminService)
 	settingsHandler.SetUserLabelResolver(adminService)
 	userSettingsRepo := usersettingsrepo.NewRepo(db)
+	conversationService.SetToolApprovalDependencies(conversationRepo, userSettingsRepo, settingsRepo, channelService)
 	userSettingsService := usersettings.NewService(userSettingsRepo)
 	userSettingsService.SetCacheRefresher(conversationService.RefreshUserSettingCache)
 	userSettingsHandler := usersettingshttp.NewHandler(userSettingsService)
@@ -577,6 +680,25 @@ func NewAppWithOptions(opts Options) (*App, error) {
 	}
 
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
+	var agentReconcileDone chan struct{}
+	if commandReconciler != nil {
+		agentReconcileDone = make(chan struct{})
+		go func() {
+			defer close(agentReconcileDone)
+			_ = commandReconciler.Run(backgroundCtx, time.Minute, func(n int64, err error) {
+				if err != nil && backgroundCtx.Err() == nil {
+					log.Warn("命令操作过期租约核对失败", zap.Error(err))
+				} else if n > 0 {
+					log.Info("命令操作租约过期，容器回收未经确认", zap.Int64("count", n))
+				}
+				if backgroundCtx.Err() == nil {
+					if cleanupErr := agentExecutor.ReconcileOrphansContext(backgroundCtx); cleanupErr != nil {
+						log.Warn("命令容器受控回收重试失败", zap.Error(cleanupErr))
+					}
+				}
+			})
+		}()
+	}
 	if _, reconcileErr := embeddingService.ReconcileIndex(backgroundCtx); reconcileErr != nil {
 		log.Warn("embedding index reconciliation failed", zap.Error(reconcileErr))
 	}
@@ -615,6 +737,8 @@ func NewAppWithOptions(opts Options) (*App, error) {
 		runtimeCfg:             runtimeCfg,
 		tracingShutdown:        tracingShutdown,
 		backgroundCancel:       backgroundCancel,
+		agentExecutor:          agentExecutor,
+		agentReconcileDone:     agentReconcileDone,
 		shutdown:               shutdownSignal,
 	}
 	keepTracing = true
@@ -763,6 +887,9 @@ func (a *App) Close() {
 		a.backgroundCancel()
 	}
 	// Workers 必须在其依赖（cache、database）关闭前排空。
+	if a.agentReconcileDone != nil {
+		<-a.agentReconcileDone
+	}
 	if a.contentModeration != nil {
 		a.contentModeration.Stop()
 	}
@@ -773,6 +900,11 @@ func (a *App) Close() {
 	cancelDrain()
 	if a.conversationService != nil {
 		a.conversationService.Close()
+	}
+	if a.agentExecutor != nil {
+		if err := a.agentExecutor.ReconcileOrphans(); err != nil {
+			a.logger.Warn("命令容器回收重试失败", zap.Error(err))
+		}
 	}
 	if a.cache != nil {
 		_ = a.cache.Close()

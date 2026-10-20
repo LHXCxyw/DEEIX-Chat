@@ -54,12 +54,14 @@ import type {
 import type { ChatAreaMessage } from "@/features/chat/types/messages";
 import {
   resolveErrorDetails,
+  resolveErrorMessage,
   resolveGenerationErrorId,
   resolveErrorReason,
   resolveErrorSummary,
 } from "@/features/chat/utils/chat-runtime";
-import { getConversation } from "@/shared/api/conversation";
+import { getConversation, rewindConversationToMessage } from "@/shared/api/conversation";
 import type {
+  AgentPermissions,
   ConversationDTO,
   ConversationOptions,
   MessageDTO,
@@ -183,6 +185,7 @@ export function useChatMessageSubmit({
   collectUIStates?: (messages: readonly ChatAreaMessage[]) => MessageUIStateInput[];
 }) {
   const t = useTranslations("chat.submit");
+  const tMessages = useTranslations("chat.messages");
   const activeStreamsRef = React.useRef(new Map<string, ActiveStream>());
   const conversationIDRef = React.useRef(conversationID);
   const conversationScopeKeyRef = React.useRef(conversationScopeKey);
@@ -292,6 +295,7 @@ export function useChatMessageSubmit({
       branchReason,
       queuedSubmission,
       optionsOverride,
+      agentPermissions,
     }: {
       content: string;
       currentAttachments: PendingAttachment[];
@@ -301,6 +305,7 @@ export function useChatMessageSubmit({
       branchReason?: "default" | "retry" | "edit";
       queuedSubmission?: QueuedChatSubmission;
       optionsOverride?: ConversationOptions;
+      agentPermissions?: AgentPermissions;
     }) => {
       const planResult = planChatSubmission({
         content,
@@ -365,6 +370,30 @@ export function useChatMessageSubmit({
       } = plan;
       let targetConversationScopeKey = plan.targetConversationScopeKey;
       let targetBranchScope = plan.targetBranchScope;
+
+      // 继续非活跃锚点分支（回退后又切回旧分支重试/编辑/发送）时，先沿 ADR-0004
+      // 把项目文件恢复到该分支时点，再提交，保证文件状态与对话路径一致。
+      // 只要锚点存在就执行回退：回退到锚点本身是幂等的时点快照，会一并清理
+      // 失败运行残留的文件变更（此前仅在锚点≠tip 时执行，失败运行不推进 tip，
+      // 导致用户消息重试时已写入的文件不被回退）。
+      const restoreAnchorID = resolvedParentPublicID?.trim() || "";
+      const restoreConversationID = queuedSubmission?.conversationPublicID ?? conversationIDRef.current;
+      if (restoreConversationID && restoreAnchorID) {
+        try {
+          const rewindToken = await resolveAccessToken();
+          if (!rewindToken) {
+            throw new Error(t("signInRequired"));
+          }
+          const rewindResult = await rewindConversationToMessage(rewindToken, restoreConversationID, restoreAnchorID);
+          touchByPublicID(restoreConversationID, {
+            activeTipMessagePublicID: rewindResult.activeTipMessagePublicID || restoreAnchorID,
+          });
+        } catch (error) {
+          toast.error(tMessages("rewindFailed"), { description: resolveErrorMessage(error, t("retryLater")) });
+          return false;
+        }
+      }
+
       const wasConversationMode = showConversationLayout || visibleMessageCount > 0;
       const createdAt = new Date().toISOString();
       let terminalResultReceived = false;
@@ -560,6 +589,7 @@ export function useChatMessageSubmit({
           selectedKnowledgeBaseIDs: plan.selectedKnowledgeBaseIDs,
           uiComponentIDs: plan.uiComponentIDs,
           uiStates: turnUIStates,
+          agentPermissions: queuedSubmission?.agentPermissions ?? agentPermissions,
           htmlVisualPromptEnabled: plan.htmlVisualPromptEnabled,
           parentMessagePublicID: resolvedParentPublicID,
           sourceMessagePublicID: plan.resolvedSourcePublicID,
@@ -816,6 +846,7 @@ export function useChatMessageSubmit({
       startStream,
       syncActiveRuns,
       t,
+      tMessages,
       touchByPublicID,
       transferAttachments,
       updatePendingExchange,
@@ -825,7 +856,7 @@ export function useChatMessageSubmit({
     ],
   );
 
-  const enqueueSubmission = React.useCallback(() => {
+  const enqueueSubmission = React.useCallback((agentPermissions?: AgentPermissions) => {
     const content = draft.trim();
     const currentAttachments = attachments.slice();
     if ((!content && currentAttachments.length === 0) || uploading) {
@@ -897,6 +928,7 @@ export function useChatMessageSubmit({
           selectedKnowledgeBaseIDs: selectedKnowledgeBaseIDs.slice(),
           uiComponentIDs: uiComponentIDs.slice(),
           htmlVisualPromptEnabled,
+          agentPermissions: agentPermissions ? { mode: agentPermissions.mode } : undefined,
         },
       ];
     });
@@ -936,9 +968,9 @@ export function useChatMessageSubmit({
     reload,
   });
 
-  const onSendMessage = React.useCallback(async () => {
+  const onSendMessage = React.useCallback(async (agentPermissions?: AgentPermissions) => {
     if (sending || resumeGenerationActive) {
-      enqueueSubmission();
+      enqueueSubmission(agentPermissions);
       return;
     }
     const content = draft.trim();
@@ -950,6 +982,7 @@ export function useChatMessageSubmit({
       content,
       currentAttachments: attachments,
       resetComposer: true,
+      agentPermissions,
       parentMessagePublicID,
       branchReason: "default",
     });

@@ -320,50 +320,6 @@ export function shouldDetachElasticBoundary({
   return velocity >= velocityThreshold;
 }
 
-export function arrangeCanvasElements(
-  elements: ReadonlyArray<CanvasArrangeElement>,
-  selectedIDs: ReadonlySet<string>,
-  action: CanvasArrangeAction,
-): Map<string, Partial<Pick<CanvasArrangeElement, "x" | "y" | "zIndex">>> | null {
-  const selected = elements.filter((item) => selectedIDs.has(item.id) && !item.locked);
-  if (selected.length === 0 || (!(action === "front" || action === "back") && selected.length < 2)) {
-    return null;
-  }
-  if (action === "front" || action === "back") {
-    const edge = action === "front"
-      ? Math.max(0, ...elements.map((item) => item.zIndex ?? 0)) + 1
-      : Math.min(0, ...elements.map((item) => item.zIndex ?? 0)) - 1;
-    return new Map(selected.map((item) => [item.id, { zIndex: edge }]));
-  }
-
-  const left = Math.min(...selected.map((item) => item.x));
-  const right = Math.max(...selected.map((item) => item.x + item.width));
-  const top = Math.min(...selected.map((item) => item.y));
-  const bottom = Math.max(...selected.map((item) => item.y + item.height));
-  const ordered = [...selected].sort((a, b) => action === "vertical" ? a.y - b.y : a.x - b.x);
-  const totalSize = ordered.reduce((sum, item) => sum + (action === "vertical" ? item.height : item.width), 0);
-  const gap = ((action === "vertical" ? bottom - top : right - left) - totalSize) / (ordered.length - 1);
-  let cursor = action === "vertical" ? top : left;
-  const distributedPosition = new Map(ordered.map((item) => {
-    const position = cursor;
-    cursor += (action === "vertical" ? item.height : item.width) + gap;
-    return [item.id, position];
-  }));
-
-  return new Map(selected.map((item) => [item.id, {
-    x: action === "left" ? left
-      : action === "center" ? (left + right - item.width) / 2
-        : action === "right" ? right - item.width
-          : action === "horizontal" ? distributedPosition.get(item.id)
-            : item.x,
-    y: action === "top" ? top
-      : action === "middle" ? (top + bottom - item.height) / 2
-        : action === "bottom" ? bottom - item.height
-          : action === "vertical" ? distributedPosition.get(item.id)
-            : item.y,
-  }]));
-}
-
 export function trappedFocusIndex(
   currentIndex: number,
   itemCount: number,

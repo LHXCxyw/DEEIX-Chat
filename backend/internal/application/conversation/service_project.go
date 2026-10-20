@@ -181,13 +181,19 @@ func (s *Service) DeleteConversationProject(
 	deleteConversations bool,
 	options DeleteConversationOptions,
 ) (*DeleteConversationResult, error) {
-	cleanupFileIDs, err := s.repo.DeleteConversationProjectByPublicID(
+	if err := s.beginDeletion(ctx, userID, strings.TrimSpace(publicID), true); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationProjectNotFound
+		}
+		return nil, err
+	}
+	_, err := s.repo.DeleteConversationProjectByPublicID(
 		ctx,
 		userID,
 		strings.TrimSpace(publicID),
 		repository.DeleteConversationProjectOptions{
 			DeleteConversations: deleteConversations,
-			DeleteFiles:         deleteConversations && options.DeleteFiles,
+			DeleteFiles:         false,
 		},
 	)
 	if err != nil {
@@ -196,11 +202,7 @@ func (s *Service) DeleteConversationProject(
 		}
 		return nil, err
 	}
-	result := &DeleteConversationResult{Deleted: true}
-	if deleteConversations && options.DeleteFiles {
-		result.DeletedFileCount, result.Quota = s.deleteConversationFiles(ctx, userID, cleanupFileIDs)
-	}
-	return result, nil
+	return &DeleteConversationResult{Deleted: true, CleanupStatus: "retained"}, nil
 }
 
 // ReorderConversationProjects 更新当前用户项目展示顺序。

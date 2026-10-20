@@ -106,6 +106,8 @@ type ModelsSelectDialogProps = {
   selected: ModelSelection;
   /** Protocols the server accepts for a single model; empty on a server that has no per-model protocols. */
   protocols: readonly string[];
+  /** Saved models the upstream catalog no longer offers: pinned on top, excluded from select-all. */
+  staleModels?: readonly string[];
   /** Called with the final choice on confirm; closing any other way discards the draft. */
   onConfirm: (next: Map<string, string[]>) => void;
   loading?: boolean;
@@ -140,10 +142,11 @@ const COMPACT_LIST_HEIGHT = "10rem";
 const STATE_CELL_CLASS = "h-[calc(min(24rem,calc(86svh-16rem))-2.5rem)] py-0 text-xs text-muted-foreground";
 const COMPACT_STATE_CELL_CLASS = "h-[calc(10rem-2.5rem)] py-0 text-xs text-muted-foreground";
 
-function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, onConfirm, loading = false, error = "", onRefresh }: ModelsSelectDialogProps) {
+function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, staleModels = [], onConfirm, loading = false, error = "", onRefresh }: ModelsSelectDialogProps) {
   const t = useTranslations("settings.modelsPage.selectDialog");
   const commonT = useTranslations("common");
   const models = React.useMemo(() => options.map((option) => option.name), [options]);
+  const stale = React.useMemo(() => new Set(staleModels), [staleModels]);
   const [draft, setDraft] = React.useState(() => new Set(models.filter((model) => selected.has(model))));
   // Every row keeps a protocol, ticked or not: a saved model starts on its saved one, the rest on the suggestion.
   const [protocolsByModel, setProtocolsByModel] = React.useState(
@@ -155,12 +158,13 @@ function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, 
   const [query, setQuery] = React.useState("");
   const [onlySelected, setOnlySelected] = React.useState(false);
 
-  // Chosen models first, fixed for this opening: re-sorting on every tick would move rows under the cursor.
+  // Row order is fixed for this opening: re-sorting on every tick would move rows under the cursor.
+  // Priority follows what needs action: 上游已下架（默认不保留）→ 上游已提供但未启用（可直接勾选）→ 已启用。
   const [pinned] = React.useState(() => new Set(selected.keys()));
-  const ordered = React.useMemo(
-    () => [...models].sort((left, right) => Number(pinned.has(right)) - Number(pinned.has(left))),
-    [models, pinned],
-  );
+  const ordered = React.useMemo(() => {
+    const rank = (model: string) => (stale.has(model) ? 0 : pinned.has(model) ? 2 : 1);
+    return [...models].sort((left, right) => rank(left) - rank(right));
+  }, [models, pinned, stale]);
 
   const setModelProtocols = (model: string, value: string) => {
     const choice = choiceGroups.flatMap((group) => group.choices).find((item) => item.value === value);
@@ -174,8 +178,10 @@ function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, 
   const visible = ordered.filter(
     (model) => (!onlySelected || draft.has(model)) && (!normalizedQuery || model.toLowerCase().includes(normalizedQuery)),
   );
-  const visibleSelected = visible.reduce((count, model) => count + (draft.has(model) ? 1 : 0), 0);
-  const headState = visible.length > 0 && visibleSelected === visible.length ? true : visibleSelected > 0 ? "indeterminate" : false;
+  // 已下架模型不参与"全选"：它们已不在上游目录，批量勾选不应把它们重新启用。
+  const selectable = visible.filter((model) => !stale.has(model));
+  const visibleSelected = selectable.reduce((count, model) => count + (draft.has(model) ? 1 : 0), 0);
+  const headState = selectable.length > 0 && visibleSelected === selectable.length ? true : visibleSelected > 0 ? "indeterminate" : false;
   const showList = models.length > 0 && !loading;
 
   const toggle = (model: string, checked: boolean) => {
@@ -190,7 +196,7 @@ function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, 
   const setVisible = (checked: boolean) => {
     setDraft((current) => {
       const next = new Set(current);
-      for (const model of visible) {
+      for (const model of selectable) {
         if (checked) next.add(model);
         else next.delete(model);
       }
@@ -300,7 +306,7 @@ function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, 
                 <div className="flex h-6 items-center justify-center">
                   <Checkbox
                     checked={headState}
-                    disabled={!showList || visible.length === 0}
+                    disabled={!showList || selectable.length === 0}
                     aria-label={t("selectVisible")}
                     onCheckedChange={(value) => setVisible(value === true)}
                   />
@@ -327,8 +333,19 @@ function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, 
                       </div>
                     </TableCell>
                     <TableCell className={cn("py-1 font-mono text-xs", checked ? "text-foreground" : "text-muted-foreground")}>
-                      <span className="block truncate" title={model}>
-                        {model}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="block truncate" title={model}>
+                          {model}
+                        </span>
+                        {stale.has(model) ? (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 rounded-sm border-amber-500/45 px-1.5 py-0 text-[10px] leading-4 font-normal text-amber-700 dark:border-amber-400/40 dark:text-amber-300"
+                            title={t("staleHint")}
+                          >
+                            {t("stale")}
+                          </Badge>
+                        ) : null}
                       </span>
                     </TableCell>
                     {/* The select lives in a clickable row: keep its clicks from toggling the row. */}

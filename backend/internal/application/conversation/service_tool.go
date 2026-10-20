@@ -19,30 +19,26 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
-// countingWriter 统计写入字节数并丢弃内容，用于在不保留归档本体的前提下回执大小。
-type countingWriter struct{ written int64 }
-
-func (w *countingWriter) Write(p []byte) (int, error) {
-	w.written += int64(len(p))
-	return len(p), nil
-}
-
 // ExecuteToolInput 定义工具执行入参。
 type ExecuteToolInput struct {
-	UserID          uint
-	ConversationID  uint
-	MessageID       uint
-	RunID           string
-	RequestID       string
-	ProjectPublicID string
-	ToolName        string
-	ArgumentsJSON   string
-	MCPConfig       *mcp.CallConfig
+	browserSnapshot  *projectBrowserSnapshot
+	ToolCallID       string
+	AgentPermissions AgentPermissions
+	WorkspaceID      uint
+	UserID           uint
+	ConversationID   uint
+	MessageID        uint
+	RunID            string
+	RequestID        string
+	ProjectPublicID  string
+	ToolName         string
+	ArgumentsJSON    string
+	MCPConfig        *mcp.CallConfig
 }
 
 func isProjectTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive":
+	case "project_browser_run", "project_render_screenshot", "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive", "project_show_diff", "project_preview":
 		return true
 	default:
 		return false
@@ -50,27 +46,19 @@ func isProjectTool(name string) bool {
 }
 
 func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput) (string, error) {
-	if strings.TrimSpace(input.ProjectPublicID) == "" {
-		return "", fmt.Errorf("project context is required")
+	if err := authorizeAgentFileTool(input.ToolName, input.AgentPermissions); err != nil {
+		return "", err
 	}
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(input.ArgumentsJSON), &args); err != nil {
 		return "", err
 	}
-	project, err := s.repo.GetConversationProjectByPublicID(ctx, input.UserID, input.ProjectPublicID)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return "", ErrConversationProjectNotFound
-		}
-		return "", err
-	}
-	// 空项目可能尚未创建工作区（未上传文件且从未写入）：
-	// 此时视为空文件列表，写入类工具通过 GetOrCreateProjectWorkspace 按需创建工作区。
 	files := make([]model.ProjectFile, 0)
-	workspace, wsErr := s.repo.GetProjectWorkspaceByProject(ctx, input.UserID, project.ID)
+	workspace, wsErr := s.agentToolWorkspace(ctx, input, false)
 	if wsErr != nil && !errors.Is(wsErr, repository.ErrNotFound) {
 		return "", wsErr
 	}
+	var err error
 	if wsErr == nil {
 		if files, err = s.repo.ListProjectFiles(ctx, input.UserID, workspace.ID); err != nil {
 			return "", err
@@ -99,7 +87,7 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 		if err != nil {
 			return "", err
 		}
-		content, err := s.OpenProjectFileContent(ctx, input.UserID, input.ProjectPublicID, file.PublicID)
+		content, err := s.openAgentWorkspaceFile(ctx, file)
 		if err != nil {
 			return "", err
 		}
@@ -116,7 +104,7 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 			if file.EntryType != model.ProjectFileEntryTypeFile {
 				continue
 			}
-			content, openErr := s.OpenProjectFileContent(ctx, input.UserID, input.ProjectPublicID, file.PublicID)
+			content, openErr := s.openAgentWorkspaceFile(ctx, &file)
 			if openErr != nil {
 				continue
 			}
@@ -128,24 +116,64 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 		}
 		return marshalProjectToolResult(result)
 	case "project_write_file":
-		file, err := s.WriteProjectFile(ctx, input.UserID, input.ProjectPublicID, stringArg(args, "path"), []byte(stringArg(args, "content")), AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
+		relative, err := normalizeProjectFilePath(stringArg(args, "path"))
 		if err != nil {
 			return "", err
 		}
-		return marshalProjectToolResult(file)
+		before := ""
+		version := 0
+		expectedID := ""
+		for i := range files {
+			if files[i].RelativePath != relative {
+				continue
+			}
+			version, expectedID = files[i].Version, files[i].PublicID
+			store, openErr := s.storeProvider.Open(ctx)
+			if openErr != nil {
+				return "", openErr
+			}
+			reader, _, openErr := store.Open(ctx, files[i].StorageKey)
+			if openErr != nil {
+				return "", openErr
+			}
+			data, readErr := io.ReadAll(io.LimitReader(reader, maxProjectArchiveFileBytes+1))
+			reader.Close()
+			if readErr != nil {
+				return "", readErr
+			}
+			if len(data) > maxProjectArchiveFileBytes {
+				return "", ErrFileTooLarge
+			}
+			before = string(data)
+			break
+		}
+		after := stringArg(args, "content")
+		file, err := s.writeAgentWorkspaceFile(ctx, input, relative, []byte(after), &version, expectedID)
+		if err != nil {
+			return "", err
+		}
+		return marshalProjectToolResult(map[string]interface{}{"file": file, "file_diff": newProjectToolDiff(relative, before, after, version == 0)})
 	case "project_patch_file":
 		file, err := find(stringArg(args, "file"))
 		if err != nil {
 			return "", err
 		}
-		content, err := s.OpenProjectFileContent(ctx, input.UserID, input.ProjectPublicID, file.PublicID)
+		store, err := s.storeProvider.Open(ctx)
 		if err != nil {
 			return "", err
 		}
-		old, err := io.ReadAll(content.Reader)
-		content.Reader.Close()
+		// 从同一版本快照的不可变对象读取，避免二次查库得到不同版本的内容。
+		reader, _, err := store.Open(ctx, file.StorageKey)
 		if err != nil {
 			return "", err
+		}
+		old, err := io.ReadAll(io.LimitReader(reader, maxProjectArchiveFileBytes+1))
+		reader.Close()
+		if err != nil {
+			return "", err
+		}
+		if len(old) > maxProjectArchiveFileBytes {
+			return "", ErrFileTooLarge
 		}
 		// 补丁列表：兼容旧的单片段 old/new 与新的多片段 patches 数组，按顺序原子应用。
 		type patchPair struct{ old, new string }
@@ -173,71 +201,67 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 				}
 				return "", fmt.Errorf("patch %d target not found: %q", index+1, preview)
 			}
+			if first := strings.Index(updated, patch.old); first >= 0 && strings.Contains(updated[first+1:], patch.old) {
+				return "", fmt.Errorf("patch %d: ambiguous old snippet; provide a unique match", index+1)
+			}
 			updated = strings.Replace(updated, patch.old, patch.new, 1)
 		}
 		if updated == string(old) {
 			return "", fmt.Errorf("patch target not found")
 		}
-		updatedFile, err := s.WriteProjectFile(ctx, input.UserID, input.ProjectPublicID, file.RelativePath, []byte(updated), AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
+		updatedFile, err := s.writeAgentWorkspaceFile(ctx, input, file.RelativePath, []byte(updated), &file.Version, file.PublicID)
 		if err != nil {
 			return "", err
 		}
-		return marshalProjectToolResult(map[string]interface{}{"file": updatedFile, "applied_patches": len(patches)})
+		return marshalProjectToolResult(map[string]interface{}{"file": updatedFile, "applied_patches": len(patches), "file_diff": newProjectToolDiff(file.RelativePath, string(old), updated, false)})
 	case "project_delete_file":
-		rawTarget := strings.TrimSpace(stringArg(args, "file"))
-		file, err := find(rawTarget)
-		if err != nil {
-			// 目录删除兼容：模型可能传入目录路径（含尾部斜杠）。目录在列表中可能是
-			// 存储行（EntryType=directory），也可能仅由子文件路径隐式构成。
-			normalized := strings.Trim(path.Clean(strings.ReplaceAll(rawTarget, "\\", "/")), "/")
-			if normalized == "" || normalized == "." {
-				return "", err
-			}
-			prefix := normalized + "/"
-			targets := make([]model.ProjectFile, 0, 4)
-			for i := range files {
-				if files[i].RelativePath == normalized || strings.HasPrefix(files[i].RelativePath, prefix) {
-					targets = append(targets, files[i])
-				}
-			}
-			if len(targets) == 0 {
-				return "", err
-			}
-			deleted := make([]model.ProjectFile, 0, len(targets))
-			for _, target := range targets {
-				removed, delErr := s.DeleteProjectFile(ctx, input.UserID, input.ProjectPublicID, target.PublicID, AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
-				if delErr != nil {
-					return "", delErr
-				}
-				deleted = append(deleted, *removed)
-			}
-			return marshalProjectToolResult(map[string]interface{}{"deleted_count": len(deleted), "files": deleted})
-		}
-		deleted, err := s.DeleteProjectFile(ctx, input.UserID, input.ProjectPublicID, file.PublicID, AgentFileChangeContext(input.ConversationID, input.MessageID, input.RunID))
-		if err != nil {
-			return "", err
-		}
-		return marshalProjectToolResult(deleted)
+		return "", ErrAgentDeleteDenied
 	case "project_create_archive":
-		if wsErr != nil {
-			return marshalProjectToolResult(map[string]interface{}{"project_id": input.ProjectPublicID, "file_count": 0, "message": "project workspace is empty; nothing to archive yet"})
-		}
-		// 仅统计归档大小用于回执，避免在内存中保留整个 ZIP；
-		// 实际下载由 /conversation-projects/:id/archive 端点按需流式生成。
-		counter := &countingWriter{}
-		if err := s.ArchiveProjectFiles(ctx, input.UserID, input.ProjectPublicID, counter); err != nil {
-			return "", err
+		return s.createProjectArchiveDelivery(ctx, input)
+	case "project_show_diff":
+		// 纯展示工具：不改动文件，直接回传结构化内容供前端渲染 diff 卡片。
+		return marshalProjectToolResult(map[string]interface{}{
+			"path":   stringArg(args, "path"),
+			"before": stringArg(args, "before"),
+			"after":  stringArg(args, "after"),
+			"title":  stringArg(args, "title"),
+		})
+	case "project_preview":
+		// 预览工具：只校验入口文件存在并回传结构化信息，实际运行与报错捕获在前端沙箱完成。
+		entryPath, previewErr := resolveProjectPreviewEntry(files, stringArg(args, "path"))
+		if previewErr != nil {
+			return "", previewErr
 		}
 		return marshalProjectToolResult(map[string]interface{}{
-			"project_id":  input.ProjectPublicID,
+			"path":        entryPath,
+			"entry_path":  entryPath,
 			"file_count":  len(files),
-			"size_bytes":  counter.written,
-			"download_ui": true,
-			"message":     "archive ready; the user downloads it from the project panel's ZIP button in the UI. Do not output any download URL or link.",
+			"project_id":  input.ProjectPublicID,
+			"previewable": true,
+			"message":     "preview ready; the client renders it in a sandboxed iframe and reports console output and errors back",
 		})
 	default:
 		return "", fmt.Errorf("unsupported project tool")
 	}
+}
+
+type projectToolDiff struct {
+	Path      string `json:"path"`
+	Before    string `json:"before"`
+	After     string `json:"after"`
+	Created   bool   `json:"created"`
+	Truncated bool   `json:"truncated"`
+}
+
+func newProjectToolDiff(path, before, after string, created bool) *projectToolDiff {
+	diff := &projectToolDiff{Path: path, Created: created}
+	// 完整保留小型文本快照；超限不提供部分文本，避免部分差异被误认为完整差异。
+	if len(before)+len(after) > 32*1024 || strings.Count(before, "\n") > 1000 || strings.Count(after, "\n") > 1000 {
+		diff.Truncated = true
+		return diff
+	}
+	diff.Before, diff.After = before, after
+	return diff
 }
 
 func stringArg(args map[string]interface{}, key string) string {
@@ -250,10 +274,85 @@ func marshalProjectToolResult(value interface{}) (string, error) {
 	return string(data), err
 }
 
+// projectPreviewEntryCandidates 是未显式指定入口时按序回退的常见入口文件。
+var projectPreviewEntryCandidates = []string{"index.html", "index.htm", "public/index.html", "src/index.html"}
+
+// isPreviewableProjectEntry 判断入口是否为可在沙箱 iframe 中渲染的 HTML/SVG 文件。
+func isPreviewableProjectEntry(filePath string) bool {
+	extension := strings.ToLower(strings.TrimPrefix(path.Ext(filePath), "."))
+	switch extension {
+	case "html", "htm", "svg":
+		return true
+	default:
+		return false
+	}
+}
+
+// resolveProjectPreviewEntry 解析预览入口：显式路径需存在且可预览；缺省时回退到常见入口，均不存在则报错。
+func resolveProjectPreviewEntry(files []model.ProjectFile, raw string) (string, error) {
+	normalize := func(value string) string {
+		return strings.Trim(path.Clean(strings.ReplaceAll(value, "\\", "/")), "/")
+	}
+	exists := func(candidate string) bool {
+		for i := range files {
+			if files[i].EntryType != model.ProjectFileEntryTypeFile {
+				continue
+			}
+			if strings.EqualFold(files[i].RelativePath, candidate) {
+				return true
+			}
+		}
+		return false
+	}
+	if requested := strings.TrimSpace(raw); requested != "" {
+		normalized := normalize(requested)
+		if normalized == "" || normalized == "." {
+			return "", fmt.Errorf("project preview: invalid entry path")
+		}
+		if !exists(normalized) {
+			return "", fmt.Errorf("project preview: entry file not found: %s", normalized)
+		}
+		if !isPreviewableProjectEntry(normalized) {
+			return "", fmt.Errorf("project preview: %s is not a previewable HTML/SVG file", normalized)
+		}
+		return normalized, nil
+	}
+	for _, candidate := range projectPreviewEntryCandidates {
+		if exists(candidate) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("project preview: no previewable entry found; provide an explicit path such as index.html")
+}
+
 func (s *Service) executeToolCall(ctx context.Context, input ExecuteToolInput) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if input.ConversationID != 0 {
+		conversation, err := s.repo.GetConversationByUser(ctx, input.ConversationID, input.UserID)
+		if err != nil {
+			return "", err
+		}
+		if conversation.Status == "deleting" {
+			return "", ErrDeletionPending
+		}
+		if conversation.ProjectPublicID != strings.TrimSpace(input.ProjectPublicID) {
+			return "", ErrInvalidFileReference
+		}
+	}
 	toolName := strings.TrimSpace(input.ToolName)
 	if toolName == "" {
 		return "", fmt.Errorf("tool name is required")
+	}
+	if toolName == "project_browser_run" {
+		return s.executeProjectBrowser(ctx, input)
+	}
+	if toolName == "project_render_screenshot" {
+		return s.executeProjectScreenshot(ctx, input)
+	}
+	if toolName == "workspace_run_command" {
+		return s.executeWorkspaceCommand(ctx, input)
 	}
 	if isProjectTool(toolName) {
 		return s.executeProjectTool(ctx, input)

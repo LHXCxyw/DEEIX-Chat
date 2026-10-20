@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -287,7 +288,7 @@ func (c *Client) pollXAIVideoResult(ctx context.Context, route portllm.RouteConf
 			return output, nil
 		}
 		if err := waitXAIVideoPoll(ctx, xAIVideoPollDelay(resp.Header.Get("Retry-After"))); err != nil {
-			return nil, portllm.MarkRequestAccepted(err)
+			return nil, portllm.MarkRequestAccepted(videoPollWaitError(err, resolveReadTimeout(route.ReadTimeoutMS)))
 		}
 	}
 }
@@ -387,6 +388,19 @@ func xAIVideoPollDelay(retryAfter string) time.Duration {
 		return 10 * time.Second
 	}
 	return delay
+}
+
+// videoPollWaitError 区分轮询等待失败的成因：预算耗尽表示平台自己放弃等待
+// （上游任务通常仍在执行，结果可稍后重查回收），其余（调用方取消等）原样透传。
+// 不区分就会退化成裸的 context 错误，被上层统一报成"上游服务不可用"。
+func videoPollWaitError(waitErr error, budget time.Duration) error {
+	if waitErr == nil {
+		return nil
+	}
+	if !errors.Is(waitErr, context.DeadlineExceeded) {
+		return waitErr
+	}
+	return fmt.Errorf("%w: exceeded the %s waiting limit", portllm.ErrVideoPollTimeout, budget.Round(time.Second))
 }
 
 func waitXAIVideoPoll(ctx context.Context, delay time.Duration) error {

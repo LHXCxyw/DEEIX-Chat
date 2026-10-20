@@ -38,6 +38,7 @@ var modelProtocols = []string{
 	llm.AdapterOpenAIResponses,
 	llm.AdapterOpenAIImageGenerations,
 	llm.AdapterOpenAIImageEdits,
+	llm.AdapterOpenAIVideo,
 	llm.AdapterAnthropicMessages,
 	llm.AdapterGoogleGenerateContent,
 	llm.AdapterGoogleImageGeneration,

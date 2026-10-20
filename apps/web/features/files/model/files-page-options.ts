@@ -7,9 +7,12 @@ import {
   FileText,
   FileType2,
   FileVideo2,
+  Layers,
+  Sparkles,
+  UploadCloud,
 } from "lucide-react";
 
-import type { FileFilterOption, FileSortOption } from "@/features/files/types/files";
+import type { FileFilterOption, FileSortOption, FileSourceFilterOption } from "@/features/files/types/files";
 
 export const FILE_FILTER_OPTIONS: FileFilterOption[] = [
   { value: "all", icon: FileArchive },
@@ -21,6 +24,12 @@ export const FILE_FILTER_OPTIONS: FileFilterOption[] = [
   { value: "presentation", icon: FileType2 },
   { value: "pdf", icon: FileText },
   { value: "code", icon: FileCode2 },
+];
+
+export const FILE_SOURCE_OPTIONS: FileSourceFilterOption[] = [
+  { value: "all", icon: Layers },
+  { value: "generated", icon: Sparkles },
+  { value: "uploaded", icon: UploadCloud },
 ];
 
 export const FILE_SORT_OPTIONS: FileSortOption[] = [

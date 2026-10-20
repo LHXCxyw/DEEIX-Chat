@@ -390,6 +390,7 @@ export function SettingsChat() {
               platformModelName: model.platformModelName,
               vendor: model.vendor ?? "",
               icon: model.icon ?? "",
+              vendorIcon: model.vendorIcon ?? "",
             }),
           })),
       ),

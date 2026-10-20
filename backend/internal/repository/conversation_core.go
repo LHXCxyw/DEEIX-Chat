@@ -119,6 +119,8 @@ type ConversationMetadataRepository interface {
 // MessageRepository 封装消息读写能力。
 type MessageRepository interface {
 	CreateMessage(ctx context.Context, item *domainconversation.Message) error
+	// CreateAssistantBranchMessage / CreateMessagePairWithUserAttachments 在创建消息的同一事务内
+	// 推进会话活跃续聊锚点（active_tip_message_id），使锚点始终指向最新消息。
 	CreateAssistantBranchMessage(ctx context.Context, assistantMessage *domainconversation.Message) error
 	CreateMessagePairWithUserAttachments(ctx context.Context, userMessage *domainconversation.Message, assistantMessage *domainconversation.Message, userAttachments []domainconversation.Attachment) error
 	CompleteAssistantMessageWithAttachments(ctx context.Context, userMessageID uint, userUsage MessageUsageUpdate, assistantMessageID uint, assistantCompletion AssistantMessageCompletionUpdate, assistantAttachments []domainconversation.Attachment) error

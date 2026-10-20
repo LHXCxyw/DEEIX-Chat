@@ -2,6 +2,7 @@ import {
   MODEL_CONTROL_TOGGLE_OFF,
   MODEL_CONTROL_TOGGLE_ON,
   type ModelControl,
+  type ModelControlPlacement,
   type ModelControlValue,
 } from "@/entities/model";
 import type { ChatModelControlSelections } from "@/features/chat/model/chat-model-controls";
@@ -192,6 +193,138 @@ export function modelControlsFromOptionControls(
       protocols: [],
     }];
   });
+}
+
+// ---------------------------------------------------------------------------
+// 按协议分配的聊天常用参数：管理员声明的 controls 优先，协议预设只补齐未声明的参数。
+// 路径与官方字段一致，取值类型与候选项复用本文件的 OPTION_SELECT_VALUES / NUMBER_OPTION_KEYS。
+// ---------------------------------------------------------------------------
+
+/** 结构化输出格式的可选值（response_format 与 text.format.type 共用）。 */
+const RESPONSE_FORMAT_VALUES = OPTION_SELECT_VALUES["response_format.type"];
+
+// OpenAI Responses 系（openai / openrouter / xai）的常用参数。
+const RESPONSES_CHAT_CONTROLS: ModelOptionControl[] = [
+  { path: "temperature", type: "number" },
+  { path: "top_p", type: "number" },
+  { path: "max_output_tokens", type: "number" },
+  { path: "reasoning.effort", type: "select", options: OPTION_SELECT_VALUES["reasoning.effort"] },
+  { path: "text.format.type", type: "select", options: RESPONSE_FORMAT_VALUES },
+];
+
+// Gemini 系（google_generate_content / gemini_interactions）的常用参数。
+const GEMINI_CHAT_CONTROLS: ModelOptionControl[] = [
+  { path: "generationConfig.temperature", type: "number" },
+  { path: "generationConfig.topP", type: "number" },
+  { path: "generationConfig.topK", type: "number" },
+  { path: "generationConfig.maxOutputTokens", type: "number" },
+  { path: "generationConfig.responseMimeType", type: "select", options: OPTION_SELECT_VALUES["generationConfig.responseMimeType"] },
+  { path: "generationConfig.thinkingConfig.thinkingBudget", type: "number" },
+  { path: "generationConfig.thinkingConfig.thinkingLevel", type: "select", options: OPTION_SELECT_VALUES["generationConfig.thinkingConfig.thinkingLevel"] },
+];
+
+/** 各对话协议经官方文档核实的常用参数集合，作为管理员未声明时的补缺来源。 */
+export const PROTOCOL_CHAT_CONTROLS: Record<string, ModelOptionControl[]> = {
+  openai_chat_completions: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "max_completion_tokens", type: "number" },
+    { path: "reasoning_effort", type: "select", options: OPTION_SELECT_VALUES.reasoning_effort },
+    { path: "response_format", type: "select", options: RESPONSE_FORMAT_VALUES },
+  ],
+  openrouter_chat_completions: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "max_completion_tokens", type: "number" },
+    { path: "reasoning_effort", type: "select", options: OPTION_SELECT_VALUES.reasoning_effort },
+    { path: "response_format", type: "select", options: RESPONSE_FORMAT_VALUES },
+    { path: "top_k", type: "number" },
+  ],
+  openai_responses: RESPONSES_CHAT_CONTROLS,
+  openrouter_responses: [...RESPONSES_CHAT_CONTROLS, { path: "top_k", type: "number" }],
+  xai_responses: RESPONSES_CHAT_CONTROLS,
+  anthropic_messages: [
+    { path: "temperature", type: "number" },
+    { path: "top_p", type: "number" },
+    { path: "top_k", type: "number" },
+    { path: "max_tokens", type: "number" },
+    { path: "thinking.type", type: "select", options: OPTION_SELECT_VALUES["thinking.type"] },
+    { path: "thinking.budget_tokens", type: "number" },
+  ],
+  google_generate_content: GEMINI_CHAT_CONTROLS,
+  gemini_interactions: GEMINI_CHAT_CONTROLS,
+};
+
+/** 汇总模型协议上的常用参数控件，按协议顺序合并、按路径去重。 */
+export function resolveProtocolChatControls(protocols: readonly string[]): ModelOptionControl[] {
+  const byPath = new Map<string, ModelOptionControl>();
+  for (const protocol of protocols) {
+    for (const control of PROTOCOL_CHAT_CONTROLS[protocol.trim().toLowerCase()] ?? []) {
+      if (!byPath.has(control.path)) {
+        byPath.set(control.path, control);
+      }
+    }
+  }
+  return [...byPath.values()];
+}
+
+// 常驻工具栏的媒体参数：按路径末段匹配，兼容下划线与驼峰写法
+// （图像：分辨率/尺寸/画幅比/质量；视频：画幅比/时长/分辨率/参考模式）。
+// 视频协议各家的参数名不同：xai 用 aspect_ratio/duration/resolution，openai 视频用 ratio/seconds/resolution_name/mode。
+const TOOLBAR_PARAMETER_SEGMENTS = new Set([
+  "resolution",
+  "size",
+  "aspectratio",
+  "imagesize",
+  "quality",
+  "duration",
+  "durationseconds",
+  "ratio",
+  "seconds",
+  "resolutionname",
+  "mode",
+]);
+
+/** 控件在聊天工具栏的默认位置：思考强度与媒体常用参数常驻，其余收进「更多对话参数」面板。 */
+export function composerControlPlacement(id: string, kind: ModelControl["kind"]): ModelControlPlacement {
+  if (kind === "reasoning") {
+    return "toolbar";
+  }
+  const segment = (id.split(".").pop() ?? id).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return TOOLBAR_PARAMETER_SEGMENTS.has(segment) ? "toolbar" : "menu";
+}
+
+/** 按工具栏常驻规则重排一组控件的位置（媒体任务的参数由管理员 optionControls 编译而来，默认全在菜单）。 */
+export function withComposerPlacements(controls: readonly ModelControl[]): ModelControl[] {
+  return controls.map((control) => ({ ...control, placement: composerControlPlacement(control.id, control.kind) }));
+}
+
+// 模型具备推理能力时，推理参数由统一的「思考强度」控件接管，协议预设不再重复提供这些路径。
+const REASONING_PRESET_PATHS = new Set([
+  "reasoning_effort",
+  "reasoning.effort",
+  "thinking.type",
+  "thinking.budget_tokens",
+  "generationConfig.thinkingConfig.thinkingBudget",
+  "generationConfig.thinkingConfig.thinkingLevel",
+]);
+
+/**
+ * 聊天 composer 的完整控件：管理员声明的控件优先，协议预设只补齐未声明的参数。
+ * 预设控件没有默认值，用户未选择时不写入参数、不随请求发送。
+ */
+export function chatComposerControls(
+  controls: readonly ModelControl[],
+  protocols: readonly string[],
+  hasReasoning: boolean,
+): ModelControl[] {
+  const declaredIDs = new Set(controls.map((control) => control.id));
+  const presets = resolveProtocolChatControls(protocols).filter((control) =>
+    !declaredIDs.has(control.path) && !(hasReasoning && REASONING_PRESET_PATHS.has(control.path)));
+  if (presets.length === 0) {
+    return [...controls];
+  }
+  return [...controls, ...withComposerPlacements(modelControlsFromOptionControls(presets, {}))];
 }
 
 /** Current values of the controls, read from the request options. */

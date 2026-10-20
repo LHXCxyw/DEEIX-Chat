@@ -9,13 +9,14 @@ import (
 	models "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (r *Repo) GetOrCreateProjectWorkspace(ctx context.Context, ownerUserID uint, conversationProjectID uint, publicID string) (*domainconversation.ProjectWorkspace, error) {
 	var result models.ProjectWorkspace
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var project models.ConversationProject
-		if err := tx.Where("id = ? AND user_id = ?", conversationProjectID, ownerUserID).First(&project).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ? AND status <> ?", conversationProjectID, ownerUserID, "deleting").First(&project).Error; err != nil {
 			return err
 		}
 		// 先按 owner+project 精确查询已有工作区；
@@ -30,7 +31,7 @@ func (r *Repo) GetOrCreateProjectWorkspace(ctx context.Context, ownerUserID uint
 			return err
 		}
 		workspace := models.ProjectWorkspace{
-			PublicID: publicID, OwnerUserID: ownerUserID, ConversationProjectID: conversationProjectID,
+			PublicID: publicID, OwnerUserID: ownerUserID, ConversationProjectID: &conversationProjectID,
 			Status: domainconversation.ProjectWorkspaceStatusActive,
 		}
 		if err := tx.Create(&workspace).Error; err != nil {
@@ -52,6 +53,10 @@ func (r *Repo) GetOrCreateProjectWorkspace(ctx context.Context, ownerUserID uint
 }
 
 func (r *Repo) GetProjectWorkspaceByProject(ctx context.Context, ownerUserID uint, conversationProjectID uint) (*domainconversation.ProjectWorkspace, error) {
+	var project models.ConversationProject
+	if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ? AND status <> ?", conversationProjectID, ownerUserID, "deleting").First(&project).Error; err != nil {
+		return nil, dberror.Translate(err)
+	}
 	var item models.ProjectWorkspace
 	if err := r.db.WithContext(ctx).
 		Where("owner_user_id = ? AND conversation_project_id = ?", ownerUserID, conversationProjectID).
@@ -73,6 +78,9 @@ func (r *Repo) CreateProjectImport(ctx context.Context, item *domainconversation
 
 func (r *Repo) CompleteProjectImport(ctx context.Context, ownerUserID uint, projectID uint, importID uint, files []domainconversation.ProjectFile, fileCount int, totalBytes int64) error {
 	return dberror.Translate(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockWritableWorkspace(tx, ownerUserID, projectID); err != nil {
+			return err
+		}
 		var job models.ProjectImport
 		if err := tx.Where("id = ? AND owner_user_id = ? AND project_id = ?", importID, ownerUserID, projectID).First(&job).Error; err != nil {
 			return err
@@ -141,7 +149,12 @@ func (r *Repo) ListProjectFiles(ctx context.Context, ownerUserID uint, projectID
 
 func (r *Repo) CreateProjectFile(ctx context.Context, item *domainconversation.ProjectFile) error {
 	entity := toProjectFileModel(item)
-	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockWritableWorkspace(tx, item.OwnerUserID, item.ProjectID); err != nil {
+			return err
+		}
+		return tx.Create(&entity).Error
+	}); err != nil {
 		return dberror.Translate(err)
 	}
 	*item = toProjectFileDomain(entity)
@@ -170,10 +183,43 @@ func (r *Repo) UpdateProjectFile(ctx context.Context, ownerUserID uint, projectI
 	if result.Error != nil {
 		return nil, dberror.Translate(result.Error)
 	}
-	if err := r.db.WithContext(ctx).Model(&item).Updates(map[string]interface{}{"storage_key": storageKey, "mime_type": mimeType, "size_bytes": sizeBytes, "sha256": sha256, "version": version}).Error; err != nil {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockWritableWorkspace(tx, ownerUserID, projectID); err != nil {
+			return err
+		}
+		return tx.Model(&item).Updates(map[string]interface{}{"storage_key": storageKey, "mime_type": mimeType, "size_bytes": sizeBytes, "sha256": sha256, "version": version}).Error
+	})
+	if err != nil {
 		return nil, dberror.Translate(err)
 	}
 	item.StorageKey, item.MimeType, item.SizeBytes, item.SHA256, item.Version = storageKey, mimeType, sizeBytes, sha256, version
+	value := toProjectFileDomain(item)
+	return &value, nil
+}
+
+func (r *Repo) CompareAndSwapProjectFile(ctx context.Context, ownerUserID uint, projectID uint, publicID string, storageKey string, mimeType string, sizeBytes int64, sha256 string, expectedVersion int) (*domainconversation.ProjectFile, error) {
+	var item models.ProjectFile
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockWritableWorkspace(tx, ownerUserID, projectID); err != nil {
+			if dberror.IsRecordNotFound(err) {
+				return repository.ErrConflict
+			}
+			return err
+		}
+		result := tx.Model(&item).Clauses(clause.Returning{}).
+			Where("owner_user_id = ? AND project_id = ? AND public_id = ? AND version = ?", ownerUserID, projectID, publicID, expectedVersion).
+			Updates(map[string]interface{}{"storage_key": storageKey, "mime_type": mimeType, "size_bytes": sizeBytes, "sha256": sha256, "version": gorm.Expr("version + 1")})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return repository.ErrConflict
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, dberror.Translate(err)
+	}
 	value := toProjectFileDomain(item)
 	return &value, nil
 }
@@ -203,11 +249,10 @@ func (r *Repo) GetProjectFile(ctx context.Context, ownerUserID uint, projectID u
 	return &result, nil
 }
 
-// PurgeProjectFileByPath 硬删除指定路径的全部文件行（含历史软删除残留），
-// 为同路径重新创建腾出 (project_id, relative_path) 唯一索引。
+// PurgeProjectFileByPath 仅清理软删除残留，不能删除并发创建的活动文件。
 func (r *Repo) PurgeProjectFileByPath(ctx context.Context, ownerUserID uint, projectID uint, relativePath string) error {
 	return dberror.Translate(r.db.WithContext(ctx).Unscoped().
-		Where("owner_user_id = ? AND project_id = ? AND relative_path = ?", ownerUserID, projectID, relativePath).
+		Where("owner_user_id = ? AND project_id = ? AND relative_path = ? AND deleted_at IS NOT NULL", ownerUserID, projectID, relativePath).
 		Delete(&models.ProjectFile{}).Error)
 }
 
@@ -251,8 +296,12 @@ func (r *Repo) ListProjectFileChanges(ctx context.Context, ownerUserID uint, pro
 }
 
 func toProjectWorkspaceDomain(item models.ProjectWorkspace) domainconversation.ProjectWorkspace {
+	var projectID uint
+	if item.ConversationProjectID != nil {
+		projectID = *item.ConversationProjectID
+	}
 	return domainconversation.ProjectWorkspace{ID: item.ID, PublicID: item.PublicID, OwnerUserID: item.OwnerUserID,
-		ConversationProjectID: item.ConversationProjectID, Status: item.Status, StorageBytes: item.StorageBytes,
+		ConversationProjectID: projectID, ConversationID: item.ConversationID, Status: item.Status, StorageBytes: item.StorageBytes,
 		FileCount: item.FileCount, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
 }
 

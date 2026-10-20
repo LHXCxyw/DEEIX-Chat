@@ -25,6 +25,7 @@ const (
 	AdapterXAIImageEdits          = "xai_image_edits"             // POST /v1/images/edits
 	AdapterXAIVideo               = "xai_video"                   // POST /v1/videos/generations + GET /v1/videos/{request_id}
 	AdapterXAIVideoExtensions     = "xai_video_extensions"        // POST /v1/videos/extensions + GET /v1/videos/{request_id}
+	AdapterOpenAIVideo            = "openai_video_generations"    // POST /v1/videos + GET /v1/videos/{id}（Sora 兼容）
 )
 
 var (
@@ -32,6 +33,10 @@ var (
 	ErrUnsupportedAdapter = errors.New("unsupported llm adapter")
 	// ErrUnsupportedStream 表示协议存在但不支持真实流式输出。
 	ErrUnsupportedStream = errors.New("unsupported llm stream")
+	// ErrVideoPollTimeout 表示平台侧等待预算耗尽而上游任务仍未进入终态。
+	// 这不是上游故障：上游任务通常仍在正常执行，结果可以稍后通过任务重查回收。
+	// 必须与上游错误区分，否则会被上层统一压成"上游服务不可用"，用户无从判断。
+	ErrVideoPollTimeout = errors.New("video task is still processing upstream")
 )
 
 // NormalizeAdapter 规范化协议名；空值按历史默认使用 openai_responses，未知值保留给校验层处理。
@@ -47,7 +52,7 @@ func NormalizeAdapter(raw string) string {
 func IsImplementedAdapter(raw string) bool {
 	switch NormalizeAdapter(raw) {
 	case AdapterOpenAIResponses, AdapterOpenRouterChat, AdapterOpenRouterResponses, AdapterOpenRouterImages, AdapterOpenAIChatCompletions, AdapterOpenAIImageGenerations, AdapterOpenAIImageEdits, AdapterXAIResponses,
-		AdapterAnthropicMessages, AdapterGoogleGenerateContent, AdapterGoogleImageGeneration, AdapterGeminiInteractions, AdapterXAIImage, AdapterXAIImageEdits, AdapterXAIVideo, AdapterXAIVideoExtensions:
+		AdapterAnthropicMessages, AdapterGoogleGenerateContent, AdapterGoogleImageGeneration, AdapterGeminiInteractions, AdapterXAIImage, AdapterXAIImageEdits, AdapterXAIVideo, AdapterXAIVideoExtensions, AdapterOpenAIVideo:
 		return true
 	default:
 		return false
@@ -127,7 +132,7 @@ func IsImageEditAdapter(raw string) bool {
 // IsVideoGenerationAdapter 返回协议是否属于独立视频生成链路。
 func IsVideoGenerationAdapter(raw string) bool {
 	switch NormalizeAdapter(raw) {
-	case AdapterGeminiInteractions, AdapterXAIVideo, AdapterXAIVideoExtensions:
+	case AdapterGeminiInteractions, AdapterXAIVideo, AdapterXAIVideoExtensions, AdapterOpenAIVideo:
 		return true
 	default:
 		return false
@@ -145,7 +150,7 @@ func DefaultEndpointForAdapter(adapter string) string {
 		return EndpointImageEdits
 	case AdapterOpenRouterImages:
 		return EndpointImages
-	case AdapterXAIVideo:
+	case AdapterXAIVideo, AdapterOpenAIVideo:
 		return EndpointVideoGenerations
 	case AdapterXAIVideoExtensions:
 		return EndpointVideoExtensions
@@ -205,6 +210,8 @@ func OptionPolicyProtocolKey(protocol string) string {
 		return "xai_video"
 	case AdapterXAIVideoExtensions:
 		return "xai_video_extensions"
+	case AdapterOpenAIVideo:
+		return "openai_video_generations"
 	case AdapterXAIResponses:
 		return "xai_responses"
 	default:

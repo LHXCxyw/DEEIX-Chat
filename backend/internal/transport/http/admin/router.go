@@ -9,6 +9,8 @@ import (
 // RegisterRoutes 注册后台管理路由（由管理员中间件保护）。
 // 订单与兑换记录属于计费门禁，账号与权限组只在多用户部署里有对象；能力键的含义见 docs/ARCHITECTURE.md §4。
 func (m *Module) RegisterRoutes(adminGroup *gin.RouterGroup, gate middleware.FeatureGate) {
+	adminGroup.GET("/agent-command-slots", m.Handler.ListCommandSlots)
+	adminGroup.POST("/agent-command-slots/:slot/recover", m.Handler.RecoverCommandSlot)
 	adminGroup.GET("/audit-logs", m.Handler.ListAuditLogs)
 	adminGroup.GET("/error-logs", m.Handler.ListErrorLogs)
 	adminGroup.GET("/usage-statistics", m.Handler.GetUsageStatistics)

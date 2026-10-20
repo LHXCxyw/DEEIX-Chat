@@ -83,11 +83,7 @@ func (s *Service) buildMessageRoutePrompt(ctx context.Context, route *channel.Re
 	})
 	historyMessages = documents.Messages
 	dynamicContext := input.DynamicContext
-	if native.Policy.ImageUnsupported {
-		// 模型不支持图片输入：本轮图片与检索命中的图片都不发送，所属轮次已留说明。
-		dynamicContext.Attachments = nil
-	}
-	if !input.SkipImageAttachments && !native.Policy.ImageUnsupported {
+	if !input.SkipImageAttachments {
 		var err error
 		historyMessages, err = s.injectConversationImageContext(ctx, historyMessages, routeMessages, input.ConversationFiles, input.Config)
 		if err != nil {
@@ -104,6 +100,15 @@ func (s *Service) buildMessageRoutePrompt(ctx context.Context, route *channel.Re
 	// 统一约束，避免旧的固定 32K 上限提前丢弃偏好等系统上下文。
 	assembler := NewContextAssembler(0)
 	systemPrompt := resolveMessageSystemPromptInjection(input.Config, route, input.ProjectSystemPrompt, requestPromptOptions{HTMLVisual: input.HTMLVisualPromptEnabled, UIComponents: input.UIComponents, UIBlockVersion: input.UIBlockVersion})
+	capabilityPrompt := s.agentCapabilityPrompt(input.ToolRuntime)
+	if systemPrompt.Content == "" {
+		systemPrompt.Content = capabilityPrompt
+		if route != nil {
+			systemPrompt.InlineToUser = shouldInlineSystemPromptToUser(*route)
+		}
+	} else {
+		systemPrompt.Content += "\n\n" + capabilityPrompt
+	}
 	if systemPrompt.Content != "" {
 		if systemPrompt.InlineToUser {
 			historyMessages = inlineSystemPromptIntoLatestUserMessage(historyMessages, systemPrompt.Content)

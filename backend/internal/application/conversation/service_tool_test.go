@@ -17,6 +17,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/mcpauth"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/mcp"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
 type capturingMCPClient struct {
@@ -41,8 +42,17 @@ func (c *capturingMCPClient) CallTool(_ context.Context, cfg mcp.CallConfig, inp
 	return c.output, nil
 }
 
+type toolOwnershipRepo struct {
+	repository.ConversationRepository
+}
+
+func (*toolOwnershipRepo) GetConversationByUser(_ context.Context, id, user uint) (*model.Conversation, error) {
+	return &model.Conversation{ID: id, UserID: user, Status: "active"}, nil
+}
+
 func newToolService(secret string, client *capturingMCPClient) *Service {
 	return &Service{
+		repo:      &toolOwnershipRepo{},
 		cfg:       config.NewRuntime(config.Config{JWTSecret: "jwt-secret", MCPUserContextSecret: secret}),
 		mcpClient: client,
 	}

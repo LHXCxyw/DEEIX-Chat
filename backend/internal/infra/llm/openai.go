@@ -157,7 +157,7 @@ func (c *Client) generateStreamOpenAICompatible(
 	idleReader := newIdleTimeoutReader(resp.Body, idleTimeout)
 	streamBody := newUpstreamBodyRecorder(idleReader)
 	if err = consumeOpenAIGenerateStream(endpoint, route.Protocol, streamBody, result, onEvent, deepSeekTextEncodedToolCallsEnabled(route)); err != nil {
-		return nil, portllm.MarkRequestAccepted(attachUpstreamDebug(err, upstreamDebugSnapshot(req, payload, resp, streamErrorBody(streamBody, err))))
+		return nil, portllm.MarkRequestAccepted(attachStreamUpstreamDebug(err, upstreamDebugSnapshot(req, payload, resp, streamErrorBody(streamBody, err))))
 	}
 	return result, nil
 }
@@ -533,7 +533,7 @@ func consumeOpenAIGenerateStream(
 
 		parsed := make(map[string]any)
 		if err := json.Unmarshal([]byte(payloadText), &parsed); err != nil {
-			return err
+			return &streamChunkParseError{Payload: payloadText, Err: err}
 		}
 		if err := parseStreamUpstreamError(parsed, payloadText); err != nil {
 			return err

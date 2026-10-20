@@ -287,7 +287,19 @@ func (s *Service) recordProjectFileChange(ctx context.Context, userID uint, work
 
 // WriteProjectFile 在当前用户项目中创建文件，路径已存在时覆盖内容并递增版本。
 // 覆盖时旧对象保留在对象存储中不再删除，配合文件变更日志支持消息回退恢复历史内容。
-func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPublicID string, relativePath string, content []byte, changeCtx ProjectFileChangeContext) (*model.ProjectFile, error) {
+// expectedVersion 缺省兼容旧调用；0 表示仅创建，正整数表示仅覆盖对应版本。
+func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPublicID string, relativePath string, content []byte, changeCtx ProjectFileChangeContext, expectedVersion ...*int) (*model.ProjectFile, error) {
+	var expected *int
+	if len(expectedVersion) > 0 {
+		expected = expectedVersion[0]
+	}
+	return s.writeProjectFile(ctx, userID, projectPublicID, relativePath, content, changeCtx, expected, "")
+}
+
+func (s *Service) writeProjectFile(ctx context.Context, userID uint, projectPublicID string, relativePath string, content []byte, changeCtx ProjectFileChangeContext, expected *int, expectedPublicID string) (*model.ProjectFile, error) {
+	if expected != nil && *expected < 0 {
+		return nil, ErrInvalidProjectFileVersion
+	}
 	relative, err := normalizeProjectFilePath(relativePath)
 	if err != nil {
 		return nil, err
@@ -306,6 +318,10 @@ func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPubl
 	if err != nil {
 		return nil, err
 	}
+	return s.writeWorkspaceFile(ctx, userID, workspace, relative, content, changeCtx, expected, expectedPublicID)
+}
+
+func (s *Service) writeWorkspaceFile(ctx context.Context, userID uint, workspace *model.ProjectWorkspace, relative string, content []byte, changeCtx ProjectFileChangeContext, expected *int, expectedPublicID string) (*model.ProjectFile, error) {
 	files, err := s.repo.ListProjectFiles(ctx, userID, workspace.ID)
 	if err != nil {
 		return nil, err
@@ -316,6 +332,12 @@ func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPubl
 			existing = &files[i]
 			break
 		}
+	}
+	if expectedPublicID != "" && (existing == nil || existing.PublicID != expectedPublicID) {
+		return nil, ErrProjectFileVersionConflict
+	}
+	if expected != nil && ((existing == nil && *expected != 0) || (existing != nil && existing.Version != *expected)) {
+		return nil, ErrProjectFileVersionConflict
 	}
 	if existing != nil && existing.EntryType != model.ProjectFileEntryTypeFile {
 		return nil, ErrInvalidFileReference
@@ -332,9 +354,12 @@ func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPubl
 	}
 	if existing != nil {
 		beforeSnapshot := projectFileSnapshot(existing)
-		updated, updateErr := s.repo.UpdateProjectFile(ctx, userID, workspace.ID, existing.PublicID, info.Key, info.ContentType, info.SizeBytes, hex.EncodeToString(digest[:]), existing.Version+1)
+		updated, updateErr := s.repo.CompareAndSwapProjectFile(ctx, userID, workspace.ID, existing.PublicID, info.Key, info.ContentType, info.SizeBytes, hex.EncodeToString(digest[:]), existing.Version)
 		if updateErr != nil {
 			_ = store.Delete(ctx, info.Key)
+			if errors.Is(updateErr, repository.ErrConflict) || errors.Is(updateErr, repository.ErrNotFound) {
+				return nil, ErrProjectFileVersionConflict
+			}
 			return nil, updateErr
 		}
 		if updateErr = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, info.SizeBytes-existing.SizeBytes, 0); updateErr != nil {
@@ -347,10 +372,15 @@ func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPubl
 	}
 	// 创建前清理同路径的软删除残留行，避免 (project_id, relative_path) 唯一索引冲突。
 	if err = s.repo.PurgeProjectFileByPath(ctx, userID, workspace.ID, relative); err != nil {
+		_ = store.Delete(ctx, info.Key)
 		return nil, err
 	}
 	item := &model.ProjectFile{PublicID: normalizePublicID(uuid.NewString()), OwnerUserID: userID, ProjectID: workspace.ID, RelativePath: relative, FileName: path.Base(relative), EntryType: model.ProjectFileEntryTypeFile, StorageKey: info.Key, MimeType: info.ContentType, SizeBytes: info.SizeBytes, SHA256: hex.EncodeToString(digest[:]), Version: 1}
 	if err = s.repo.CreateProjectFile(ctx, item); err != nil {
+		if expected != nil && errors.Is(err, repository.ErrDuplicate) {
+			_ = store.Delete(ctx, info.Key)
+			return nil, ErrProjectFileVersionConflict
+		}
 		if !errors.Is(err, repository.ErrDuplicate) {
 			_ = store.Delete(ctx, info.Key)
 			return nil, err
@@ -372,9 +402,12 @@ func (s *Service) WriteProjectFile(ctx context.Context, userID uint, projectPubl
 			_ = store.Delete(ctx, info.Key)
 			return nil, err
 		}
-		updated, updateErr := s.repo.UpdateProjectFile(ctx, userID, workspace.ID, raced.PublicID, info.Key, info.ContentType, info.SizeBytes, hex.EncodeToString(digest[:]), raced.Version+1)
+		updated, updateErr := s.repo.CompareAndSwapProjectFile(ctx, userID, workspace.ID, raced.PublicID, info.Key, info.ContentType, info.SizeBytes, hex.EncodeToString(digest[:]), raced.Version)
 		if updateErr != nil {
 			_ = store.Delete(ctx, info.Key)
+			if errors.Is(updateErr, repository.ErrConflict) || errors.Is(updateErr, repository.ErrNotFound) {
+				return nil, ErrProjectFileVersionConflict
+			}
 			return nil, updateErr
 		}
 		if updateErr = s.repo.UpdateProjectWorkspaceUsage(ctx, userID, workspace.ID, info.SizeBytes-raced.SizeBytes, 0); updateErr != nil {
@@ -455,7 +488,7 @@ func (s *Service) DeleteProjectFile(ctx context.Context, userID uint, projectPub
 
 func normalizeProjectFilePath(value string) (string, error) {
 	relative := path.Clean(strings.ReplaceAll(strings.TrimSpace(value), "\\", "/"))
-	if relative == "." || strings.HasPrefix(relative, "../") || strings.HasPrefix(relative, "/") {
+	if relative == "." || relative == ".." || strings.ContainsAny(relative, ":\x00") || strings.HasPrefix(relative, "../") || strings.HasPrefix(relative, "/") {
 		return "", ErrInvalidFileReference
 	}
 	return relative, nil

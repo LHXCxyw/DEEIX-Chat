@@ -26,7 +26,7 @@ export function AgentTraceStep({
   onOpenChange,
 }: {
   icon: ReactNode;
-  title: string;
+  title: ReactNode;
   status?: string;
   duration?: string;
   open: boolean;

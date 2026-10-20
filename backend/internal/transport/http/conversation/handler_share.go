@@ -303,6 +303,75 @@ func (h *Handler) GetPublicSharedFileContent(c *gin.Context) {
 	_ = filecontent.Write(c, result, true)
 }
 
+// GetPublicSharedProjectFiles godoc
+// @Summary 获取公开分享项目文件树
+// @Description 公开读取分享快照内冻结的项目工作区文件树
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Param share_id path string true "分享 ID"
+// @Success 200 {object} PublicSharedProjectFilesResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /shared-conversations/{share_id}/project/files [get]
+func (h *Handler) GetPublicSharedProjectFiles(c *gin.Context) {
+	shareID, err := stringParam(c, "share_id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidShareID)
+		return
+	}
+	items, err := h.service.ListPublicSharedProjectFiles(c.Request.Context(), shareID)
+	if err != nil {
+		if errors.Is(err, appconversation.ErrConversationShareNotFound) {
+			response.ErrorFrom(c, http.StatusNotFound, err)
+			return
+		}
+		response.InternalError(c, err)
+		return
+	}
+	response.Success(c, toPublicSharedProjectFilesResponse(items))
+}
+
+// GetPublicSharedProjectFileContent godoc
+// @Summary 获取公开分享项目文件内容
+// @Description 只允许读取公开分享快照中冻结的项目文件原件
+// @Tags chat
+// @Produce application/octet-stream
+// @Param share_id path string true "分享 ID"
+// @Param file_id path string true "文件 ID"
+// @Success 200 {file} binary
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /shared-conversations/{share_id}/project/files/{file_id}/content [get]
+func (h *Handler) GetPublicSharedProjectFileContent(c *gin.Context) {
+	shareID, err := stringParam(c, "share_id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidShareID)
+		return
+	}
+	fileID := c.Param("file_id")
+	result, err := h.service.OpenSharedConversationProjectFileContent(c.Request.Context(), shareID, fileID)
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrConversationShareNotFound):
+			response.ErrorFrom(c, http.StatusNotFound, err)
+			return
+		case errors.Is(err, appconversation.ErrInvalidFileReference):
+			response.ErrorFrom(c, http.StatusBadRequest, errInvalidFileID)
+			return
+		case errors.Is(err, appconversation.ErrFileNotFound):
+			response.ErrorFrom(c, http.StatusNotFound, appconversation.ErrFileNotFound)
+			return
+		default:
+			response.InternalError(c, err)
+			return
+		}
+	}
+	_ = filecontent.Write(c, result, true)
+}
+
 func writeConversationShareError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, appconversation.ErrConversationNotFound):

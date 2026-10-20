@@ -93,17 +93,19 @@ func (ConversationProjectKnowledgeBase) TableName() string {
 // ConversationShare 存储会话公开分享快照。
 type ConversationShare struct {
 	BaseModel
-	ShareID               string     `gorm:"size:32;not null;default:'';uniqueIndex:idx_chat_conversation_shares_share_id;comment:公开分享ID"`
-	ConversationID        uint       `gorm:"not null;index:idx_chat_conversation_shares_conversation_id;comment:原会话ID"`
-	UserID                uint       `gorm:"not null;index:idx_chat_conversation_shares_user_id;comment:原会话所有者ID"`
-	Status                string     `gorm:"size:32;not null;default:'active';index:idx_chat_conversation_shares_status;comment:分享状态(active/revoked/expired)"`
-	TitleSnapshot         string     `gorm:"size:255;not null;default:'';comment:分享时标题快照"`
-	ModelSnapshot         string     `gorm:"size:128;not null;default:'';comment:分享时平台模型快照"`
-	MessageIDsJSON        string     `gorm:"type:text;not null;default:'[]';comment:分享时全部分支消息public_id列表JSON"`
-	DefaultMessageIDsJSON string     `gorm:"column:default_message_ids_json;type:text;not null;default:'[]';comment:公开页默认分支消息public_id列表JSON"`
-	RevokedAt             *time.Time `gorm:"index:idx_chat_conversation_shares_revoked_at;comment:撤销时间"`
-	RegeneratedAt         *time.Time `gorm:"comment:重新生成时间"`
-	LastAccessedAt        *time.Time `gorm:"index:idx_chat_conversation_shares_last_accessed_at;comment:最近公开访问时间"`
+	ShareID               string `gorm:"size:32;not null;default:'';uniqueIndex:idx_chat_conversation_shares_share_id;comment:公开分享ID"`
+	ConversationID        uint   `gorm:"not null;index:idx_chat_conversation_shares_conversation_id;comment:原会话ID"`
+	UserID                uint   `gorm:"not null;index:idx_chat_conversation_shares_user_id;comment:原会话所有者ID"`
+	Status                string `gorm:"size:32;not null;default:'active';index:idx_chat_conversation_shares_status;comment:分享状态(active/revoked/expired)"`
+	TitleSnapshot         string `gorm:"size:255;not null;default:'';comment:分享时标题快照"`
+	ModelSnapshot         string `gorm:"size:128;not null;default:'';comment:分享时平台模型快照"`
+	MessageIDsJSON        string `gorm:"type:text;not null;default:'[]';comment:分享时全部分支消息public_id列表JSON"`
+	DefaultMessageIDsJSON string `gorm:"column:default_message_ids_json;type:text;not null;default:'[]';comment:公开页默认分支消息public_id列表JSON"`
+	// ProjectFileSnapshotJSON 冻结分享时的项目工作区文件清单（相对路径 + 不可变原件 storage_key/version）。
+	ProjectFileSnapshotJSON string     `gorm:"column:project_file_snapshot_json;type:text;not null;default:'[]';comment:分享时项目工作区文件快照JSON"`
+	RevokedAt               *time.Time `gorm:"index:idx_chat_conversation_shares_revoked_at;comment:撤销时间"`
+	RegeneratedAt           *time.Time `gorm:"comment:重新生成时间"`
+	LastAccessedAt          *time.Time `gorm:"index:idx_chat_conversation_shares_last_accessed_at;comment:最近公开访问时间"`
 }
 
 // TableName 指定表名。

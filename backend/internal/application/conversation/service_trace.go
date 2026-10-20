@@ -21,6 +21,8 @@ const (
 	messageTraceTypeProcess        = "process"
 	messageTraceTypeTools          = "tools"
 	messageTraceTypeUpstreamThink  = "upstream_think"
+	messageTraceTypeRoundText      = "round_text"
+	messageTraceEventTypeText      = "text"
 	messageTraceStageProcess       = "process"
 	messageTraceStageThink         = "think"
 	messageTraceStageTool          = "tool"
@@ -590,6 +592,82 @@ func (r *messageTraceRecorder) currentToolTraceBinding() (string, string) {
 		return strings.TrimSpace(r.tools.roundID), strings.TrimSpace(r.tools.parentEventID)
 	}
 	return r.nextTraceRoundID(), ""
+}
+
+// recordRoundText 把一轮 agent 工具循环的正文固化到轨迹事件流（事件类型 text）。
+// 该轮正文从主正文移入 trace，前端按 思考→正文→工具 的轮次顺序穿插显示；
+// 同时向客户端下发一次空正文快照，让主正文缓冲区从下一轮重新累积。
+func (r *messageTraceRecorder) recordRoundText(text string) {
+	if r == nil || !r.enabled() {
+		return
+	}
+	value := strings.TrimSpace(text)
+	if value == "" {
+		return
+	}
+	r.completeProcess()
+	roundID, parentEventID := "", ""
+	if r.upstreamThink != nil {
+		roundID = strings.TrimSpace(r.upstreamThink.roundID)
+		parentEventID = strings.TrimSpace(r.upstreamThink.eventID)
+	}
+	if roundID == "" {
+		roundID = r.nextTraceRoundID()
+	}
+	eventID, seq := r.nextTraceEventIdentity(messageTraceTypeRoundText)
+	now := time.Now()
+	row := model.MessageTraceEventRow{
+		MessageID:       r.assistant.ID,
+		ConversationID:  r.assistant.ConversationID,
+		UserID:          r.assistant.UserID,
+		RunID:           r.assistant.RunID,
+		EventID:         eventID,
+		EventType:       messageTraceEventTypeText,
+		Phase:           messageTraceTypeRoundText,
+		RoundID:         roundID,
+		ParentEventID:   parentEventID,
+		Status:          messageTraceStatusCompleted,
+		Title:           "回复",
+		ContentMarkdown: value,
+		PayloadJSON:     "{}",
+		Seq:             seq,
+		StartedAt:       now,
+		EndedAt:         &now,
+	}
+	if !r.ephemeral && r.service != nil && r.service.repo != nil {
+		if err := r.service.repo.UpsertConversationMessageTraceEvent(r.ctx, &row); err != nil && r.service.logger != nil {
+			r.service.logger.Warn("upsert_round_text_trace_event_failed",
+				zap.Uint("assistant_message_id", r.assistant.ID),
+				zap.String("event_id", eventID),
+				zap.Error(err),
+			)
+		}
+	}
+	r.events = append(r.events, model.MessageTraceEvent{
+		EventID:         eventID,
+		EventType:       messageTraceEventTypeText,
+		Phase:           messageTraceTypeRoundText,
+		RoundID:         roundID,
+		ParentEventID:   parentEventID,
+		Title:           "回复",
+		ContentMarkdown: value,
+		Status:          messageTraceStatusCompleted,
+		Seq:             seq,
+		StartedAt:       now,
+		EndedAt:         &now,
+		UpdatedAt:       now,
+		PayloadJSON:     "{}",
+	})
+	if r.onEvent != nil {
+		emitEvent(r.onEvent, "process_update", map[string]any{
+			"status": "",
+			"trace":  r.liveSnapshot(),
+		})
+		emitEvent(r.onEvent, "delta", map[string]any{
+			"delta":   "",
+			"replace": true,
+		})
+	}
 }
 
 func (r *messageTraceRecorder) appendUpstreamReasoning(kind string, text string, payload *tracePayload) {
@@ -1700,6 +1778,9 @@ func mergeTraceToolCall(dst *tracePayload, incoming traceToolCall) {
 		if incoming.DetailRunID != "" {
 			current.DetailRunID = incoming.DetailRunID
 		}
+		if incoming.FileDiff != nil {
+			current.FileDiff = incoming.FileDiff
+		}
 		if incoming.OutputPresentation != nil {
 			current.OutputPresentation = incoming.OutputPresentation
 		}
@@ -2107,6 +2188,19 @@ func buildToolTrace(rows []model.ToolCall) (string, string, *tracePayload) {
 		lines = append(lines, formatTraceStep(toolName, joinTraceParts(parts...)))
 		toolCallID := strings.TrimSpace(row.ToolCallID)
 		toolCall := traceToolCall{ToolCallID: toolCallID, Name: toolName, Type: strings.TrimSpace(row.ToolType), Status: status, LatencyMS: row.LatencyMS, Error: errorDetail, InputPreview: inputPreview, InputDetail: inputDetail, InputSize: len(input), OutputPreview: outputPreview, OutputDetail: outputDetail}
+		if status == "success" || status == "reused" || status == "completed" {
+			if toolName == "project_write_file" || toolName == "project_patch_file" {
+				var result struct {
+					FileDiff *projectToolDiff `json:"file_diff"`
+				}
+				if json.Unmarshal([]byte(output), &result) == nil && result.FileDiff != nil {
+					diff := result.FileDiff
+					bounded := newProjectToolDiff(diff.Path, diff.Before, diff.After, diff.Created)
+					bounded.Truncated = bounded.Truncated || diff.Truncated
+					toolCall.FileDiff = bounded
+				}
+			}
+		}
 		if detailRunID := strings.TrimSpace(row.RunID); detailRunID != "" {
 			toolCall.DetailRunID = detailRunID
 		}

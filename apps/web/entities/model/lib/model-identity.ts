@@ -6,6 +6,11 @@ type ModelIdentityInput = {
   provider?: string | null;
   vendor?: string | null;
   icon?: string | null;
+  /**
+   * 服务端为厂商配置的图标（模型接口的 vendorIcon）。前端厂商目录是硬编码的，后台可新增自定义厂商，
+   * 因此这里作为最后的兜底，保证"后台配了厂商"一定能在用户端显示出来。
+   */
+  vendorIcon?: string | null;
 };
 
 type VendorCatalogItem = {
@@ -327,13 +332,15 @@ export function resolveModelIdentity(input: ModelIdentityInput): ResolvedModelId
   const rawIcon = input.icon?.trim() ?? "";
   const normalizedCode = normalizeValue(input.code);
   const detectedModelIcon = detectModelFamilyIcon(normalizedCode);
+  // 服务端下发的厂商图标：前端厂商目录未命中时的兜底，避免"后台配了厂商仍显示未知图标"。
+  const declaredVendorIcon = input.vendorIcon?.trim() ?? "";
 
   if (!resolvedVendor) {
     return {
       vendorKey: "unknown",
       vendorLabel: "Unknown",
-      vendorIcon: "",
-      modelIcon: rawIcon || detectedModelIcon,
+      vendorIcon: declaredVendorIcon,
+      modelIcon: rawIcon || detectedModelIcon || declaredVendorIcon,
     };
   }
 
@@ -344,8 +351,9 @@ export function resolveModelIdentity(input: ModelIdentityInput): ResolvedModelId
   return {
     vendorKey: resolvedVendor.key,
     vendorLabel: resolvedVendor.label,
-    vendorIcon: resolvedVendor.vendorIcon,
-    modelIcon: rawIcon && !shouldOverrideGenericIcon ? rawIcon : detectedModelIcon || resolvedVendor.modelIcon,
+    vendorIcon: resolvedVendor.vendorIcon || declaredVendorIcon,
+    modelIcon:
+      (rawIcon && !shouldOverrideGenericIcon ? rawIcon : detectedModelIcon || resolvedVendor.modelIcon) || declaredVendorIcon,
   };
 }
 

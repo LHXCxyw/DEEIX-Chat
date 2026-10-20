@@ -195,6 +195,14 @@ const OPTION_LABEL_KEYS = new Set<string>([
   "imageSize",
   "imageConfig.aspectRatio",
   "imageConfig.imageSize",
+  "mode",
+  "ratio",
+  "resolution_name",
+  "seconds",
+  "generate_audio",
+  "watermark",
+  "mode__frames",
+  "mode__reference",
 ] as const);
 
 const OPTION_DESCRIPTION_KEYS = new Set<string>([
@@ -583,6 +591,12 @@ function resolveOptionDescription(key: string, description: string | undefined, 
     return translate(translationKey);
   }
   return description?.trim() || "";
+}
+
+// 候选值文案：键为「控件路径（. 替换为 __）__候选值」，缺失时回退原始候选值。
+function resolveOptionValueLabel(key: string, value: string, translate: OptionTranslationResolver): string {
+  const translationKey = `${key.replaceAll(".", "__")}__${value}`;
+  return translate.has?.(translationKey) ? translate(translationKey) : value;
 }
 
 function compareOptionKeys(a: string, b: string): number {
@@ -1207,7 +1221,7 @@ export function ChatModelConfig({
                       <SelectContent>
                         {selectValues.map((item) => (
                           <SelectItem key={item} value={item}>
-                            {item}
+                            {resolveOptionValueLabel(key, item, tOptionLabels)}
                           </SelectItem>
                         ))}
                       </SelectContent>

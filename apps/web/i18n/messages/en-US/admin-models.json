@@ -425,7 +425,7 @@
     },
     "modalities": {
       "label": "Multimodal input",
-      "description": "Input and output types the model supports.",
+      "description": "Input and output declarations are display-only and do not restrict attachment uploads or sending. Actual support is determined by the upstream; task routes and protocols must still be configured correctly.",
       "edit": "Configure modalities",
       "customTitle": "Custom input modalities",
       "unknown": "Not detected",

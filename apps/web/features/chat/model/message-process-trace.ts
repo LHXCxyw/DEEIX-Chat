@@ -62,7 +62,7 @@ export type TraceStage = {
 
 export type TraceDisplayEvent = {
   event: ChatTraceEvent;
-  kind: "think" | "tool";
+  kind: "think" | "tool" | "text";
 };
 
 // Citation consumers treat every field as optional, so missing or mistyped fields

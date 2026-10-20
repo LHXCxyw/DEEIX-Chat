@@ -256,49 +256,32 @@ The frontend is exported as static files, so `pnpm build` writes the browser art
 
 ### Docker Deployment
 
-Docker deployment uses one file and one workflow. [`docker-compose.yml`](docker-compose.yml) at the repository root builds the runtime image from this source tree and starts the application together with its PostgreSQL and Redis containers. There is no prebuilt-image path and no second profile: the source is always compiled locally by `docker compose up -d --build`.
+Docker deployment has one entry point and automatically starts the app, PostgreSQL/Redis, command runner and project browser. No copied config, overlay, host helper script or manually entered digest is required:
 
 ```bash
-cp deploy/config.example.yaml config.yaml   # first run only
-docker compose up -d --build
+docker compose -f docker-compose.yml build
+docker compose -f docker-compose.yml up -d
 ```
 
-| Aspect | Value |
-| --- | --- |
-| Image | Built locally by compose (`deeix-chat:local`) |
-| Config | Root `config.yaml`, mounted read-only at `/app/config.yaml` |
-| Services | `app`, `postgres` (`pgvector/pgvector:pg16`), `redis` (`redis:7-bookworm`) |
-| Network | `deeix-chat-network` |
-| Host port | `3700` mapped to container `8080` |
+首次启动由一次性 `config-init` 自动生成根 `config.yaml` 及随机数据库密码、JWT/加密密钥；已有配置和 secret 不覆盖。旧 `data/storage`、`data/app`、`data/postgres`、`data/redis` 路径及 `3700:8080` 端口不变。缺少旧配置但存在旧数据时拒绝初始化，不重置密钥。默认本地 HTTP 配置使用 `dev`；公网部署须先配置 HTTPS、域名/CORS 并切换 `prod`，不会绕过后端生产校验。
 
-#### Data and Persistence
+`app` 入口直接读取本地构建的 `deeix-agent-command:local` 与 `deeix-agent-browser:local`，校验镜像 ID 和 runner 标签后注入环境变量；不再使用 DinD、内部 registry、seed 或 `runtime.env`。`agent-command` 与 `agent-browser` 是 build-only 服务，启动即退出；运行中常驻容器只有 `app`、`postgres`、`redis`。
 
-Every stateful path is a bind mount under the project root, using the same layout as earlier versions:
+**执行模式：同机默认挂载宿主 `/var/run/docker.sock`，等同于把宿主高权限交给 `app`；独立节点由管理员设置 `AGENT_DOCKER_HOST`（TCP 需 TLS）和 `DEEIX_DOCKER_SOCKET=/dev/null`，不挂宿主 socket，风险面更小。** 仅面向 Linux Docker Engine，Compose >= 2.20 + BuildKit。资源能力、任务容器真实 CPU/memory/swap/pids/seccomp 限额或 Chromium sandbox 不支持时 readiness 失败。迁移仍只需原两条命令，**无需 `down -v`**。完整链路和风险见 [deploy/README.md](deploy/README.md)。仍欠真实 Linux Docker build/up 验收，不声称 production ready。
 
-| Data | Host path | Container path |
-| --- | --- | --- |
-| Uploaded and generated files | `./data/storage` | `/app/storage` |
-| Application data directory | `./data/app` | `/app/data` |
-| PostgreSQL data | `./data/postgres` | `/var/lib/postgresql/data` |
-| Redis data | `./data/redis` | `/data` |
-
-An existing `./data` tree from an earlier deployment can be reused directly: the PostgreSQL image and on-disk layout are unchanged, so no dump or re-import is needed. The `deeix_chat` role and its password are fixed by `docker-compose.yml` and must stay identical to the values already stored inside an existing `./data/postgres`. Stop the old containers first so a single process owns the data directory.
-
-Common operations, all from the project root:
+升级前备份 `config.yaml` 和整个 `data`；更新源码后仍执行上述两条命令。修改配置后同样执行两条命令以更新快照。状态与日志：
 
 ```bash
-docker compose logs -f app       # follow application logs
-docker compose restart app      # restart after editing config.yaml
-docker compose down             # stop the stack, keeping ./data intact
+docker compose -f docker-compose.yml ps -a
+docker compose -f docker-compose.yml logs --tail=100 config-init agent-command agent-browser app
+docker compose -f docker-compose.yml logs -f app
+curl --fail http://localhost:3700/healthz
+curl --fail http://localhost:3700/readyz
+# 停止但保留数据；不要使用 down -v
+docker compose -f docker-compose.yml down
 ```
 
-#### Configuration
-
-Configuration priority is `environment variables > config.yaml > built-in defaults`. `config.yaml` is for static infrastructure and security configuration such as server URLs, database, cache, storage, GeoIP, tracing, JWT, and encryption keys. Runtime business settings are stored in the database and managed in the admin console.
-
-[`deploy/config.example.yaml`](deploy/config.example.yaml) is the only template. Its database and Redis values already point at the `postgres` and `redis` service names, so copying it to the root `config.yaml` works with this compose stack without edits. Before a public deployment, replace `security.jwt_secret` and `security.data_encryption_key` with strong random values, set `app.env` to `prod`, and set `server.public_api_base_url`, `server.public_web_base_url`, and `server.cors_allow_origin`.
-
-`APP_ENV` accepts `dev`/`development` and `prod`/`production`, normalizes them to `dev` or `prod`, and defaults to `prod` when omitted. Use `dev` only for local development. Public production deployments should keep `APP_ENV=prod` or `APP_ENV=production` and use production secrets.
+`up -d` 返回不代表最终健康；确认本次 `config-init`、`agent-command`、`agent-browser` 退出 0，且 `postgres`/`redis`/`app` healthy，不能把升级前仍运行的旧 app 当成本次升级成功。`config-init` 是唯一挂仓库目录的可信服务，无网络、无执行 socket；任务容器不接触该挂载。不要删除数据或重置加密密钥来排错。
 
 #### Optional Installation Services
 

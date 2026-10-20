@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { canConnectGraphNodes, createUserPromptTemplate, gatherGraphGenerateInputs, graphEdgeMidpoint, graphEdgePath, graphMediaCompatible, graphNodePorts, graphPortCanvasPosition, isGraphPortCompatibleTarget, isPromptGraphNode, loadPromptTemplates, MAX_MEDIA_REFERENCE_COUNT, promptNodeTruncated } from "./canvas-graph.ts";
 import { editorSizeOptions, modelCanvasMediaType, resolveCanvasMediaRoute, resolveCanvasVideoControls } from "./canvas-image-options.ts";
-import { activeElasticDecorationForElement, arrangeCanvasElements, canvasElementIDsCarriedByDecoration, canvasElementIDsCarriedByFrame, canvasElementIDsInRegion, elasticCanvasBounds, frameFitBounds, frameUnionBounds, isCanvasElementCenterInside, isCanvasElementInside, nextCanvasVersion, refitFrameDecorations, selectedNodeIDsForFilter, shouldDetachElasticBoundary, stableFrameIDForElement, trappedFocusIndex, viewportForCanvasKey } from "./canvas-interactions.ts";
+import { activeElasticDecorationForElement, canvasElementIDsCarriedByDecoration, canvasElementIDsCarriedByFrame, canvasElementIDsInRegion, elasticCanvasBounds, frameFitBounds, frameUnionBounds, isCanvasElementCenterInside, isCanvasElementInside, nextCanvasVersion, refitFrameDecorations, selectedNodeIDsForFilter, shouldDetachElasticBoundary, stableFrameIDForElement, trappedFocusIndex, viewportForCanvasKey } from "./canvas-interactions.ts";
 import { clampViewportScale, legacyNodeToGraphNodes, parseCanvasState, restoreEdges, restoreGraphNodes, stringifyCanvasState, toPersistedEdges, toPersistedGraphNodes, toPersistedNodes, zoomViewportAt } from "./canvas-persist.ts";
 import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, type GraphEdge, type GraphNode, PROMPT_MAX_LENGTH } from "./canvas-types.ts";
 
@@ -300,45 +300,6 @@ test("节点 frameID 在保存与解析往返中不丢失（折叠 Frame 成员�
   assert.equal(roundTripped?.nodes?.[0]?.frameID, "frame-1");
 });
 
-test("混合图片与装饰按实际宽度水平分布", () => {
-  const patches = arrangeCanvasElements([
-    { id: "image", x: 0, y: 10, width: 320, height: 420 },
-    { id: "note", x: 400, y: 20, width: 200, height: 140 },
-    { id: "frame", x: 800, y: 30, width: 480, height: 320 },
-  ], new Set(["image", "note", "frame"]), "horizontal");
-
-  assert.equal(patches?.get("image")?.x, 0);
-  assert.equal(patches?.get("note")?.x, 460);
-  assert.equal(patches?.get("frame")?.x, 800);
-});
-
-test("水平分布跳过锁定元素且不足两个可移动元素时失败", () => {
-  const elements = [
-    { id: "left", x: 0, y: 0, width: 100, height: 100 },
-    { id: "locked", x: 200, y: 0, width: 100, height: 100, locked: true },
-    { id: "right", x: 500, y: 0, width: 100, height: 100 },
-  ];
-  const patches = arrangeCanvasElements(elements, new Set(elements.map((item) => item.id)), "horizontal");
-
-  assert.equal(patches?.has("locked"), false);
-  assert.equal(patches?.get("left")?.x, 0);
-  assert.equal(patches?.get("right")?.x, 500);
-  assert.equal(arrangeCanvasElements(elements, new Set(["left", "locked"]), "horizontal"), null);
-});
-
-test("图片和装饰可共同置顶且无可操作元素时不报告成功", () => {
-  const elements = [
-    { id: "image", x: 0, y: 0, width: 320, height: 420, zIndex: 2 },
-    { id: "note", x: 0, y: 0, width: 200, height: 140, zIndex: 10 },
-  ];
-  const patches = arrangeCanvasElements(elements, new Set(["image", "note"]), "front");
-
-  assert.equal(patches?.get("image")?.zIndex, 11);
-  assert.equal(patches?.get("note")?.zIndex, 11);
-  assert.equal(arrangeCanvasElements(elements, new Set(), "front"), null);
-  assert.equal(arrangeCanvasElements([{ ...elements[0], locked: true }], new Set(["image"]), "front"), null);
-});
-
 test("灯箱焦点环在首尾元素间循环", () => {
   assert.equal(trappedFocusIndex(0, 2, true), 1);
   assert.equal(trappedFocusIndex(1, 2, false), 0);
@@ -582,6 +543,30 @@ test("视频节点持久化往返保留 mediaType 与运行恢复字段", () => 
   assert.equal(restoredOutput.durationSeconds, 5);
 });
 
+test("运行中的输出节点持久化往返保留运行引用，不被降级为空节点", () => {
+  const runningOutput = {
+    id: "ov2", kind: "output" as const, mediaType: "video" as const,
+    x: 400, y: 0, createdAt: 2, status: "running" as const,
+    conversationID: "conv-run-1", runID: "canvas-run-1",
+  };
+  const roundTripped = parseCanvasState(stringifyCanvasState({
+    version: 4, projectName: "graph", activeCanvasID: "c1", conversationID: null,
+    selectedModelName: null, pointerMode: "pan", viewport: { x: 0, y: 0, scale: 1 }, imageOptions: {},
+    canvases: [{
+      id: "c1", name: "C1", viewport: { x: 0, y: 0, scale: 1 }, nodes: [],
+      graphNodes: toPersistedGraphNodes([runningOutput]), edges: [],
+      decorations: [], bookmarks: [], createdAt: 1, updatedAt: 1,
+    }],
+  }));
+
+  // 反序列化必须原样读回运行引用：缺失会把运行中的输出节点降级为空节点，刷新后任务无法续传
+  const restored = restoreGraphNodes(roundTripped?.graphNodes ?? []).find((node) => node.id === "ov2");
+  assert.ok(restored && restored.kind === "output");
+  assert.equal(restored.status, "running");
+  assert.equal(restored.conversationID, "conv-run-1");
+  assert.equal(restored.runID, "canvas-run-1");
+});
+
 test("媒体类型连线规则：视频输出不可作参考图，图像生成不可写入视频输出节点", () => {
   assert.equal(MAX_MEDIA_REFERENCE_COUNT, 7);
   // 视频输出 -> 生成节点参考图端口：拒绝
@@ -608,6 +593,18 @@ test("媒体类型连线规则：视频输出不可作参考图，图像生成�
     { kind: "output", mediaType: undefined },
     "result",
   ), true);
+  // 视频输出 -> 视频生成节点参考视频端口：允许（产物回灌为下一轮生成的参考视频）
+  assert.equal(graphMediaCompatible(
+    { kind: "output", mediaType: "video" },
+    { kind: "generate", mediaType: "video" },
+    "video",
+  ), true);
+  // 图像输出 -> 视频生成节点参考视频端口：拒绝（媒体类型与端口不一致）
+  assert.equal(graphMediaCompatible(
+    { kind: "output", mediaType: "image" },
+    { kind: "generate", mediaType: "video" },
+    "video",
+  ), false);
 });
 
 test("视频模型路由判定与参数控件解析", () => {
@@ -657,9 +654,13 @@ test("视频模型路由判定与参数控件解析", () => {
   // 协议基础控件 ∪ 管理端下发控件，过滤到视频白名单路径
   const controls = resolveCanvasVideoControls(videoModel);
   const paths = controls.map((control) => control.path);
+  // 模型自身声明的 duration 仍在视频参数白名单内
   assert.ok(paths.includes("duration"));
-  assert.ok(paths.includes("resolution"));
-  assert.ok(paths.includes("aspect_ratio"));
+  // openai_video_generations 的协议预设已改为本地键名即上游字段名
+  assert.ok(paths.includes("seconds"));
+  assert.ok(paths.includes("resolution_name"));
+  assert.ok(paths.includes("ratio"));
+  assert.ok(paths.includes("mode"));
   // 图像模型没有视频控件
   assert.equal(resolveCanvasVideoControls(imageModel).length, 0);
 });

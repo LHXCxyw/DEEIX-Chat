@@ -1,18 +1,14 @@
 "use client";
 
 import {
-  AlignHorizontalDistributeCenter,
   Bookmark,
-  BoxSelect,
   CircleHelp,
   FileDown,
   FileUp,
   Frame,
   GalleryVerticalEnd,
-  Group,
   Hand,
   History,
-  Layers,
   Lock,
   Menu,
   MessageSquareText,
@@ -24,7 +20,6 @@ import {
   SquareDashedMousePointer,
   Trash2,
   Undo2,
-  Ungroup,
   Workflow,
   X
 } from "lucide-react";
@@ -37,6 +32,7 @@ import { CANVAS_TOOLBAR_ACTIONS } from "@/features/canvas/model/canvas-node-regi
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
+  type CanvasNodeMediaHint,
   type CanvasPointerMode,
   type CanvasViewMode,
   type CanvasViewport,
@@ -104,16 +100,11 @@ export function CanvasToolbar({
   onAddFrame,
   onAddSection,
   onAddNote,
-  onGroup,
-  onUngroup,
   onLock,
-  onAlign,
-  onLayer,
   onBookmark,
   onProjectPanel,
   onExportProject,
   onImportProject,
-  onTemplates,
   onHistory,
   onFit,
   onClear,
@@ -133,20 +124,15 @@ export function CanvasToolbar({
   onUndo: () => void;
   onRedo: () => void;
   selectedCount: number;
-  onAddNode: (kind: GraphNodeKind, mediaType?: "image" | "video") => void;
+  onAddNode: (kind: GraphNodeKind, mediaType?: CanvasNodeMediaHint) => void;
   onAddFrame: () => void;
   onAddSection: () => void;
   onAddNote: () => void;
-  onGroup: () => void;
-  onUngroup: () => void;
   onLock: () => void;
-  onAlign: () => void;
-  onLayer: () => void;
   onBookmark: () => void;
   onProjectPanel: () => void;
   onExportProject: () => void;
   onImportProject: () => void;
-  onTemplates: () => void;
   onHistory: () => void;
   onFit: () => void;
   onClear: () => void;
@@ -257,13 +243,8 @@ export function CanvasToolbar({
           <ToolbarButton label={t("addFrame")} description={t("toolbarFrame")} onClick={onAddFrame}><Frame className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("addSection")} description={t("toolbarSection")} onClick={onAddSection}><PanelTop className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("addNote")} description={t("toolbarNote")} onClick={onAddNote}><MessageSquareText className="size-4" /></ToolbarButton>
-          <ToolbarButton label={t("group")} description={t("toolbarGroup")} disabled={selectedCount < 2} onClick={onGroup}><Group className="size-4" /></ToolbarButton>
-          <ToolbarButton label={t("ungroup")} description={t("toolbarUngroup")} disabled={selectedCount === 0} onClick={onUngroup}><Ungroup className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("lock")} description={t("toolbarLock")} disabled={selectedCount === 0} onClick={onLock}><Lock className="size-4" /></ToolbarButton>
-          <ToolbarButton label={t("alignDistribute")} description={t("toolbarAlign")} disabled={selectedCount < 2} onClick={onAlign}><AlignHorizontalDistributeCenter className="size-4" /></ToolbarButton>
-          <ToolbarButton label={t("layers")} description={t("toolbarLayer")} disabled={selectedCount === 0} onClick={onLayer}><Layers className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("bookmark")} description={t("toolbarBookmark")} onClick={onBookmark}><Bookmark className="size-4" /></ToolbarButton>
-          <ToolbarButton label={t("templates")} description={t("toolbarTemplates")} onClick={onTemplates}><BoxSelect className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("history")} description={t("toolbarHistory")} onClick={onHistory}><History className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("exportProject")} description={t("toolbarExport")} onClick={onExportProject}><FileDown className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("importProject")} description={t("toolbarImport")} onClick={onImportProject}><FileUp className="size-4" /></ToolbarButton>
@@ -297,8 +278,8 @@ export function CanvasToolbar({
             {([
               [t("undo"), onUndo, Undo2, !canUndo], [t("redo"), onRedo, Redo2, !canRedo],
               [t("projects"), onProjectPanel, GalleryVerticalEnd, false], [t("addFrame"), onAddFrame, Frame, false], [t("addSection"), onAddSection, PanelTop, false], [t("addNote"), onAddNote, MessageSquareText, false],
-              [t("group"), onGroup, Group, selectedCount < 2], [t("ungroup"), onUngroup, Ungroup, selectedCount === 0], [t("lock"), onLock, Lock, selectedCount === 0], [t("alignDistribute"), onAlign, AlignHorizontalDistributeCenter, selectedCount < 2], [t("layers"), onLayer, Layers, selectedCount === 0],
-              [t("bookmark"), onBookmark, Bookmark, false], [t("templates"), onTemplates, BoxSelect, false], [t("history"), onHistory, History, false], [t("exportProject"), onExportProject, FileDown, false], [t("importProject"), onImportProject, FileUp, false],
+              [t("lock"), onLock, Lock, selectedCount === 0],
+              [t("bookmark"), onBookmark, Bookmark, false], [t("history"), onHistory, History, false], [t("exportProject"), onExportProject, FileDown, false], [t("importProject"), onImportProject, FileUp, false],
             ] satisfies Array<[string, () => void, React.ComponentType<{ className?: string }>, boolean]>).map(([label, action, Icon, disabled]) => (
               <button key={label} type="button" disabled={disabled} className="flex min-h-10 touch-manipulation items-center gap-2 rounded-xl px-3 text-left text-xs text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40" onClick={() => { action(); setMobileToolsOpen(false); }}>
                 <Icon className="size-4 text-muted-foreground" />{label}

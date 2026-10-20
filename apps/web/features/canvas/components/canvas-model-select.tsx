@@ -1,8 +1,9 @@
 "use client";
 
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Sparkles } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, KeyRound, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
@@ -18,7 +19,8 @@ import { cn } from "@/lib/utils";
 import {
   ModelIcon,
   resolveModelIconURL,
-  resolveModelIdentity,
+  resolveModelOptionIconUrl,
+  resolveModelOptionLabel,
   resolveModelPresentationGroup,
 } from "@/entities/model";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
@@ -27,17 +29,36 @@ import {
   resolveDesktopModelMenuListMaxHeight,
 } from "@/features/chat";
 
-// 与对话模型选择器（ChatModelPicker）同构：用户模型按接口（上游渠道）分节、节内按提供商
-// 分类；平台模型按展示分组。分组面板与模型列表面板相互独立（二级面板绝对定位），
-// hover 切换分组时互不影响高度。不同接口下的重名模型全部保留，按所属接口区分。
+// 与对话模型选择器（ChatModelPicker）同构：用户自带密钥的模型按提供商分组（键 personal:<providerName>），
+// 平台模型按展示分组；分组面板与模型列表面板相互独立（二级面板绝对定位），
+// hover 切换分组时互不影响高度。同名模型按身份键（canvasModelKey）区分来源接口。
 type CanvasModelGroup = {
   key: string;
   label: string;
   icon: string;
-  channelKey?: string;
-  channelLabel?: string;
+  personal: boolean;
   items: CanvasModelOption[];
 };
+
+// 分组展示信息：用户模型与对话选择器一致按 personal:<providerName> 分组，平台模型沿用展示分组
+function resolveCanvasGroupPresentation(item: CanvasModelOption): {
+  key: string;
+  label: string;
+  icon: string;
+  personal: boolean;
+} {
+  if (item.modelScope === "user") {
+    const providerName = item.personalProviderName?.trim() ?? "";
+    return {
+      key: `personal:${providerName}`,
+      label: providerName || resolveModelOptionLabel(item.platformModelName),
+      icon: item.personalProviderIcon,
+      personal: true,
+    };
+  }
+  const group = resolveModelPresentationGroup(item);
+  return { key: group.key, label: group.label, icon: group.icon, personal: false };
+}
 
 function resolveCanvasModelGroups(models: ReadonlyArray<CanvasModelOption>): CanvasModelGroup[] {
   const groupMap = new Map<
@@ -45,49 +66,44 @@ function resolveCanvasModelGroups(models: ReadonlyArray<CanvasModelOption>): Can
     {
       label: string;
       icon: string;
-      channelKey?: string;
-      channelLabel?: string;
+      personal: boolean;
       items: CanvasModelOption[];
     }
   >();
-  const channelOrder = new Map<string, number>();
   for (const item of models) {
-    const isUserModel = item.modelScope === "user";
-    const providerKey = item.vendor || item.vendorName || "unknown";
-    const channelKey = isUserModel
-      ? String(item.upstreamID ?? item.upstreamName ?? "unknown")
-      : undefined;
-    if (channelKey && !channelOrder.has(channelKey)) {
-      channelOrder.set(channelKey, channelOrder.size);
-    }
-    const key = isUserModel
-      ? `user:${channelKey}:${providerKey}`
-      : resolveModelPresentationGroup(item).key;
-    const presentation = isUserModel
-      ? { label: item.vendorName || item.vendor || "其他提供商", icon: item.vendorIcon }
-      : resolveModelPresentationGroup(item);
-    const group = groupMap.get(key);
+    const presentation = resolveCanvasGroupPresentation(item);
+    const group = groupMap.get(presentation.key);
     if (group) {
       group.items.push(item);
       continue;
     }
-    groupMap.set(key, {
+    groupMap.set(presentation.key, {
       label: presentation.label,
       icon: presentation.icon,
-      channelKey,
-      channelLabel: isUserModel ? item.upstreamName || "用户渠道" : undefined,
+      personal: presentation.personal,
       items: [item],
     });
   }
 
-  return Array.from(groupMap.entries())
-    .map(([key, group]) => ({ key, ...group }))
-    .sort((left, right) => {
-      if (!left.channelKey || !right.channelKey) {
-        return 0;
-      }
-      return (channelOrder.get(left.channelKey) ?? 0) - (channelOrder.get(right.channelKey) ?? 0);
-    });
+  return Array.from(groupMap.entries()).map(([key, group]) => ({ key, ...group }));
+}
+
+// 用户自带密钥分组的图标缺失时回退到 Lucide KeyRound（与对话选择器一致）
+function PersonalGroupIcon() {
+  return (
+    <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground" aria-hidden="true">
+      <KeyRound className="size-3.5" strokeWidth={1.7} />
+    </span>
+  );
+}
+
+// 区分用户自带密钥分组与同厂商的平台分组（与对话选择器一致）
+function PersonalGroupBadge({ label }: { label: string }) {
+  return (
+    <Badge variant="secondary" className="h-4 shrink-0 px-1 font-normal">
+      {label}
+    </Badge>
+  );
 }
 
 const MODEL_MENU_COLLISION_PADDING = 24;
@@ -99,6 +115,30 @@ const DESKTOP_MODEL_MENU_MIN_SCROLL_HEIGHT = 96;
 const DESKTOP_GROUP_MENU_VERTICAL_CHROME = 40;
 /** Model submenu non-list chrome: p-1.5 × 2. */
 const DESKTOP_SUBMENU_VERTICAL_CHROME = 12;
+
+// 把弹层内部测得的矩形映射回弹层“落定后”的布局盒。
+// Radix 打开弹层时带有缩放与位移动画，动画期间测得的矩形已被变换，
+// 据此换算出的位置会在动画结束后跳变；而承载弹层的 popper 包装层不参与动画，
+// 其位置恰好等于内容未变换时的落点（与对话侧选择器同构）。
+function createCanvasLayoutRectReader(inside: HTMLElement): (element: Element) => DOMRect {
+  const content = inside.closest<HTMLElement>("[data-slot=popover-content]");
+  const wrapper = content?.parentElement;
+  const contentRect = content?.getBoundingClientRect();
+  const scale = content && contentRect && content.offsetWidth > 0 ? contentRect.width / content.offsetWidth : 0;
+  if (!wrapper || !contentRect || scale <= 0) {
+    return (element) => element.getBoundingClientRect();
+  }
+  const wrapperRect = wrapper.getBoundingClientRect();
+  return (element) => {
+    const rect = element.getBoundingClientRect();
+    return new DOMRect(
+      wrapperRect.left + (rect.left - contentRect.left) / scale,
+      wrapperRect.top + (rect.top - contentRect.top) / scale,
+      rect.width / scale,
+      rect.height / scale,
+    );
+  };
+}
 
 function CanvasModelCapabilityBadge({ model }: { model: CanvasModelOption }) {
   const t = useTranslations("canvas");
@@ -130,19 +170,11 @@ function CanvasModelMenuItem({
   onSelect: () => void;
   buttonRef?: React.Ref<HTMLButtonElement>;
 }) {
-  const platformModelName = model.platformModelName.trim();
-  const identity = React.useMemo(
-    () =>
-      resolveModelIdentity({
-        code: model.platformModelName,
-        vendor: model.vendor,
-        icon: model.icon,
-      }),
-    [model.icon, model.platformModelName, model.vendor],
-  );
-  const iconURL = React.useMemo(() => resolveModelIconURL(identity.modelIcon), [identity.modelIcon]);
+  // 模型名统一剥离 personal: 前缀（与对话选择器一致）
+  const platformModelName = resolveModelOptionLabel(model.platformModelName);
+  const iconURL = React.useMemo(() => resolveModelOptionIconUrl(model), [model]);
 
-  // 与对话模型选择器的列表项一致：图标 + 完整模型名（不截断）+ 勾选；
+  // 与对话模型选择器的列表项一致：图标 + 截断的模型名 + 勾选；
   // 能力徽标只出现在触发按钮上，避免挤占名称宽度导致截断
   return (
     <div
@@ -156,9 +188,7 @@ function CanvasModelMenuItem({
         onClick={onSelect}
       >
         <ModelIcon iconUrl={iconURL} label={platformModelName} />
-        <span className="min-w-0 flex-1 whitespace-nowrap leading-4" title={platformModelName}>
-          {platformModelName}
-        </span>
+        <span className="min-w-0 flex-1 truncate leading-4">{platformModelName}</span>
         <span className="flex size-3 shrink-0 items-center justify-center">
           {selected ? <Check className="size-3 text-current" strokeWidth={1.7} /> : null}
         </span>
@@ -218,6 +248,7 @@ function ModelMenuScrollContainer({
     <div className="relative">
       <div
         ref={viewportRef}
+        data-model-menu-viewport=""
         style={resolvedMaxHeight === undefined ? undefined : { maxHeight: resolvedMaxHeight }}
         className={cn(
           "overflow-y-auto overscroll-contain pr-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
@@ -268,14 +299,19 @@ export function CanvasModelSelect({
   const [open, setOpen] = React.useState(false);
   const [activeGroupKey, setActiveGroupKey] = React.useState("");
   const [mobileGroupKey, setMobileGroupKey] = React.useState<string | null>(null);
-  const [scopeTab, setScopeTab] = React.useState<"platform" | "user">("platform");
-  const [collapsedChannelKeys, setCollapsedChannelKeys] = React.useState<Set<string>>(new Set());
   const [desktopSubmenuSide, setDesktopSubmenuSide] = React.useState<"right" | "left">("right");
   const [desktopSubmenuTop, setDesktopSubmenuTop] = React.useState(0);
   const [desktopSubmenuWidth, setDesktopSubmenuWidth] = React.useState(DESKTOP_MODEL_MENU_WIDTH);
   const [desktopGroupListMaxHeight, setDesktopGroupListMaxHeight] = React.useState(320);
   const [desktopSubmenuListMaxHeight, setDesktopSubmenuListMaxHeight] = React.useState(320);
+  // Radix 把弹层内容挂进 Portal 比 open 变化晚一次提交，首次布局副作用里 ref 仍为空；
+  // 该标记在节点挂载后翻转，驱动度量重算（与对话侧选择器同构）。
+  const [desktopMenuMounted, setDesktopMenuMounted] = React.useState(false);
   const desktopMenuRootRef = React.useRef<HTMLDivElement | null>(null);
+  const attachDesktopMenuRoot = React.useCallback((node: HTMLDivElement | null) => {
+    desktopMenuRootRef.current = node;
+    setDesktopMenuMounted(node !== null);
+  }, []);
   const desktopGroupMenuRef = React.useRef<HTMLDivElement | null>(null);
   const desktopSubmenuRef = React.useRef<HTMLDivElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
@@ -283,27 +319,17 @@ export function CanvasModelSelect({
   const desktopGroupItemRefs = React.useRef(new Map<string, HTMLButtonElement>());
 
   const selectedKey = selectedModel ? canvasModelKey(selectedModel) : "";
-  const allModelGroups = React.useMemo(() => resolveCanvasModelGroups(models), [models]);
-  const modelGroups = React.useMemo(
-    () => allModelGroups.filter((group) => group.items.some((item) => (item.modelScope ?? "platform") === scopeTab)),
-    [allModelGroups, scopeTab],
+  // 平台模型与用户自带密钥模型合并为一份列表：用户模型按 personal:<provider> 分组并带“自有”徽标
+  const modelGroups = React.useMemo(() => resolveCanvasModelGroups(models), [models]);
+  // 选中模型所属分组：与列表同一套分组规则（用户模型按 personal:<providerName> 分组）
+  const selectedGroupKey = React.useMemo(
+    () => (selectedModel ? resolveCanvasGroupPresentation(selectedModel).key : ""),
+    [selectedModel],
   );
-  const selectedGroupKey = React.useMemo(() => {
-    if (!selectedModel) {
-      return "";
-    }
-    return selectedModel.modelScope === "user"
-      ? `user:${String(selectedModel.upstreamID ?? selectedModel.upstreamName ?? "unknown")}:${selectedModel.vendor || selectedModel.vendorName || "unknown"}`
-      : resolveModelPresentationGroup(selectedModel).key;
-  }, [selectedModel]);
-  const selectedGroupLabel = React.useMemo(() => {
-    if (!selectedModel) {
-      return "none";
-    }
-    return selectedModel.modelScope === "user"
-      ? selectedModel.upstreamName || "用户渠道"
-      : resolveModelPresentationGroup(selectedModel).label;
-  }, [selectedModel]);
+  const selectedGroupLabel = React.useMemo(
+    () => (selectedModel ? resolveCanvasGroupPresentation(selectedModel).label : ""),
+    [selectedModel],
+  );
   const activeDesktopGroupKey = activeGroupKey || selectedGroupKey || modelGroups[0]?.key || "";
   const activeDesktopGroup = React.useMemo(
     () => modelGroups.find((group) => group.key === activeDesktopGroupKey) ?? modelGroups[0] ?? null,
@@ -324,11 +350,8 @@ export function CanvasModelSelect({
 
   const updateDesktopSubmenuMetrics = React.useCallback(() => {
     if (!open || isMobile) {
-      setDesktopSubmenuSide("right");
-      setDesktopSubmenuTop(0);
-      setDesktopSubmenuWidth(DESKTOP_MODEL_MENU_WIDTH);
-      setDesktopGroupListMaxHeight(320);
-      setDesktopSubmenuListMaxHeight(320);
+      // 保留最后一次布局：Radix 在关闭动画期间仍挂载内容，此时重置 side/top 会让二级浮层
+      // 在淡出过程中跳位；重新打开时会在绘制前于布局副作用里整体重算。
       return;
     }
 
@@ -338,14 +361,15 @@ export function CanvasModelSelect({
       return;
     }
 
-    const menuRootRect = menuRoot.getBoundingClientRect();
-    const groupMenuRect = groupMenu.getBoundingClientRect();
+    const layoutRect = createCanvasLayoutRectReader(menuRoot);
+    const menuRootRect = layoutRect(menuRoot);
+    const groupMenuRect = layoutRect(groupMenu);
     const submenu = desktopSubmenuRef.current;
-    const submenuRect = submenu?.getBoundingClientRect();
+    const submenuScrollViewport = submenu?.querySelector<HTMLElement>("[data-model-menu-viewport]") ?? null;
     const activeGroupButton = activeDesktopGroup
       ? desktopGroupItemRefs.current.get(activeDesktopGroup.key)
       : null;
-    const activeGroupRect = activeGroupButton?.getBoundingClientRect();
+    const activeGroupRect = activeGroupButton ? layoutRect(activeGroupButton) : undefined;
     const triggerRect = triggerRef.current?.getBoundingClientRect();
     const viewportLeft = MODEL_MENU_COLLISION_PADDING;
     const viewportRight = window.innerWidth - MODEL_MENU_COLLISION_PADDING;
@@ -377,11 +401,16 @@ export function CanvasModelSelect({
     let nextSubmenuTop = 0;
     let nextSubmenuListMaxHeight = nextGroupListMaxHeight;
     if (hasDesktopModelSubmenu && activeGroupRect) {
-      const submenuHeight = submenuRect?.height ?? nextGroupListMaxHeight + DESKTOP_SUBMENU_VERTICAL_CHROME;
-      const submenuOuterHeight = Math.min(submenuHeight, viewportHeight);
+      // 外框高度取自未裁剪的滚动内容高度：若改用已按 max-height 收缩后的渲染高度，
+      // 每轮重算都会把二级浮层再往上顶一个 chrome，导致其逐帧“爬升”。
+      const submenuChrome = submenu
+        ? Math.max(DESKTOP_SUBMENU_VERTICAL_CHROME, submenu.offsetHeight - (submenuScrollViewport?.offsetHeight ?? 0))
+        : DESKTOP_SUBMENU_VERTICAL_CHROME;
+      const submenuContentHeight = submenuScrollViewport?.scrollHeight ?? nextGroupListMaxHeight;
+      const submenuOuterHeight = Math.min(submenuContentHeight + submenuChrome, viewportHeight);
       const maxViewportTop = Math.max(viewportTop, viewportBottom - submenuOuterHeight);
-      // Anchor in viewport coordinates, then convert to an offset within
-      // menuRoot (which may sit above viewportTop for a frame before re-shift).
+      // 先按视口坐标锚定到激活分组按钮，再换算成 menuRoot 内的偏移
+      // （menuRoot 可能暂时位于 viewportTop 之上，故以视口坐标钳制后再转换）。
       const preferredSubmenuViewportTop = Math.min(
         Math.max(activeGroupRect.top, viewportTop),
         maxViewportTop,
@@ -390,7 +419,7 @@ export function CanvasModelSelect({
       const actualSubmenuViewportTop = menuRootRect.top + nextSubmenuTop;
       nextSubmenuListMaxHeight = resolveDesktopMenuListMaxHeight(
         Math.min(viewportHeight, viewportBottom - actualSubmenuViewportTop),
-        DESKTOP_SUBMENU_VERTICAL_CHROME,
+        submenuChrome,
       );
     }
 
@@ -410,10 +439,18 @@ export function CanvasModelSelect({
 
     window.addEventListener("resize", updateDesktopSubmenuMetrics);
     window.addEventListener("scroll", updateDesktopSubmenuMetrics, true);
+    // Radix 通过改写弹层包装层的 transform 来定位：首帧以及触发按钮移动时（如输入条长高）
+    // 都会变，而 transform 变化不触发 ResizeObserver，因此直接观察该 style。
+    const popperWrapper = desktopMenuRootRef.current?.closest("[data-slot=popover-content]")?.parentElement;
+    const moveObserver = new MutationObserver(updateDesktopSubmenuMetrics);
+    if (popperWrapper) {
+      moveObserver.observe(popperWrapper, { attributes: true, attributeFilter: ["style"] });
+    }
     if (typeof ResizeObserver === "undefined") {
       return () => {
         window.removeEventListener("resize", updateDesktopSubmenuMetrics);
         window.removeEventListener("scroll", updateDesktopSubmenuMetrics, true);
+        moveObserver.disconnect();
       };
     }
 
@@ -437,25 +474,21 @@ export function CanvasModelSelect({
     return () => {
       window.removeEventListener("resize", updateDesktopSubmenuMetrics);
       window.removeEventListener("scroll", updateDesktopSubmenuMetrics, true);
+      moveObserver.disconnect();
       observer.disconnect();
     };
-  }, [activeDesktopGroup, hasDesktopModelSubmenu, isMobile, open, updateDesktopSubmenuMetrics]);
+  }, [activeDesktopGroup, desktopMenuMounted, hasDesktopModelSubmenu, isMobile, open, updateDesktopSubmenuMetrics]);
 
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {
       if (nextOpen) {
-        const nextScope = selectedModel?.modelScope === "user" ? "user" : "platform";
-        setScopeTab(nextScope);
-        const scopedGroups = allModelGroups.filter((group) =>
-          group.items.some((item) => (item.modelScope ?? "platform") === nextScope),
-        );
-        setActiveGroupKey(selectedGroupKey || scopedGroups[0]?.key || "");
+        setActiveGroupKey(selectedGroupKey || modelGroups[0]?.key || "");
         setMobileGroupKey(null);
       }
       setOpen(nextOpen);
       onOpenChange?.(nextOpen);
     },
-    [allModelGroups, onOpenChange, selectedGroupKey, selectedModel],
+    [modelGroups, onOpenChange, selectedGroupKey],
   );
 
   const selectDesktopGroup = React.useCallback((groupKey: string) => {
@@ -465,14 +498,9 @@ export function CanvasModelSelect({
     setActiveGroupKey(groupKey);
   }, [activeDesktopGroupKey]);
 
-  const triggerIdentity = selectedModel
-    ? resolveModelIdentity({
-      code: selectedModel.platformModelName,
-      vendor: selectedModel.vendor,
-      icon: selectedModel.icon,
-    })
-    : null;
-  const triggerIconURL = triggerIdentity ? resolveModelIconURL(triggerIdentity.modelIcon) : null;
+  // 触发按钮的模型名同样剥离 personal: 前缀
+  const triggerIconURL = selectedModel ? resolveModelOptionIconUrl(selectedModel) : null;
+  const triggerLabel = selectedModel ? resolveModelOptionLabel(selectedModel.platformModelName) : "";
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -489,9 +517,9 @@ export function CanvasModelSelect({
       >
         {selectedModel ? (
           <>
-            <ModelIcon iconUrl={triggerIconURL} label={selectedModel.platformModelName} size={14} />
-            <span className="min-w-0 flex-1 truncate" title={selectedModel.platformModelName}>
-              {selectedModel.platformModelName}
+            <ModelIcon iconUrl={triggerIconURL} label={triggerLabel} size={14} />
+            <span className="min-w-0 flex-1 truncate" title={triggerLabel}>
+              {triggerLabel}
             </span>
             <CanvasModelCapabilityBadge model={selectedModel} />
           </>
@@ -522,25 +550,6 @@ export function CanvasModelSelect({
             : "w-[min(14rem,calc(100vw-3rem))] border-0 bg-transparent p-0 shadow-none",
         )}
       >
-        <div className="mb-1.5 grid grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1">
-          {(["platform", "user"] as const).map((scope) => (
-            <button
-              key={scope}
-              type="button"
-              className={cn(
-                "h-7 rounded-md text-[11px] font-medium transition-colors",
-                scopeTab === scope ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => {
-                setScopeTab(scope);
-                setActiveGroupKey("");
-                setMobileGroupKey(null);
-              }}
-            >
-              {scope === "platform" ? t("modelScopePlatform") : t("modelScopeUser")}
-            </button>
-          ))}
-        </div>
         {isMobile ? (
           <>
             <div className="flex h-7 items-center justify-between gap-2 px-2">
@@ -557,7 +566,7 @@ export function CanvasModelSelect({
                 <span className="text-[11px] font-medium text-foreground">{t("modelGroup")}</span>
               )}
               <span className="min-w-0 truncate text-right text-[10px] font-medium text-muted-foreground">
-                {mobileGroup ? mobileGroup.channelLabel || mobileGroup.label : selectedGroupLabel}
+                {mobileGroup ? mobileGroup.label : selectedGroupLabel}
               </span>
             </div>
             {modelGroups.length === 0 ? (
@@ -581,53 +590,25 @@ export function CanvasModelSelect({
                     ))}
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-1">
-                    {modelGroups.map((group, index) => {
+                  <div className="flex flex-col gap-0.5">
+                    {modelGroups.map((group) => {
                       const selectedGroup = group.key === selectedGroupKey;
-                      const previousGroup = modelGroups[index - 1];
-                      const showChannelHeading = Boolean(
-                        group.channelKey &&
-                        (!previousGroup || previousGroup.channelKey !== group.channelKey),
-                      );
-                      const channelCollapsed = Boolean(
-                        group.channelKey && collapsedChannelKeys.has(group.channelKey),
-                      );
                       const groupIconURL = resolveModelIconURL(group.icon);
                       return (
-                        <React.Fragment key={group.key}>
-                          {showChannelHeading ? (
-                            <button
-                              type="button"
-                              className="flex h-7 w-full items-center justify-between px-2 pt-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 hover:text-foreground"
-                              onClick={() => {
-                                if (!group.channelKey) return;
-                                setCollapsedChannelKeys((current) => {
-                                  const next = new Set(current);
-                                  if (next.has(group.channelKey!)) next.delete(group.channelKey!);
-                                  else next.add(group.channelKey!);
-                                  return next;
-                                });
-                              }}
-                            >
-                              <span className="min-w-0 truncate">{group.channelLabel}</span>
-                              {channelCollapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-                            </button>
-                          ) : null}
-                          {!channelCollapsed ? (
-                            <button
-                              type="button"
-                              className={cn(
-                                "flex h-7 w-full items-center justify-between gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                                selectedGroup ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-                              )}
-                              onClick={() => setMobileGroupKey(group.key)}
-                            >
-                              <ModelIcon iconUrl={groupIconURL} label={group.label} />
-                              <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">{group.items.length}</span>
-                            </button>
-                          ) : null}
-                        </React.Fragment>
+                        <button
+                          key={group.key}
+                          type="button"
+                          className={cn(
+                            "flex h-7 w-full items-center justify-between gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                            selectedGroup ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                          )}
+                          onClick={() => setMobileGroupKey(group.key)}
+                        >
+                          {group.personal && !group.icon ? <PersonalGroupIcon /> : <ModelIcon iconUrl={groupIconURL} label={group.label} />}
+                          <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                          {group.personal ? <PersonalGroupBadge label={t("personalBadge")} /> : null}
+                          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">{group.items.length}</span>
+                        </button>
                       );
                     })}
                   </div>
@@ -636,7 +617,7 @@ export function CanvasModelSelect({
             )}
           </>
         ) : (
-          <div ref={desktopMenuRootRef} className="relative min-w-0">
+          <div ref={attachDesktopMenuRoot} className="relative min-w-0">
             {hasDesktopModelSubmenu ? (
               <div
                 ref={desktopSubmenuRef}
@@ -686,64 +667,36 @@ export function CanvasModelSelect({
                 <div className="min-h-0 min-w-0">
                   <ModelMenuScrollContainer maxHeight={desktopGroupListMaxHeight} onScroll={updateDesktopSubmenuMetrics}>
                     <div className="flex flex-col gap-0.5">
-                      {modelGroups.map((group, index) => {
+                      {modelGroups.map((group) => {
                         const selectedGroup = group.key === selectedGroupKey;
                         const activeGroup = group.key === activeDesktopGroup?.key;
                         const groupIconURL = resolveModelIconURL(group.icon);
-                        const previousGroup = modelGroups[index - 1];
-                        const showChannelHeading = Boolean(
-                          group.channelKey &&
-                          (!previousGroup || previousGroup.channelKey !== group.channelKey),
-                        );
-                        const channelCollapsed = Boolean(
-                          group.channelKey && collapsedChannelKeys.has(group.channelKey),
-                        );
                         return (
-                          <React.Fragment key={group.key}>
-                            {showChannelHeading ? (
-                              <button
-                                type="button"
-                                className="flex h-7 w-full items-center justify-between px-2 pt-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 hover:text-foreground"
-                                onClick={() => {
-                                  if (!group.channelKey) return;
-                                  setCollapsedChannelKeys((current) => {
-                                    const next = new Set(current);
-                                    if (next.has(group.channelKey!)) next.delete(group.channelKey!);
-                                    else next.add(group.channelKey!);
-                                    return next;
-                                  });
-                                }}
-                              >
-                                <span className="min-w-0 truncate">{group.channelLabel}</span>
-                                {channelCollapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-                              </button>
-                            ) : null}
-                            {!channelCollapsed ? (
-                              <button
-                                type="button"
-                                ref={(node) => {
-                                  if (node) {
-                                    desktopGroupItemRefs.current.set(group.key, node);
-                                    return;
-                                  }
-                                  desktopGroupItemRefs.current.delete(group.key);
-                                }}
-                                className={cn(
-                                  "flex h-7 w-full items-center gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                                  activeGroup ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-                                  selectedGroup && !activeGroup ? "text-foreground" : null,
-                                )}
-                                onMouseEnter={() => selectDesktopGroup(group.key)}
-                                onFocus={() => selectDesktopGroup(group.key)}
-                                onClick={() => selectDesktopGroup(group.key)}
-                              >
-                                <ModelIcon iconUrl={groupIconURL} label={group.label} />
-                                <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">{group.items.length}</span>
-                                <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground/65 transition-transform", activeGroup && "rotate-90")} strokeWidth={1.8} />
-                              </button>
-                            ) : null}
-                          </React.Fragment>
+                          <button
+                            key={group.key}
+                            type="button"
+                            ref={(node) => {
+                              if (node) {
+                                desktopGroupItemRefs.current.set(group.key, node);
+                                return;
+                              }
+                              desktopGroupItemRefs.current.delete(group.key);
+                            }}
+                            className={cn(
+                              "flex h-7 w-full items-center gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                              activeGroup ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                              selectedGroup && !activeGroup ? "text-foreground" : null,
+                            )}
+                            onMouseEnter={() => selectDesktopGroup(group.key)}
+                            onFocus={() => selectDesktopGroup(group.key)}
+                            onClick={() => selectDesktopGroup(group.key)}
+                          >
+                            {group.personal && !group.icon ? <PersonalGroupIcon /> : <ModelIcon iconUrl={groupIconURL} label={group.label} />}
+                            <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                            {group.personal ? <PersonalGroupBadge label={t("personalBadge")} /> : null}
+                            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">{group.items.length}</span>
+                            <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground/65 transition-transform", activeGroup && "rotate-90")} strokeWidth={1.8} />
+                          </button>
                         );
                       })}
                     </div>

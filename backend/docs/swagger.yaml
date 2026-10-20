@@ -1453,6 +1453,33 @@ definitions:
     - data
     - errorMsg
     type: object
+  CanvasStatePutRequest:
+    properties:
+      state:
+        type: string
+    required:
+    - state
+    type: object
+  CanvasStateResponse:
+    properties:
+      state:
+        type: string
+      updatedAt:
+        type: integer
+    required:
+    - state
+    - updatedAt
+    type: object
+  CanvasStateResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/CanvasStateResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   Capabilities:
     properties:
       accountSecurity:
@@ -2603,6 +2630,9 @@ definitions:
     type: object
   ConversationResponse:
     properties:
+      activeTipMessagePublicID:
+        description: ActiveTipMessagePublicID 回退后的续聊锚点消息公开ID；空表示未回退过。
+        type: string
       contextPolicyJSON:
         type: string
       createdAt:
@@ -2656,6 +2686,7 @@ definitions:
       userID:
         type: integer
     required:
+    - activeTipMessagePublicID
     - contextPolicyJSON
     - createdAt
     - isStarred
@@ -2678,6 +2709,47 @@ definitions:
     - title
     - updatedAt
     - userID
+    type: object
+  ConversationRewindPreviewItem:
+    properties:
+      action:
+        type: string
+      currentVersion:
+        type: integer
+      relativePath:
+        type: string
+      targetSizeBytes:
+        format: int64
+        type: integer
+      targetVersion:
+        type: integer
+    type: object
+  ConversationRewindPreviewResponseDoc:
+    properties:
+      hasProjectFiles:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/ConversationRewindPreviewItem'
+        type: array
+      messagePublicID:
+        type: string
+    required:
+    - hasProjectFiles
+    - items
+    - messagePublicID
+    type: object
+  ConversationRewindResultResponseDoc:
+    properties:
+      activeTipMessagePublicID:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/ConversationRewindPreviewItem'
+        type: array
+    required:
+    - activeTipMessagePublicID
+    - items
     type: object
   ConversationRunListResponseDoc:
     properties:
@@ -5075,7 +5147,7 @@ definitions:
       fileIDs:
         items:
           type: string
-        maxItems: 1
+        maxItems: 20
         type: array
       model:
         maxLength: 128
@@ -8272,6 +8344,47 @@ definitions:
     - updatedAt
     - upstreamModelName
     type: object
+  PublicSharedProjectFileResponse:
+    properties:
+      entryType:
+        type: string
+      fileName:
+        type: string
+      mimeType:
+        type: string
+      publicID:
+        type: string
+      relativePath:
+        type: string
+      sizeBytes:
+        type: integer
+    required:
+    - entryType
+    - fileName
+    - mimeType
+    - publicID
+    - relativePath
+    - sizeBytes
+    type: object
+  PublicSharedProjectFilesResponse:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/PublicSharedProjectFileResponse'
+        type: array
+    required:
+    - files
+    type: object
+  PublicSharedProjectFilesResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/PublicSharedProjectFilesResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   RedeemCodeRequest:
     properties:
       code:
@@ -8647,6 +8760,40 @@ definitions:
     required:
     - servers
     type: object
+  RequeryMediaVideoAttachmentResponse:
+    properties:
+      durationSeconds:
+        type: integer
+      fileID:
+        type: string
+      fileName:
+        type: string
+      mimeType:
+        type: string
+      sizeBytes:
+        type: integer
+    required:
+    - fileID
+    - fileName
+    - mimeType
+    - sizeBytes
+    type: object
+  RequeryMediaVideoRunResponse:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/RequeryMediaVideoAttachmentResponse'
+        type: array
+      message:
+        type: string
+      runID:
+        type: string
+      status:
+        type: string
+    required:
+    - runID
+    - status
+    type: object
   ResetUpstreamCircuitResponseDoc:
     properties:
       data:
@@ -8724,6 +8871,39 @@ definitions:
         type: string
     required:
     - name
+    type: object
+  RetryMediaImageArtifactAttachmentResult:
+    properties:
+      fileID:
+        type: string
+      fileName:
+        type: string
+      mimeType:
+        type: string
+      sizeBytes:
+        type: integer
+    required:
+    - fileID
+    - fileName
+    - mimeType
+    - sizeBytes
+    type: object
+  RetryMediaImageArtifactResponse:
+    properties:
+      attachment:
+        $ref: '#/definitions/RetryMediaImageArtifactAttachmentResult'
+      index:
+        type: integer
+      message:
+        type: string
+      runID:
+        type: string
+      status:
+        type: string
+    required:
+    - index
+    - runID
+    - status
     type: object
   RevokeConversationSharesRequest:
     properties:
@@ -19221,6 +19401,68 @@ paths:
       summary: 取消流式生成
       tags:
       - chat
+  /conversation-runs/{run_id}/media/artifact-retry:
+    post:
+      consumes:
+      - application/json
+      description: 上游生成已成功但产物下载瞬时失败时，输出节点按 runID + 产物序号重试一次保存：重新下载 -> 上传 -> 追加消息附件
+      parameters:
+      - description: 运行 ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      - description: 产物序号 {index}
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RetryMediaImageArtifactResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 重试保存待保存的图像产物
+      tags:
+      - chat
+  /conversation-runs/{run_id}/media/requery:
+    post:
+      description: 按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态
+      parameters:
+      - description: 运行 ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RequeryMediaVideoRunResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 重查失败的视频生成任务
+      tags:
+      - chat
   /conversation-runs/{run_id}/stream:
     get:
       description: 页面刷新后按 run_id 重新订阅仍在运行的生成流，返回 NDJSON 事件
@@ -20051,6 +20293,91 @@ paths:
       security:
       - BearerAuth: []
       summary: 从指定消息 fork 新会话
+      tags:
+      - chat
+  /conversations/{id}/messages/{message_id}/rewind:
+    post:
+      description: 将会话截断到指定消息（其后消息保留为非当前分支），并把项目工作区文件恢复到该消息完成时的状态；回退前请先调用 preview
+        获取影响清单
+      parameters:
+      - description: 会话 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 消息 public_id
+        in: path
+        name: message_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationRewindResultResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 回退到指定消息
+      tags:
+      - chat
+  /conversations/{id}/messages/{message_id}/rewind/preview:
+    post:
+      description: 计算回退到指定消息将产生的文件影响清单（恢复/重建/删除），不做任何变更
+      parameters:
+      - description: 会话 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 消息 public_id
+        in: path
+        name: message_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationRewindPreviewResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 预览回退到指定消息的影响
       tags:
       - chat
   /conversations/{id}/messages/{message_id}/ui-state:
@@ -23062,6 +23389,75 @@ paths:
       summary: 获取公开分享附件内容
       tags:
       - chat
+  /shared-conversations/{share_id}/project/files:
+    get:
+      consumes:
+      - application/json
+      description: 公开读取分享快照内冻结的项目工作区文件树
+      parameters:
+      - description: 分享 ID
+        in: path
+        name: share_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/PublicSharedProjectFilesResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      summary: 获取公开分享项目文件树
+      tags:
+      - chat
+  /shared-conversations/{share_id}/project/files/{file_id}/content:
+    get:
+      description: 只允许读取公开分享快照中冻结的项目文件原件
+      parameters:
+      - description: 分享 ID
+        in: path
+        name: share_id
+        required: true
+        type: string
+      - description: 文件 ID
+        in: path
+        name: file_id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      summary: 获取公开分享项目文件内容
+      tags:
+      - chat
   /skills:
     get:
       consumes:
@@ -23505,6 +23901,56 @@ paths:
       summary: 更新我的自定义组件
       tags:
       - ui-components
+  /user/canvas-state:
+    get:
+      description: 返回最近一次保存的画布快照与服务端写入时间；从未保存过时 state 为空、updatedAt 为 0
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/CanvasStateResponseDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 读取当前用户的画布快照
+      tags:
+      - user/canvas-state
+    put:
+      consumes:
+      - application/json
+      description: 整份覆盖保存画布快照，返回服务端写入时间；服务端不做合并，读取始终以最近一次写入为准
+      parameters:
+      - description: 画布快照
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/CanvasStatePutRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/CanvasStateResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/Envelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 保存当前用户的画布快照
+      tags:
+      - user/canvas-state
   /user/settings:
     get:
       description: 返回当前用户全部个人偏好配置，缺失项以默认值填充

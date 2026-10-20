@@ -82,7 +82,7 @@ func (r *Repo) ListConversationProjects(ctx context.Context, userID uint, status
 func (r *Repo) GetConversationProjectByPublicID(ctx context.Context, userID uint, publicID string) (*domainconversation.ConversationProject, error) {
 	var item models.ConversationProject
 	if err := r.db.WithContext(ctx).
-		Where("user_id = ? AND public_id = ?", userID, strings.TrimSpace(publicID)).
+		Where("user_id = ? AND public_id = ? AND status <> ?", userID, strings.TrimSpace(publicID), "deleting").
 		First(&item).Error; err != nil {
 		return nil, dberror.Translate(err)
 	}

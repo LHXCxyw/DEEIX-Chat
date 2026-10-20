@@ -23,6 +23,38 @@ func (h *Handler) GetProjectWorkspace(c *gin.Context) {
 	response.Success(c, view)
 }
 
+// RecordProjectPreviewResult 记录项目预览沙箱回写的运行结果（console 与运行时错误），
+// 作为一条工具结果持久化到会话，供模型下一轮读取。
+func (h *Handler) RecordProjectPreviewResult(c *gin.Context) {
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidConversationID)
+		return
+	}
+	var req RecordProjectPreviewResultRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	err = h.service.RecordProjectPreviewResult(c.Request.Context(), appconversation.RecordProjectPreviewResultInput{
+		UserID:         middleware.MustUserID(c),
+		ConversationID: publicID,
+		RunID:          req.RunID,
+		EntryPath:      req.EntryPath,
+		Console:        req.Console,
+		Errors:         req.Errors,
+	})
+	if err != nil {
+		if errors.Is(err, appconversation.ErrConversationNotFound) {
+			response.ErrorFrom(c, http.StatusNotFound, err)
+			return
+		}
+		response.InternalError(c, err)
+		return
+	}
+	response.Success(c, gin.H{"recorded": true})
+}
+
 // ListProjectFiles 列出项目工作区文件。
 func (h *Handler) ListProjectFiles(c *gin.Context) {
 	items, err := h.service.ListProjectFiles(c.Request.Context(), middleware.MustUserID(c), c.Param("id"))
@@ -66,6 +98,43 @@ func (h *Handler) GetProjectFileContent(c *gin.Context) {
 	_ = filecontent.Write(c, result, false)
 }
 
+// ImportProjectFileFromAttachment 显式授权后创建附件工作副本。
+func (h *Handler) ImportProjectFileFromAttachment(c *gin.Context) {
+	var req ImportProjectAttachmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	if !req.EditAuthorized {
+		response.ErrorFrom(c, http.StatusForbidden, appconversation.ErrProjectAttachmentEditAuthorizationRequired)
+		return
+	}
+	item, err := h.service.ImportProjectFileFromAttachment(c.Request.Context(), appconversation.ProjectAttachmentInput{
+		UserID: middleware.MustUserID(c), ProjectPublicID: c.Param("id"),
+		FileID: req.FileID, Path: req.Path, EditAuthorized: req.EditAuthorized,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrProjectAttachmentEditAuthorizationRequired):
+			response.ErrorFrom(c, http.StatusForbidden, err)
+		case errors.Is(err, appconversation.ErrInvalidFileReference):
+			response.ErrorFrom(c, http.StatusBadRequest, err)
+		case errors.Is(err, appconversation.ErrFileNotFound), errors.Is(err, appconversation.ErrConversationProjectNotFound):
+			response.ErrorFrom(c, http.StatusNotFound, err)
+		case errors.Is(err, appconversation.ErrProjectFileVersionConflict):
+			response.ErrorFrom(c, http.StatusConflict, err)
+		case errors.Is(err, appconversation.ErrFileTooLarge):
+			response.ErrorFrom(c, http.StatusRequestEntityTooLarge, err)
+		case errors.Is(err, appconversation.ErrMIMEBlocked):
+			response.ErrorFrom(c, http.StatusUnsupportedMediaType, err)
+		default:
+			response.InternalError(c, err)
+		}
+		return
+	}
+	response.Success(c, item)
+}
+
 // WriteProjectFile 创建或覆盖项目文本文件。
 func (h *Handler) WriteProjectFile(c *gin.Context) {
 	var req WriteProjectFileRequest
@@ -73,10 +142,12 @@ func (h *Handler) WriteProjectFile(c *gin.Context) {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	item, err := h.service.WriteProjectFile(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), req.Path, []byte(req.Content), appconversation.UserFileChangeContext())
+	item, err := h.service.WriteProjectFile(c.Request.Context(), middleware.MustUserID(c), c.Param("id"), req.Path, []byte(req.Content), appconversation.UserFileChangeContext(), req.ExpectedVersion)
 	if err != nil {
 		switch {
-		case errors.Is(err, appconversation.ErrInvalidFileReference), errors.Is(err, appconversation.ErrFileTooLarge):
+		case errors.Is(err, appconversation.ErrProjectFileVersionConflict):
+			response.ErrorFrom(c, http.StatusConflict, err)
+		case errors.Is(err, appconversation.ErrInvalidProjectFileVersion), errors.Is(err, appconversation.ErrInvalidFileReference), errors.Is(err, appconversation.ErrFileTooLarge):
 			response.ErrorFrom(c, http.StatusBadRequest, err)
 		case errors.Is(err, appconversation.ErrConversationProjectNotFound):
 			response.ErrorFrom(c, http.StatusNotFound, appconversation.ErrConversationProjectNotFound)
@@ -291,6 +362,10 @@ func (h *Handler) DeleteConversationProject(c *gin.Context) {
 		appconversation.DeleteConversationOptions{DeleteFiles: deleteFiles},
 	)
 	if err != nil {
+		if errors.Is(err, appconversation.ErrDeletionPending) {
+			response.ErrorFrom(c, http.StatusConflict, appconversation.ErrDeletionPending)
+			return
+		}
 		if errors.Is(err, appconversation.ErrConversationProjectNotFound) {
 			response.ErrorFrom(c, http.StatusNotFound, err)
 			return

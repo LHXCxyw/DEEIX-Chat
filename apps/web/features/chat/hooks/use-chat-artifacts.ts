@@ -131,15 +131,22 @@ export function useChatArtifacts({ scopeKey, transient = false, messages }: UseC
   const dismissedArtifactRef = React.useRef<ChatArtifact | null>(null);
   const previousScopeRef = React.useRef({ key: scopeKey, transient });
   const artifactRatio = customArtifactRatio ?? resolveDefaultRatio(inlineLayout);
-  const activeArtifact = React.useMemo(
-    () =>
-      activeArtifactID
-        ? artifacts.find((artifact) => artifact.id === activeArtifactID) ??
-          findReplacementArtifact(artifacts, lastActiveArtifact) ??
-          lastActiveArtifact
-        : null,
-    [activeArtifactID, artifacts, lastActiveArtifact],
-  );
+  const activeArtifact = React.useMemo(() => {
+    if (!activeArtifactID) {
+      return null;
+    }
+    const matched = artifacts.find((artifact) => artifact.id === activeArtifactID);
+    if (matched) {
+      return matched;
+    }
+    const replacement = findReplacementArtifact(artifacts, lastActiveArtifact);
+    if (replacement) {
+      return replacement;
+    }
+    // 兜底快照只在产物已完成时保留；生成结束后仍然找不到对应产物，说明该快照已失效，
+    // 继续展示会把侧栏永久钉在「正在生成」状态。
+    return lastActiveArtifact?.complete ? lastActiveArtifact : null;
+  }, [activeArtifactID, artifacts, lastActiveArtifact]);
 
   React.useEffect(() => {
     const previousScope = previousScopeRef.current;

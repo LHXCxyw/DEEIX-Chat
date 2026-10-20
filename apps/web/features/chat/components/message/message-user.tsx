@@ -280,6 +280,7 @@ export function ChatMessageUser({
           attachments={item.attachments}
           loadContent={attachmentContentLoader}
           allowDownload={!readOnly}
+          allowWorkingCopy={!readOnly}
         />
       ) : null}
       <div

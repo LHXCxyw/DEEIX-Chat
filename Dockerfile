@@ -109,3 +109,19 @@ EXPOSE 8080
 VOLUME ["/app/storage", "/app/data"]
 
 CMD ["/app/deeix-chat"]
+
+# 单 Compose 应用层；默认使用宿主或远程 Docker 端点，不再运行内层 daemon。
+FROM docker:27.5.1-cli AS agent-docker-cli
+FROM runtime AS runtime-agent
+COPY --from=agent-docker-cli /usr/local/bin/docker /usr/local/bin/docker
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash curl python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY deploy/prepare-agent-config.py deploy/config.example.yaml /opt/deeix/
+COPY deploy/one-click.sh /opt/deeix/one-click.sh
+COPY backend/internal/infra/agentruntime/browser-seccomp.json /opt/deeix/browser-seccomp.json
+ENTRYPOINT ["/bin/bash", "/opt/deeix/one-click.sh"]
+CMD ["app"]
+
+# 保留发布工作流与独立 docker build 的基础运行镜像；Compose 显式选 runtime-agent。
+FROM runtime AS default

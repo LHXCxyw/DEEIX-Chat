@@ -42,15 +42,19 @@ export function resolveModelOptionIconUrl({
   platformModelName,
   vendor,
   icon,
+  vendorIcon,
 }: {
   platformModelName: string;
   vendor: string;
   icon: string;
+  /** 服务端配置的厂商图标，见 resolveModelIdentity。 */
+  vendorIcon?: string;
 }): string | null {
   const identity = resolveModelIdentity({
     code: platformModelName,
     vendor,
     icon,
+    vendorIcon,
   });
   return resolveModelIconURL(identity.modelIcon);
 }

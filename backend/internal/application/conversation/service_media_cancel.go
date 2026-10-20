@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	defaultXAIVideoDurationSeconds   int64 = 6
-	mediaCancellationFinalizeTimeout       = 5 * time.Second
+	defaultXAIVideoDurationSeconds    int64 = 6
+	defaultOpenAIVideoDurationSeconds int64 = 5
+	mediaCancellationFinalizeTimeout        = 5 * time.Second
 )
 
 type canceledMediaGenerationInput struct {
@@ -227,14 +228,21 @@ func mediaDurationSecondsFromOptions(options map[string]any) int64 {
 // 其他协议仍以其返回的真实媒体时长为准，避免发送未声明的厂商参数。
 func withDefaultMediaVideoDuration(options map[string]any, protocol string) map[string]any {
 	adapter := llm.NormalizeAdapter(protocol)
-	if mediaDurationSecondsFromOptions(options) > 0 || (adapter != llm.AdapterXAIVideo && adapter != llm.AdapterXAIVideoExtensions) {
+	defaultDuration := int64(0)
+	switch adapter {
+	case llm.AdapterXAIVideo, llm.AdapterXAIVideoExtensions:
+		defaultDuration = defaultXAIVideoDurationSeconds
+	case llm.AdapterOpenAIVideo:
+		defaultDuration = defaultOpenAIVideoDurationSeconds
+	}
+	if mediaDurationSecondsFromOptions(options) > 0 || defaultDuration == 0 {
 		return options
 	}
 	next := make(map[string]any, len(options)+1)
 	for key, value := range options {
 		next[key] = value
 	}
-	next["duration"] = defaultXAIVideoDurationSeconds
+	next["duration"] = defaultDuration
 	return next
 }
 

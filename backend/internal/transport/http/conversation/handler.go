@@ -15,6 +15,7 @@ import (
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	portllm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/lifecycle"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
@@ -134,6 +135,8 @@ var sendMessageErrorStatuses = []sendMessageErrorStatus{
 	{err: appconversation.ErrMediaVideoInputInvalid, status: http.StatusBadRequest},
 	{err: appconversation.ErrMediaVideoTooManyInputs, status: http.StatusBadRequest},
 	{err: appconversation.ErrMediaRouteProtocolMismatch, status: http.StatusServiceUnavailable},
+	{err: appconversation.ErrMediaRequeryUnavailable, status: http.StatusConflict},
+	{err: appconversation.ErrMediaVideoPollTimeout, status: http.StatusGatewayTimeout},
 	{err: appconversation.ErrInvalidMediaGenerationTask, status: http.StatusBadRequest},
 	{err: appconversation.ErrDuplicateMessageGenerationRun, status: http.StatusConflict},
 	{err: billing.ErrUsageConcurrencyLimitExceeded, status: http.StatusTooManyRequests},
@@ -167,6 +170,65 @@ func describeUpstreamRequestFailure(err error) response.Description {
 	return response.DescribeCode(http.StatusBadGateway, code)
 }
 
+// upstreamErrorDetail 是随错误交付给用户的上游响应摘要，字段均来自已脱敏、已限长的调试快照。
+type upstreamErrorDetail struct {
+	StatusCode int    `json:"statusCode,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Body       string `json:"body,omitempty"`
+}
+
+// mediaRunContextDetail 是媒体任务被前置校验拦下时的定位上下文：
+// 回答"哪个运行、什么任务类型、哪个协议、上游任务编号与运行状态"。
+// upstreamID 刻意不带 omitempty：值为 0 表示"个人模型路由、无平台上游"，是关键线索。
+type mediaRunContextDetail struct {
+	RunID          string `json:"runID,omitempty"`
+	TaskType       string `json:"taskType,omitempty"`
+	Protocol       string `json:"protocol,omitempty"`
+	UpstreamID     uint   `json:"upstreamID"`
+	UpstreamTaskID string `json:"upstreamTaskID"`
+	Status         string `json:"status,omitempty"`
+}
+
+// errorDetails 是错误响应的 details 结构；上游类失败与本地校验类失败各填一侧。
+type errorDetails struct {
+	Upstream *upstreamErrorDetail   `json:"upstream,omitempty"`
+	Context  *mediaRunContextDetail `json:"context,omitempty"`
+}
+
+// errorResponseDetails 组装随错误交付的结构化详情，供用户自助定位失败原因。
+// 上游正文只取脱敏调试快照，绝不透传上游原始字节；拿不到快照时留空而非回退原文。
+func errorResponseDetails(err error) any {
+	if err == nil {
+		return nil
+	}
+	var upstream *portllm.UpstreamError
+	if errors.As(err, &upstream) && upstream != nil {
+		detail := &upstreamErrorDetail{
+			StatusCode: upstream.StatusCode,
+			Message:    strings.TrimSpace(upstream.Message),
+		}
+		if snapshot := appconversation.MessageErrorDebug(err); snapshot != nil {
+			if snapshot.Response.StatusCode > 0 {
+				detail.StatusCode = snapshot.Response.StatusCode
+			}
+			detail.Body = strings.TrimSpace(snapshot.Response.Body)
+		}
+		return &errorDetails{Upstream: detail}
+	}
+	var runContext *appconversation.MediaRunContextError
+	if errors.As(err, &runContext) && runContext != nil {
+		return &errorDetails{Context: &mediaRunContextDetail{
+			RunID:          runContext.RunID,
+			TaskType:       runContext.TaskType,
+			Protocol:       runContext.Protocol,
+			UpstreamID:     runContext.UpstreamID,
+			UpstreamTaskID: runContext.UpstreamTaskID,
+			Status:         runContext.Status,
+		}}
+	}
+	return nil
+}
+
 // streamErrorPayload 构造 NDJSON 终态错误事件。流式响应已写出 200，错误不经过 response.Error*，
 // 因此在这里把错误码与原始原因记入请求上下文供访问日志记录，并在事件中带上 requestId 供用户反馈。
 func streamErrorPayload(c *gin.Context, err error) map[string]any {
@@ -189,6 +251,10 @@ func streamErrorPayload(c *gin.Context, err error) map[string]any {
 	}
 	if debug := appconversation.MessageErrorDebug(err); debug != nil {
 		payload["debug"] = debug
+	}
+	// details 与 HTTP 错误响应同源，供非 chat 消费方（如画布节点）统一渲染失败原因
+	if details := errorResponseDetails(err); details != nil {
+		payload["details"] = details
 	}
 	return payload
 }
@@ -302,6 +368,15 @@ func normalizeFileSort(value string) string {
 		return "last_used"
 	default:
 		return "created"
+	}
+}
+
+func normalizeFileSource(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "generated", "uploaded":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "all"
 	}
 }
 

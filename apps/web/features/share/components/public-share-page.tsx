@@ -19,6 +19,7 @@ import {
   useChatArtifactResize,
   useChatArtifacts,
 } from "@/features/chat";
+import { PublicShareFiles } from "@/features/share/components/public-share-files";
 import { useSharePublicConversation } from "@/features/share/hooks/use-share-public-conversation";
 import { cn } from "@/lib/utils";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
@@ -362,6 +363,8 @@ export function PublicSharePage() {
             </div>
           </div>
         </div>
+
+        <PublicShareFiles shareID={data.shareID} />
 
         <div className="space-y-7">
           {visibleMessages.map((message) => (

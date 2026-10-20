@@ -20,6 +20,7 @@ import { ChatArea, ChatAreaLoadError, ChatAreaSkeleton } from "@/features/chat/c
 import { ChatArtifactWorkspace } from "@/features/chat/components/sections/chat-artifact";
 import { ChatUIBlockPanel } from "@/features/chat/components/sections/chat-ui-block-panel";
 import { ChatEmptyState } from "@/features/chat/components/sections/chat-empty";
+import { ChatToolApprovals } from "@/features/chat/components/sections/chat-tool-approvals";
 import { ChatInput } from "@/features/chat/components/sections/chat-input";
 import {
   ChatProjectWorkspace,
@@ -800,8 +801,8 @@ export function AppChatArea() {
       setProjectFileTabs((previous) => {
         const existing = previous.find((item) => item.key === file.RelativePath);
         const tab: ProjectFileTab = existing
-          ? { ...existing, fileID: file.PublicID, content, savedContent: content, diff: existing.diff ? { ...existing.diff, next: content } : null, note: "", deleted: false }
-          : { key: file.RelativePath, path: file.RelativePath, fileID: file.PublicID, content, savedContent: content, diff: null, note: "", deleted: false };
+          ? { ...existing, fileID: file.PublicID, version: file.Version, content, savedContent: content, diff: existing.diff ? { ...existing.diff, next: content } : null, note: "", deleted: false }
+          : { key: file.RelativePath, path: file.RelativePath, fileID: file.PublicID, version: file.Version, content, savedContent: content, diff: null, note: "", deleted: false };
         return upsertIn(previous, tab);
       });
       setActiveProjectTabKey(file.RelativePath);
@@ -873,6 +874,7 @@ export function AppChatArea() {
         key: change.path,
         path: change.path,
         fileID: file?.PublicID ?? "",
+        version: file?.Version,
         content: finalContent,
         savedContent: fetched,
         diff: { old: initial, next: finalContent },
@@ -931,13 +933,11 @@ export function AppChatArea() {
       const token = await resolveAccessToken();
       if (!token) throw new Error(tWorkspace("sessionExpired"));
       const nextPath = tab.path.trim();
-      await saveProjectFile(token, workspaceProjectID, nextPath, tab.content);
-      // 保存接口只返回空响应，回读工作区清单以取得新文件的公开 ID（用于后续删除）。
-      const files = (await getProjectWorkspace(token, workspaceProjectID).catch(() => null))?.Files ?? [];
-      const savedFileID = files.find((item) => item.RelativePath === nextPath)?.PublicID ?? tab.fileID;
+      const expectedVersion = tab.fileID && nextPath === tab.key ? tab.version : 0;
+      const savedFile = await saveProjectFile(token, workspaceProjectID, nextPath, tab.content, expectedVersion);
       setProjectFileTabs((previous) => previous
         .filter((item) => item.key === nextPath || item.key === tab.key)
-        .map((item) => (item.key === tab.key ? { ...item, key: nextPath, path: nextPath, fileID: savedFileID, savedContent: item.content, diff: null, deleted: false, note: "" } : item)));
+        .map((item) => (item.key === tab.key ? { ...item, key: nextPath, path: nextPath, fileID: savedFile.PublicID, version: savedFile.Version, savedContent: tab.content, diff: null, deleted: false, note: "" } : item)));
       setActiveProjectTabKey(nextPath);
       projectWorkspaceRef.current?.refresh();
       toast.success(tWorkspace("fileSaved"));
@@ -1304,6 +1304,7 @@ export function AppChatArea() {
             {!isConversationLoadFailed ? (
               <div className="relative z-10 shrink-0 px-3 pb-3 md:px-6">
                 <div className={cn("mx-auto w-full", chatContentWidthClassName)}>
+                  {!temporaryMode ? <ChatToolApprovals key={currentConversation?.publicID} conversationID={currentConversation?.publicID} /> : null}
                   <ChatInput {...chatInputProps} />
                 </div>
               </div>

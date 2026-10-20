@@ -416,8 +416,39 @@ func toPublicSharedConversationResponse(item *appconversation.PublicSharedConver
 	}
 }
 
+// PublicSharedProjectFileResponse 公开分享项目文件条目响应 DTO（不含 storage_key 等敏感字段）。
+type PublicSharedProjectFileResponse struct {
+	PublicID     string `json:"publicID"`
+	RelativePath string `json:"relativePath"`
+	FileName     string `json:"fileName"`
+	EntryType    string `json:"entryType"`
+	MimeType     string `json:"mimeType"`
+	SizeBytes    int64  `json:"sizeBytes"`
+}
+
+// PublicSharedProjectFilesResponse 公开分享项目文件树响应 DTO。
+type PublicSharedProjectFilesResponse struct {
+	Files []PublicSharedProjectFileResponse `json:"files"`
+}
+
+func toPublicSharedProjectFilesResponse(items []appconversation.PublicSharedProjectFile) PublicSharedProjectFilesResponse {
+	files := make([]PublicSharedProjectFileResponse, 0, len(items))
+	for _, item := range items {
+		files = append(files, PublicSharedProjectFileResponse{
+			PublicID:     item.PublicID,
+			RelativePath: item.RelativePath,
+			FileName:     item.FileName,
+			EntryType:    item.EntryType,
+			MimeType:     item.MimeType,
+			SizeBytes:    item.SizeBytes,
+		})
+	}
+	return PublicSharedProjectFilesResponse{Files: files}
+}
+
 // ConversationDeleteResponse 删除会话响应 DTO。
 type ConversationDeleteResponse struct {
+	CleanupStatus    string                `json:"cleanupStatus"`
 	Deleted          bool                  `json:"deleted"`
 	DeletedFileCount int                   `json:"deletedFileCount,omitempty"`
 	Quota            *StorageQuotaResponse `json:"quota,omitempty"`
@@ -434,6 +465,7 @@ func toConversationDeleteResponse(result *appconversation.DeleteConversationResu
 		return ConversationDeleteResponse{Deleted: true}
 	}
 	response := ConversationDeleteResponse{
+		CleanupStatus:    result.CleanupStatus,
 		Deleted:          result.Deleted,
 		DeletedFileCount: result.DeletedFileCount,
 	}
@@ -1771,6 +1803,12 @@ type RevokeConversationSharesResponseDoc struct {
 type PublicSharedConversationResponseDoc struct {
 	ErrorMsg string                           `json:"errorMsg"`
 	Data     PublicSharedConversationResponse `json:"data"`
+}
+
+// PublicSharedProjectFilesResponseDoc 公开分享项目文件树响应文档。
+type PublicSharedProjectFilesResponseDoc struct {
+	ErrorMsg string                           `json:"errorMsg"`
+	Data     PublicSharedProjectFilesResponse `json:"data"`
 }
 
 // ErrorDoc 错误响应文档。

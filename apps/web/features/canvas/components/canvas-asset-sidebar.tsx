@@ -1,10 +1,10 @@
 "use client";
 
 import {
+  AudioLines,
   ChevronDown,
   ChevronRight,
   Clock3,
-  FileCode2,
   Image as ImageIcon,
   Images,
   Loader2,
@@ -15,6 +15,7 @@ import {
   Sparkles,
   TextCursorInput,
   TriangleAlert,
+  Video,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
@@ -39,9 +40,9 @@ const STATUS_LABEL_KEYS = {
 const KIND_ACCENTS: Record<GraphNodeKind, string> = {
   prompt: "bg-violet-500",
   image: "bg-sky-500",
+  media: "bg-fuchsia-500",
   generate: "bg-amber-500",
   output: "bg-emerald-500",
-  html: "bg-primary",
 };
 
 type AssetGroupKey = "references" | "results" | "others";
@@ -66,8 +67,8 @@ function assetTitle(node: GraphNode, untitled: string): string {
       return node.model || untitled;
     case "output":
       return (node.status === "done" && node.fileName) || node.prompt?.trim() || untitled;
-    case "html":
-      return node.html.trim() || untitled;
+    case "media":
+      return node.reference?.fileName || untitled;
   }
 }
 
@@ -81,7 +82,7 @@ function assetStatusLabel(node: GraphNode): keyof typeof STATUS_LABEL_KEYS | nul
       return node.runStatus === "pending" ? "pending" : node.runStatus === "streaming" ? "streaming" : node.errorMessage ? "error" : null;
     case "output":
       return node.status === "error" ? "error" : node.status === "done" ? "done" : null;
-    case "html":
+    case "media":
       return null;
   }
 }
@@ -140,7 +141,7 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
   const groups = React.useMemo(() => ({
     references: orderedAssets.filter(({ node }) => node.kind === "image"),
     results: orderedAssets.filter(({ node }) => node.kind === "output"),
-    others: orderedAssets.filter(({ node }) => node.kind === "prompt" || node.kind === "generate" || node.kind === "html"),
+    others: orderedAssets.filter(({ node }) => node.kind === "prompt" || node.kind === "generate" || node.kind === "media"),
   }), [orderedAssets]);
 
   // 资产行：缩略图 + 序号 + 标题 + 类型/状态副标题
@@ -166,8 +167,8 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
         ? t("nodeKindImage")
         : node.kind === "generate"
           ? t("nodeKindGenerate")
-          : node.kind === "html"
-            ? t("nodeKindHtml")
+          : node.kind === "media"
+            ? node.mediaKind === "video" ? t("nodeKindMediaVideo") : t("nodeKindMediaAudio")
             : t("nodeKindOutput");
     return (
       <li key={node.id}>
@@ -195,8 +196,10 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
               <TextCursorInput className="size-4 text-muted-foreground/70" strokeWidth={1.6} />
             ) : node.kind === "generate" ? (
               <Play className="size-4 text-muted-foreground/70" strokeWidth={1.6} />
-            ) : node.kind === "html" ? (
-              <FileCode2 className="size-4 text-muted-foreground/70" strokeWidth={1.6} />
+            ) : node.kind === "media" ? (
+              node.mediaKind === "video"
+                ? <Video className="size-4 text-muted-foreground/70" strokeWidth={1.6} />
+                : <AudioLines className="size-4 text-muted-foreground/70" strokeWidth={1.6} />
             ) : node.kind === "image" && !node.reference ? (
               <ImageIcon className="size-4 text-muted-foreground/70" strokeWidth={1.6} />
             ) : (

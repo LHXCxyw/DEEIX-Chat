@@ -16,6 +16,38 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestGeneratePreservesUpstreamImageRejection(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		if !strings.Contains(string(body), `"type":"image_url"`) || !strings.Contains(string(body), "data:image/png;base64,") {
+			t.Errorf("上游必须实际收到图片内容块: %s", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"message":"image input is not supported by this model","type":"invalid_request_error"}}`)
+	}))
+	defer server.Close()
+
+	_, err := newTestClient().Generate(t.Context(), portllm.RouteConfig{
+		Protocol: portllm.AdapterOpenAIChatCompletions, BaseURL: server.URL, APIKey: "test-key", UpstreamModel: "text-only",
+	}, portllm.GenerateInput{Messages: []portllm.Message{{Role: "user", Parts: []portllm.ContentPart{
+		{Kind: portllm.ContentPartText, Text: "描述图片"},
+		{Kind: portllm.ContentPartImage, MimeType: "image/png", Data: []byte("image")},
+	}}}})
+	var upstream *portllm.UpstreamError
+	if !errors.As(err, &upstream) || upstream.StatusCode != http.StatusBadRequest || !strings.Contains(upstream.Message, "image input is not supported by this model") {
+		t.Fatalf("应保留真实上游拒绝: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("图片拒绝不得重发成纯文本成功，实际调用 %d 次", calls)
+	}
+}
+
 func TestTrustedRouteRedirectPreservesSafeLegacyBehavior(t *testing.T) {
 	strictPolicy := security.NewStrictOutboundPolicy(true)
 	trustedPolicy, err := strictPolicy.WithTrustedHTTPURLs("http://model.internal:8080/v1")

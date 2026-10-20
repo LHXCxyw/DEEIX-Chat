@@ -63,6 +63,15 @@ export type ProcessTraceLabels = {
       shell: string;
       generic: string;
     };
+    actions: {
+      read: string;
+      readMultiple: (count: number) => string;
+      create: string;
+      modify: string;
+      delete: string;
+      search: string;
+      diffStat: (added: number, removed: number) => string;
+    };
     detail: {
       nameLabel: string;
       request: string;
@@ -128,6 +137,8 @@ export type ProcessTraceLabels = {
   process: {
     titleActive: string;
     titleDone: string;
+    taskDuration: (duration: string) => string;
+    taskTitle: string;
   };
   compaction: {
     summary: (fromTurn: number, toTurn: number) => string;
@@ -204,6 +215,15 @@ export function useChatTraceLabels(): ProcessTraceLabels {
           shell: t("tool.names.shell"),
           generic: t("tool.names.generic"),
         },
+        actions: {
+          read: t("tool.actions.read"),
+          readMultiple: (count: number) => t("tool.actions.readMultiple", { count }),
+          create: t("tool.actions.create"),
+          modify: t("tool.actions.modify"),
+          delete: t("tool.actions.delete"),
+          search: t("tool.actions.search"),
+          diffStat: (added: number, removed: number) => t("tool.actions.diffStat", { added, removed }),
+        },
         detail: {
           nameLabel: t("tool.detail.nameLabel"),
           request: t("tool.detail.request"),
@@ -270,6 +290,8 @@ export function useChatTraceLabels(): ProcessTraceLabels {
       process: {
         titleActive: t("process.titleActive"),
         titleDone: t("process.titleDone"),
+        taskDuration: (duration: string) => t("process.taskDuration", { duration }),
+        taskTitle: t("process.taskTitle"),
       },
       compaction: {
         summary: (fromTurn: number, toTurn: number) => t("compaction.summary", { fromTurn, toTurn }),

@@ -1,0 +1,10 @@
+{
+  "name": "@deeix/agent-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "独立浏览器策略控制基础；生产浏览器执行默认关闭",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node src/server.js", "test": "node --test test/*.test.js" },
+  "dependencies": { "playwright": "1.56.1" }
+}

@@ -30,6 +30,7 @@ const (
 	MessageErrorCodeUpstreamRateLimited           = "upstream.rate_limited"
 	MessageErrorCodeUpstreamEmptyResponse         = "llm.empty_response"
 	MessageErrorCodeUpstreamUnavailable           = "upstream.unavailable"
+	MessageErrorCodeUpstreamTimeout               = "upstream.timeout"
 	MessageErrorCodeToolRunFinalAnswerMissing     = "tool_run.final_answer_missing"
 	MessageErrorCodeQuotaExceeded                 = "quota.exceeded"
 	messageErrorCodeInternal                      = "internal.error"
@@ -304,6 +305,18 @@ func upstreamErrorSummary(err *llm.UpstreamError) string {
 	}
 	lines := make([]string, 0, 3)
 	hint := imageStreamConfigurationHint(err)
+	// 已建流后的失败不能用 HTTP 状态码表达：上游先回 200 再在流内出错，
+	// 这里必须报告“流中断 + 真实原因”，不能笼统归因为响应格式不兼容。
+	if err.StreamInterrupted && isSuccessfulUpstreamStatus(err.StatusCode) {
+		lines = append(lines, fmt.Sprintf("模型响应流中断（上游已返回 HTTP %d，流式响应中途失败）", err.StatusCode))
+		if cause := upstreamStreamFailureCause(err); cause != "" {
+			lines = append(lines, "原因："+cause)
+		}
+		if hint != "" {
+			lines = append(lines, hint)
+		}
+		return strings.Join(lines, "\n")
+	}
 	if isSuccessfulUpstreamStatus(err.StatusCode) {
 		lines = append(lines, fmt.Sprintf("模型响应格式不兼容（HTTP %d）", err.StatusCode))
 		lines = append(lines, "错误：上游返回成功状态码，但响应格式与当前协议不兼容")
@@ -324,6 +337,23 @@ func upstreamErrorSummary(err *llm.UpstreamError) string {
 		lines = append(lines, hint)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// upstreamStreamFailureCause 提取流式失败的真实原因（空闲超时、连接中断、
+// 数据块解析失败等），避免所有流内故障都被笼统归类而无法定位。
+func upstreamStreamFailureCause(err *llm.UpstreamError) string {
+	if err == nil {
+		return ""
+	}
+	if cause := normalizeUpstreamErrorMessage(err.Message); cause != "" {
+		return cause
+	}
+	if err.Cause != nil {
+		if cause := normalizeUpstreamErrorMessage(err.Cause.Error()); cause != "" {
+			return cause
+		}
+	}
+	return ""
 }
 
 func isSuccessfulUpstreamStatus(statusCode int) bool {
@@ -496,6 +526,10 @@ func MessageErrorCode(err error) string {
 	}
 	if errors.Is(err, ErrUpstreamEmptyResponse) {
 		return MessageErrorCodeUpstreamEmptyResponse
+	}
+	// 超时是平台侧等待用尽（上游没回话），与"上游返回了错误"是两回事，必须分开报
+	if errors.Is(err, context.DeadlineExceeded) {
+		return MessageErrorCodeUpstreamTimeout
 	}
 	return ""
 }

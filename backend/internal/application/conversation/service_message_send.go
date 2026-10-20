@@ -31,6 +31,7 @@ const (
 
 // SendMessage 发送消息并调用上游渠道对话接口，支持多模态附件。
 func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (result *SendMessageResult, retErr error) {
+	input.AgentPermissions = input.AgentPermissions.Normalized()
 	input.Options, input.Controls = restrictUserChatOptions(input.Options, input.Controls, input.AllowRawOptions)
 	return s.sendMessageInternal(ctx, input, nil, false)
 }
@@ -43,6 +44,7 @@ func (s *Service) StreamMessage(
 	onDelta func(string) error,
 ) (result *SendMessageResult, retErr error) {
 	input.Cancelable = true
+	input.AgentPermissions = input.AgentPermissions.Normalized()
 	input.Options, input.Controls = restrictUserChatOptions(input.Options, input.Controls, input.AllowRawOptions)
 	return s.sendMessageInternal(ctx, input, onDelta, true)
 }
@@ -176,6 +178,12 @@ func (s *Service) sendMessageInternal(
 		sendSpan.End()
 	}()
 
+	if err := s.resolveAgentPermissionMode(ctx, &input); err != nil {
+		return nil, err
+	}
+	if err := ValidateAgentPermissions(input.AgentPermissions); err != nil {
+		return nil, err
+	}
 	// application 层保留兜底校验，保证非 HTTP 调用路径也遵守同一 MCP 工具数量策略。
 	if err := s.ValidateSelectedToolIDs(input.SelectedToolIDs); err != nil {
 		return nil, err
@@ -338,7 +346,7 @@ func (s *Service) sendMessageInternal(
 	if input.Cancelable {
 		cancelCtx, cancel := context.WithCancel(ctx)
 		ctx = cancelCtx
-		if err = s.generationStreams.register(ctx, runID, input.UserID, conversation.PublicID, cancel); err != nil {
+		if err = s.registerDeletionSafeGeneration(ctx, runID, input.UserID, conversation.PublicID, cancel); err != nil {
 			retErr = err
 			return nil, err
 		}
@@ -534,6 +542,13 @@ func (s *Service) sendMessageInternal(
 		retErr = err
 		return nil, err
 	}
+	toolRuntime, workspaceID, err := s.prepareAgentFileRuntime(ctx, input, toolRuntime)
+	if err != nil {
+		return nil, err
+	}
+	toolRuntime.conversationID = input.ConversationID
+	toolRuntime.workspaceID = workspaceID
+	toolRuntime.agentPermissions = input.AgentPermissions
 	imageAttachmentRoutingActive := toolRuntime.attachmentProcessor != nil
 	imageProcessing, err := s.processImageAttachments(ctx, imageAttachmentProcessingInput{
 		UserID:         input.UserID,
@@ -868,6 +883,12 @@ func (s *Service) sendMessageInternal(
 	}
 
 	for len(upstreamOutput.ToolCalls) > 0 && llmCallCount < runner.maxLLMCalls && remainingToolCalls > 0 {
+		// 本轮以工具调用结束（中间轮）：把本轮正文移入轨迹（思考→正文→工具 按轮穿插），
+		// 主正文只保留最终轮文本；同时下发空正文快照让客户端从下一轮重新累积。
+		if strings.TrimSpace(assistantText) != "" && traceRecorder != nil {
+			traceRecorder.recordRoundText(assistantText)
+			runner.streamedText.Reset()
+		}
 		pendingToolCalls := upstreamOutput.ToolCalls
 		if len(pendingToolCalls) > remainingToolCalls {
 			pendingToolCalls = pendingToolCalls[:remainingToolCalls]
@@ -900,6 +921,8 @@ func (s *Service) sendMessageInternal(
 			),
 		)
 		toolResult := s.executeAssistantToolCalls(toolCtx, executeAssistantToolCallsInput{
+			AgentPermissions:  toolRuntime.agentPermissions,
+			WorkspaceID:       toolRuntime.workspaceID,
 			UserID:            input.UserID,
 			ConversationID:    input.ConversationID,
 			ProjectPublicID:   input.ProjectPublicID,
@@ -986,7 +1009,7 @@ func (s *Service) sendMessageInternal(
 			retErr = budgetErr
 			return nil, retErr
 		}
-		nextOutput, nextErr := runner.generate(ctx, followUpInput, llmMessages)
+		nextOutput, nextErr := runner.generateWithRetry(ctx, followUpInput, llmMessages)
 		if generationCanceled(ctx, nextErr) {
 			retErr = ErrMessageGenerationCanceled
 			return nil, retErr
@@ -1016,7 +1039,7 @@ func (s *Service) sendMessageInternal(
 			retErr = budgetErr
 			return nil, retErr
 		}
-		nextOutput, nextErr := runner.generate(ctx, finalInput, llmMessages)
+		nextOutput, nextErr := runner.generateWithRetry(ctx, finalInput, llmMessages)
 		if generationCanceled(ctx, nextErr) {
 			retErr = ErrMessageGenerationCanceled
 			return nil, retErr

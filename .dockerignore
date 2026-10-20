@@ -10,8 +10,11 @@
 **/*.log
 config.yaml
 config.yml
-# Deployment assets are never part of the image build context (may hold real config).
-deploy
+# 仅允许部署构建资产进入上下文，不包含生产配置和 secrets。
+deploy/*
+!deploy/prepare-agent-config.py
+!deploy/one-click.sh
+!deploy/config.example.yaml
 backend/config.yaml
 backend/config.yml
 apps/web/package-lock.json
@@ -19,8 +22,6 @@ backend/storage
 storage
 data
 tmp
-# The image only builds the web app and the API; the desktop shell and local build
-# artifacts would otherwise be walked for every COPY.
 apps/desktop
 **/target
 **/*.tsbuildinfo
@@ -28,4 +29,11 @@ apps/desktop
 **/.venv
 .ruff_cache
 .codex
+.trae
+.workbuddy
+.env
+.env.*
+**/.env
+**/.env.*
+*.zip
 .DS_Store

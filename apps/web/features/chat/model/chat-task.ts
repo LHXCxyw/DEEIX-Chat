@@ -8,11 +8,16 @@ export type ChatSubmitBlockReason =
   | "image_edit_unsupported"
   | "image_generation_rejects_attachments"
   | "image_task_rejects_non_image_attachments"
-  | "video_generation_too_many_images"
+  | "video_generation_too_many_references"
   | "video_task_rejects_non_image_attachments"
   | "video_extension_requires_single_mp4"
   | "video_extension_unsupported"
   | "model_task_unsupported";
+
+// 视频生成参考素材上限，与后端 readMediaVideoReferenceParts 及上游引用规则保持一致。
+export const MAX_VIDEO_REFERENCE_IMAGES = 7;
+export const MAX_VIDEO_REFERENCE_VIDEOS = 3;
+export const MAX_VIDEO_REFERENCE_AUDIOS = 4;
 
 export type ChatSubmitDecision = {
   task: ChatSubmitTask;
@@ -37,6 +42,23 @@ function isMP4Attachment(item: PendingAttachment): boolean {
 
 function isVideoAttachment(item: PendingAttachment): boolean {
   return item.mimeType.toLowerCase().startsWith("video/") || item.detectedMime?.toLowerCase().startsWith("video/") === true;
+}
+
+function isAudioAttachment(item: PendingAttachment): boolean {
+  return item.mimeType.toLowerCase().startsWith("audio/") || item.detectedMime?.toLowerCase().startsWith("audio/") === true;
+}
+
+// 视频生成参考素材上限：OpenAI 兼容视频协议支持多模态参考，其余视频协议只接受单张参考图。
+function videoReferenceLimits(model: ChatModelOption | null): { images: number; videos: number; audios: number } {
+  const protocols = new Set((model?.protocols ?? []).map((item) => item.trim().toLowerCase()));
+  if (protocols.has("openai_video_generations")) {
+    return {
+      images: MAX_VIDEO_REFERENCE_IMAGES,
+      videos: MAX_VIDEO_REFERENCE_VIDEOS,
+      audios: MAX_VIDEO_REFERENCE_AUDIOS,
+    };
+  }
+  return { images: 1, videos: 0, audios: 0 };
 }
 
 function buildDecision(
@@ -87,7 +109,10 @@ export function resolveChatSubmitDecision(
   const imageAttachmentCount = attachments.filter(isImageAttachment).length;
   const mp4AttachmentCount = attachments.filter(isMP4Attachment).length;
   const videoAttachmentCount = attachments.filter(isVideoAttachment).length;
+  const audioAttachmentCount = attachments.filter(isAudioAttachment).length;
   const nonImageAttachmentCount = attachmentCount - imageAttachmentCount;
+  // 视频生成不支持的其余类型（文档、压缩包等）。
+  const unsupportedAttachmentCount = attachmentCount - imageAttachmentCount - videoAttachmentCount - audioAttachmentCount;
   const supportsChat = kinds.size === 0 || kinds.has("chat") || kinds.has("audio");
   const supportsImageGeneration = kinds.has("image_gen");
   const supportsImageEdit = kinds.has("image_edit");
@@ -105,16 +130,29 @@ export function resolveChatSubmitDecision(
   };
   const requestedType = requestedResponseType(options);
 
-  // Video attachments extend the video on models that support it; chat models otherwise receive them as
-  // regular attachments (sent natively when the route supports video input, see backend native_input.go).
-  if (videoAttachmentCount > 0 && (supportsVideoExtension || !supportsChat)) {
+  // Video attachments extend the video on models that declare video extension; a generation-only video
+  // model instead receives them as reference material (extra_videos).
+  if (videoAttachmentCount > 0 && supportsVideoExtension) {
     if (attachmentCount !== 1 || mp4AttachmentCount !== 1) {
       return buildDecision("video_extension", "video_extension_requires_single_mp4", baseDecision);
     }
-    if (!supportsVideoExtension) {
-      return buildDecision("video_extension", "video_extension_unsupported", baseDecision);
-    }
     return buildDecision("video_extension", null, baseDecision);
+  }
+
+  // 视频生成支持多模态参考素材：参考图、参考视频、参考音频可混合上传。
+  if (supportsVideoGeneration && (imageAttachmentCount > 0 || videoAttachmentCount > 0 || audioAttachmentCount > 0)) {
+    if (unsupportedAttachmentCount > 0) {
+      return buildDecision("video_generation", "video_task_rejects_non_image_attachments", baseDecision);
+    }
+    const limits = videoReferenceLimits(model);
+    if (
+      imageAttachmentCount > limits.images ||
+      videoAttachmentCount > limits.videos ||
+      audioAttachmentCount > limits.audios
+    ) {
+      return buildDecision("video_generation", "video_generation_too_many_references", baseDecision);
+    }
+    return buildDecision("video_generation", null, baseDecision);
   }
 
   if (
@@ -135,20 +173,8 @@ export function resolveChatSubmitDecision(
   }
 
   if (imageAttachmentCount > 0) {
-    if (requestedType === "video" && supportsVideoGeneration) {
-      if (imageAttachmentCount > 1) {
-        return buildDecision("video_generation", "video_generation_too_many_images", baseDecision);
-      }
-      return buildDecision("video_generation", null, baseDecision);
-    }
     if (supportsImageEdit) {
       return buildDecision("image_edit", null, baseDecision);
-    }
-    if (supportsVideoGeneration) {
-      if (imageAttachmentCount > 1) {
-        return buildDecision("video_generation", "video_generation_too_many_images", baseDecision);
-      }
-      return buildDecision("video_generation", null, baseDecision);
     }
     if (supportsChat) {
       return buildDecision("chat", null, baseDecision);

@@ -19,9 +19,9 @@ const DEFAULT_SNIPPET_MAX_CHARS = 160;
 const KIND_LABELS: Record<GraphNodeKind, string> = {
   prompt: "提示词",
   image: "参考图",
+  media: "参考媒体",
   generate: "生成",
   output: "输出",
-  html: "HTML",
 };
 
 // 折叠空白并按上限截断，超长补省略号
@@ -46,8 +46,10 @@ function describeNode(node: GraphNode, index: number, snippetMax: number): strin
       const hasArtifact = node.status === "done" && Boolean(node.fileID);
       return `${prefix}：模型 ${node.model ?? "未知"} · 状态 ${node.status} · 产物 ${hasArtifact ? node.fileName ?? "有" : "无"}`;
     }
-    case "html":
-      return `${prefix}：${node.html.trim() ? snippet(node.html, snippetMax) : "（空源码）"}`;
+    case "media": {
+      const media = node.mediaKind === "video" ? "参考视频" : "参考音频";
+      return `${prefix}：${media} ${node.reference ? node.reference.fileName : "（未上传）"}`;
+    }
   }
 }
 
@@ -65,7 +67,9 @@ export function buildCanvasContextSummary(
 
   // 以节点在数组中的顺序作为对外序号，便于模型理解（不用内部 UUID）
   const indexByID = new Map<string, number>();
-  nodes.forEach((node, index) => indexByID.set(node.id, index));
+  nodes.forEach((node, index) => {
+    indexByID.set(node.id, index);
+  });
 
   const nodeLines = nodes.map((node, index) => `- ${describeNode(node, index, snippetMax)}`);
 

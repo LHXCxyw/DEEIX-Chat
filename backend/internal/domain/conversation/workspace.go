@@ -14,6 +14,7 @@ type ProjectWorkspace struct {
 	PublicID              string
 	OwnerUserID           uint
 	ConversationProjectID uint
+	ConversationID        *uint
 	Status                string
 	StorageBytes          int64
 	FileCount             int

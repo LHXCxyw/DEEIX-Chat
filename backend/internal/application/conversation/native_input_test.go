@@ -2,6 +2,9 @@ package conversation
 
 import (
 	"bytes"
+	"context"
+	"image"
+	"image/png"
 	"strings"
 	"testing"
 
@@ -12,32 +15,39 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 )
 
+type nativeInputTestStoreProvider struct {
+	store objectstorage.Store
+	opens int
+}
+
+func (p *nativeInputTestStoreProvider) Open(context.Context) (objectstorage.Store, error) {
+	p.opens++
+	return p.store, nil
+}
+
 func TestResolveNativeInputPolicy(t *testing.T) {
-	pdfCatalog := []string{"text", "image", "pdf"}
-	for _, test := range []struct {
-		name      string
-		route     channel.ResolvedRoute
-		wantImage bool
-		wantPDF   bool
-	}{
-		{name: "unknown model keeps sending images", route: channel.ResolvedRoute{Protocol: llm.AdapterAnthropicMessages}, wantImage: true},
-		{name: "anthropic catalog pdf on any base url", route: channel.ResolvedRoute{Protocol: llm.AdapterAnthropicMessages, BaseURL: "https://relay.example.com", CatalogInputModalities: pdfCatalog}, wantImage: true, wantPDF: true},
-		{name: "gemini catalog pdf", route: channel.ResolvedRoute{Protocol: llm.AdapterGoogleGenerateContent, CatalogInputModalities: pdfCatalog}, wantImage: true, wantPDF: true},
-		{name: "official openai", route: channel.ResolvedRoute{Protocol: llm.AdapterOpenAIResponses, BaseURL: "https://api.openai.com/v1", CatalogInputModalities: pdfCatalog}, wantImage: true, wantPDF: true},
-		{name: "openai-compatible relay needs explicit declaration", route: channel.ResolvedRoute{Protocol: llm.AdapterOpenAIChatCompletions, BaseURL: "https://relay.example.com/v1", CatalogInputModalities: pdfCatalog}, wantImage: true},
-		{name: "openai-compatible relay with explicit declaration", route: channel.ResolvedRoute{Protocol: llm.AdapterOpenAIChatCompletions, BaseURL: "https://relay.example.com/v1", ModelCapabilitiesJSON: `{"inputModalities":["image","pdf"]}`}, wantImage: true, wantPDF: true},
-		{name: "official openrouter", route: channel.ResolvedRoute{Protocol: llm.AdapterOpenRouterChat, BaseURL: "https://openrouter.ai/api/v1", CatalogInputModalities: pdfCatalog}, wantImage: true, wantPDF: true},
-		{name: "protocol without document blocks", route: channel.ResolvedRoute{Protocol: llm.AdapterXAIResponses, BaseURL: "https://api.x.ai/v1", CatalogInputModalities: pdfCatalog}, wantImage: true},
-		{name: "text-only catalog model", route: channel.ResolvedRoute{Protocol: llm.AdapterOpenAIChatCompletions, CatalogInputModalities: []string{"text"}}},
-		{name: "explicit declaration overrides catalog", route: channel.ResolvedRoute{Protocol: llm.AdapterAnthropicMessages, CatalogInputModalities: pdfCatalog, ModelCapabilitiesJSON: `{"inputModalities":["image"]}`}, wantImage: true},
+	for _, protocol := range []string{
+		llm.AdapterAnthropicMessages, llm.AdapterGoogleGenerateContent,
+		llm.AdapterOpenAIChatCompletions, llm.AdapterOpenAIResponses,
+		llm.AdapterOpenRouterChat, llm.AdapterOpenRouterResponses, llm.AdapterXAIResponses,
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			route := test.route
-			got := resolveNativeInputPolicy(&route)
-			if got.ImageUnsupported == test.wantImage || got.PDF != test.wantPDF {
-				t.Fatalf("policy = %+v, want image=%v pdf=%v", got, test.wantImage, test.wantPDF)
-			}
-		})
+		for _, declaration := range []struct {
+			name         string
+			capabilities string
+			catalog      []string
+		}{
+			{name: "unknown"},
+			{name: "text catalog", catalog: []string{"text"}},
+			{name: "explicit text", capabilities: `{"inputModalities":["text"]}`, catalog: []string{"image", "pdf", "audio", "video"}},
+		} {
+			t.Run(protocol+"/"+declaration.name, func(t *testing.T) {
+				route := channel.ResolvedRoute{Protocol: protocol, BaseURL: "https://relay.example.com/v1", ModelCapabilitiesJSON: declaration.capabilities, CatalogInputModalities: declaration.catalog}
+				got := resolveNativeInputPolicy(&route)
+				if got.PDF != (protocol != llm.AdapterXAIResponses) {
+					t.Fatalf("协议 PDF 编码能力不应受声明影响: %+v", got)
+				}
+			})
+		}
 	}
 }
 
@@ -88,7 +98,7 @@ func TestBuildMessageRoutePromptSendsNativePDFPerRoute(t *testing.T) {
 	if _, err := store.Put(t.Context(), "files/report", bytes.NewReader([]byte("%PDF-1.7 report")), objectstorage.PutOptions{ContentType: "application/pdf"}); err != nil {
 		t.Fatalf("put pdf: %v", err)
 	}
-	service := &Service{storeProvider: &conversationTestStoreProvider{store: store}}
+	service := &Service{storeProvider: &nativeInputTestStoreProvider{store: store}}
 	report := nativePDF("report", int64(len("%PDF-1.7 report")), 2, true)
 	input := messageRoutePromptInput{
 		DomainMessages:    []model.Message{{Role: "user", Content: "总结这份报告"}},
@@ -117,7 +127,7 @@ func TestBuildMessageRoutePromptSendsNativePDFPerRoute(t *testing.T) {
 	}
 
 	fallback, err := service.buildMessageRoutePrompt(t.Context(), &channel.ResolvedRoute{
-		Protocol: llm.AdapterOpenAIChatCompletions, BaseURL: "https://relay.example.com/v1", CatalogInputModalities: []string{"text", "image", "pdf"},
+		Protocol: llm.AdapterXAIResponses, BaseURL: "https://relay.example.com/v1", CatalogInputModalities: []string{"text", "image", "pdf"},
 	}, input)
 	if err != nil {
 		t.Fatalf("build fallback prompt: %v", err)
@@ -132,40 +142,64 @@ func TestBuildMessageRoutePromptSendsNativePDFPerRoute(t *testing.T) {
 	}
 }
 
-// 纯文本模型：图片不再以图片内容块发送，所属轮次留「不支持」说明，模型能如实告知用户。
-func TestBuildMessageRoutePromptExplainsImagesForTextOnlyModels(t *testing.T) {
-	service := &Service{}
-	image := AttachmentInput{FileID: "photo", FileName: "photo.png", Kind: "image", MimeType: "image/png", StoragePath: "images/photo",
-		ContextMode: fileContextModeDirectImage, Current: true, MessageRole: "user"}
-	plan, err := service.buildMessageRoutePrompt(t.Context(), &channel.ResolvedRoute{
-		Protocol: llm.AdapterOpenAIChatCompletions, CatalogInputModalities: []string{"text"},
-	}, messageRoutePromptInput{
-		DomainMessages:    []model.Message{{Role: "user", Content: "图里是什么"}},
-		ConversationFiles: []AttachmentInput{image},
-		DynamicContext:    userContextInput{Attachments: []AttachmentInput{image}},
-	})
-	if err != nil {
-		t.Fatalf("build prompt: %v", err)
+// 当前、历史和动态上下文图片均不受输入模态声明影响。
+func TestBuildMessageRoutePromptSendsImagesRegardlessOfDeclarations(t *testing.T) {
+	store := objectstorage.NewLocal(t.TempDir())
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
 	}
-	latest := plan.Messages[len(plan.Messages)-1]
-	for _, part := range latest.Parts {
-		if part.Kind == llm.ContentPartImage {
-			t.Fatalf("text-only models must not receive image parts, got %#v", latest.Parts)
-		}
+	data := encoded.Bytes()
+	if _, err := store.Put(t.Context(), "images/photo", bytes.NewReader(data), objectstorage.PutOptions{ContentType: "image/png"}); err != nil {
+		t.Fatal(err)
 	}
-	documents, question := turnParts(t, latest)
-	if !strings.Contains(documents, `<document source="photo.png" access="unsupported">`) || question != "图里是什么" {
-		t.Fatalf("expected an unsupported note before the question, got %#v", latest)
+	service := &Service{storeProvider: &nativeInputTestStoreProvider{store: store}}
+	for _, route := range []channel.ResolvedRoute{
+		{Protocol: llm.AdapterOpenAIChatCompletions},
+		{Protocol: llm.AdapterOpenAIChatCompletions, CatalogInputModalities: []string{"text"}},
+		{Protocol: llm.AdapterOpenAIChatCompletions, ModelCapabilitiesJSON: `{"inputModalities":["text"]}`},
+	} {
+		t.Run(route.ModelCapabilitiesJSON+strings.Join(route.CatalogInputModalities, ","), func(t *testing.T) {
+			for _, current := range []bool{false, true} {
+				image := AttachmentInput{FileID: "photo", FileName: "photo.png", Kind: "image", MimeType: "image/png", StoragePath: "images/photo",
+					ContextMode: fileContextModeDirectImage, Current: current, MessageRole: "user"}
+				input := messageRoutePromptInput{
+					DomainMessages:    []model.Message{{Role: "user", Content: "图里是什么", Attachments: `[{"file_id":"photo","kind":"image","mime_type":"image/png"}]`}},
+					ConversationFiles: []AttachmentInput{image},
+				}
+				if current {
+					input.DynamicContext.Attachments = []AttachmentInput{image}
+				}
+				plan, err := service.buildMessageRoutePrompt(t.Context(), &route, input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				images := 0
+				for _, message := range plan.Messages {
+					for _, part := range message.Parts {
+						if part.Kind == llm.ContentPartImage && len(part.Data) > 0 {
+							images++
+						}
+						if strings.Contains(part.Text, `access="unsupported"`) {
+							t.Fatalf("不应因模型声明产生 unsupported: %#v", message)
+						}
+					}
+				}
+				if images != 1 {
+					t.Fatalf("current=%v: 图片应实际发送一次，得到 %d", current, images)
+				}
+			}
+		})
 	}
 }
 
-// 文件上下文展示按路由的最终决定分组：原生 PDF 归入 native，模型不支持的图片归入 unsupported 并计入未纳入。
+// 文件展示保留图片，只有协议无法编码的音视频归入 unsupported。
 func TestAttachmentRouteTraceShowsNativeAndUnsupportedFiles(t *testing.T) {
 	store := objectstorage.NewLocal(t.TempDir())
 	if _, err := store.Put(t.Context(), "files/report", bytes.NewReader([]byte("%PDF-1.7")), objectstorage.PutOptions{ContentType: "application/pdf"}); err != nil {
 		t.Fatalf("put pdf: %v", err)
 	}
-	provider := &conversationTestStoreProvider{store: store}
+	provider := &nativeInputTestStoreProvider{store: store}
 	service := &Service{storeProvider: provider}
 	report := nativePDF("report", int64(len("%PDF-1.7")), 1, true)
 	missing := nativePDF("missing", 1024, 1, true)
@@ -184,16 +218,16 @@ func TestAttachmentRouteTraceShowsNativeAndUnsupportedFiles(t *testing.T) {
 	if len(groups.Adaptive) != 1 || groups.Adaptive[0].FileID != "missing" {
 		t.Fatalf("an unreadable PDF falls back to extracted text, got %#v", groups)
 	}
-	if len(groups.Unsupported) != 1 || groups.Unsupported[0].FileID != "photo" || len(groups.DirectImages) != 0 {
-		t.Fatalf("expected the image as unsupported on a model without image input, got %#v", groups)
+	if len(groups.Unsupported) != 0 || len(groups.DirectImages) != 1 || groups.DirectImages[0].FileID != "photo" {
+		t.Fatalf("图片不应因模型声明被排除，得到 %#v", groups)
 	}
-	if stage := firstTraceStage(trace.payload); stage == nil || stage.IncludedCount != 2 || stage.SkippedCount != 1 {
-		t.Fatalf("unsupported files count as not included, got %#v", stage)
+	if stage := firstTraceStage(trace.payload); stage == nil || stage.IncludedCount != 3 || stage.SkippedCount != 0 {
+		t.Fatalf("所有文件均应计入，得到 %#v", stage)
 	}
 
 	// 故障转移到另一条路由：重新判断，但已读取（或读取失败）的文件不再访问存储。
 	opens := provider.opens
-	relay := &channel.ResolvedRoute{Protocol: llm.AdapterOpenAIChatCompletions, BaseURL: "https://relay.example.com/v1", CatalogInputModalities: []string{"text", "image", "pdf"}}
+	relay := &channel.ResolvedRoute{Protocol: llm.AdapterXAIResponses, BaseURL: "https://relay.example.com/v1", CatalogInputModalities: []string{"text", "image", "pdf"}}
 	trace.resolve(t.Context(), service, relay, files, cache)
 	groups = trace.payload.FileGroupRefs
 	if len(groups.Native) != 0 || len(groups.DirectImages) != 1 || len(groups.Adaptive) != 2 {
@@ -250,8 +284,7 @@ func nativeMedia(fileID string, mime string, size int64) AttachmentInput {
 	}
 }
 
-// 音视频按协议与格式判断：Gemini 内联音视频；OpenAI Chat 只收 wav / mp3 且不收视频；OpenRouter 收视频；
-// 中转站需显式声明；模型不支持的模态不发送。
+// 音视频仅按协议与 MIME 编码能力判断，不因模型声明或中转地址丢弃。
 func TestResolveNativeInputPolicyForAudioAndVideo(t *testing.T) {
 	all := []string{"text", "image", "pdf", "audio", "video"}
 	mp3 := nativeMedia("voice.mp3", "audio/mpeg", 1024)
@@ -271,11 +304,15 @@ func TestResolveNativeInputPolicyForAudioAndVideo(t *testing.T) {
 		{name: "official openrouter chat", route: channel.ResolvedRoute{Protocol: llm.AdapterOpenRouterChat, BaseURL: "https://openrouter.ai/api/v1", CatalogInputModalities: all},
 			want: map[string]bool{"voice.mp3": true, "voice.m4a": true, "clip.mov": true}},
 		{name: "relay without declaration", route: channel.ResolvedRoute{Protocol: llm.AdapterOpenRouterChat, BaseURL: "https://relay.example.com/v1", CatalogInputModalities: all},
-			want: map[string]bool{"voice.mp3": false, "voice.m4a": false, "clip.mov": false}},
+			want: map[string]bool{"voice.mp3": true, "voice.m4a": true, "clip.mov": true}},
 		{name: "relay with declaration", route: channel.ResolvedRoute{Protocol: llm.AdapterOpenAIChatCompletions, BaseURL: "https://relay.example.com/v1", ModelCapabilitiesJSON: `{"inputModalities":["audio"]}`},
 			want: map[string]bool{"voice.mp3": true, "voice.m4a": false, "clip.mov": false}},
 		{name: "model without audio", route: channel.ResolvedRoute{Protocol: llm.AdapterGoogleGenerateContent, CatalogInputModalities: []string{"text", "video"}},
-			want: map[string]bool{"voice.mp3": false, "voice.m4a": false, "clip.mov": true}},
+			want: map[string]bool{"voice.mp3": true, "voice.m4a": false, "clip.mov": true}},
+		{name: "explicit text", route: channel.ResolvedRoute{Protocol: llm.AdapterGoogleGenerateContent, ModelCapabilitiesJSON: `{"inputModalities":["text"]}`},
+			want: map[string]bool{"voice.mp3": true, "voice.m4a": false, "clip.mov": true}},
+		{name: "unknown", route: channel.ResolvedRoute{Protocol: llm.AdapterGoogleGenerateContent},
+			want: map[string]bool{"voice.mp3": true, "voice.m4a": false, "clip.mov": true}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			route := test.route
@@ -316,7 +353,7 @@ func TestBuildMessageRoutePromptSendsNativeAudioPerRoute(t *testing.T) {
 	if _, err := store.Put(t.Context(), "files/voice.mp3", bytes.NewReader([]byte("ID3 audio")), objectstorage.PutOptions{ContentType: "audio/mpeg"}); err != nil {
 		t.Fatalf("put audio: %v", err)
 	}
-	service := &Service{storeProvider: &conversationTestStoreProvider{store: store}}
+	service := &Service{storeProvider: &nativeInputTestStoreProvider{store: store}}
 	voice := nativeMedia("voice.mp3", "audio/mpeg", int64(len("ID3 audio")))
 	input := messageRoutePromptInput{
 		DomainMessages:    []model.Message{{Role: "user", Content: "转写这段录音"}},

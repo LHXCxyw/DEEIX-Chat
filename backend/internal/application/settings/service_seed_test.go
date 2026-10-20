@@ -188,11 +188,21 @@ func TestSeedKeepsExistingFullContextMaxBytes(t *testing.T) {
 	}
 }
 
-func TestSeedMigratesLegacyDefaultModelOptionAllowedPaths(t *testing.T) {
-	legacy := map[string][]string{}
-	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &legacy); err != nil {
+// previousVideoModelOptionDefaults 返回"视频协议字段集替换之前"的默认放行键。
+// 本文件的用例都以当前默认为基础删键来构造历史默认，必须同时把 openai_video_generations
+// 换回旧键集合，否则构造出的值不对应任何真实历史版本，迁移不会被触发。
+func previousVideoModelOptionDefaults(t *testing.T) map[string][]string {
+	t.Helper()
+	defaults := map[string][]string{}
+	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &defaults); err != nil {
 		t.Fatalf("decode current model option defaults: %v", err)
 	}
+	defaults["openai_video_generations"] = append([]string(nil), legacyOpenAIVideoOptionPathSets[0]...)
+	return defaults
+}
+
+func TestSeedMigratesLegacyDefaultModelOptionAllowedPaths(t *testing.T) {
+	legacy := previousVideoModelOptionDefaults(t)
 	delete(legacy, "xai_video")
 	legacy["xai_responses"] = []string{"reasoning.effort"}
 	legacyJSON, err := json.Marshal(legacy)
@@ -216,11 +226,35 @@ func TestSeedMigratesLegacyDefaultModelOptionAllowedPaths(t *testing.T) {
 	}
 }
 
-func TestSeedAddsXAIVideoToPreviousDefaultModelOptionAllowedPaths(t *testing.T) {
-	previousDefault := map[string][]string{}
-	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &previousDefault); err != nil {
-		t.Fatalf("decode current model option defaults: %v", err)
+// 视频协议字段集替换前后的默认放行键都必须被识别为历史默认并触发重置，
+// 否则存量装机保存的旧白名单会让新参数被 allowlist 静默过滤。
+func TestSeedMigratesLegacyOpenAIVideoOptionPaths(t *testing.T) {
+	for index, videoPaths := range legacyOpenAIVideoOptionPathSets {
+		previousDefault := previousVideoModelOptionDefaults(t)
+		previousDefault["openai_video_generations"] = append([]string(nil), videoPaths...)
+		previousJSON, err := json.Marshal(previousDefault)
+		if err != nil {
+			t.Fatalf("encode previous model option defaults: %v", err)
+		}
+		repo := newSettingsSeedRepo(domainsettings.SystemSetting{
+			Namespace: "chat",
+			Key:       "model_option_allowed_paths",
+			Value:     string(previousJSON),
+			ValueType: "json",
+		})
+		service := NewService(repo, nil)
+
+		if err := service.Seed(context.Background()); err != nil {
+			t.Fatalf("seed settings: %v", err)
+		}
+		if got := repo.items["chat:model_option_allowed_paths"].Value; got != config.DefaultModelOptionAllowedPathsJSON() {
+			t.Fatalf("legacy video key set %d should migrate, got %q", index, got)
+		}
 	}
+}
+
+func TestSeedAddsXAIVideoToPreviousDefaultModelOptionAllowedPaths(t *testing.T) {
+	previousDefault := previousVideoModelOptionDefaults(t)
 	delete(previousDefault, "xai_video")
 	previousJSON, err := json.Marshal(previousDefault)
 	if err != nil {
@@ -243,10 +277,7 @@ func TestSeedAddsXAIVideoToPreviousDefaultModelOptionAllowedPaths(t *testing.T) 
 }
 
 func TestSeedAddsXAIVideoExtensionsToPreviousDefaultModelOptionAllowedPaths(t *testing.T) {
-	previousDefault := map[string][]string{}
-	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &previousDefault); err != nil {
-		t.Fatalf("decode current model option defaults: %v", err)
-	}
+	previousDefault := previousVideoModelOptionDefaults(t)
 	delete(previousDefault, "xai_video_extensions")
 	previousJSON, err := json.Marshal(previousDefault)
 	if err != nil {
@@ -269,10 +300,7 @@ func TestSeedAddsXAIVideoExtensionsToPreviousDefaultModelOptionAllowedPaths(t *t
 }
 
 func TestSeedAddsGeminiThinkingSummariesToPreviousDefaultModelOptionAllowedPaths(t *testing.T) {
-	previousDefault := map[string][]string{}
-	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &previousDefault); err != nil {
-		t.Fatalf("decode current model option defaults: %v", err)
-	}
+	previousDefault := previousVideoModelOptionDefaults(t)
 	previousDefault["gemini_interactions"] = removeStringValue(
 		previousDefault["gemini_interactions"],
 		"generation_config.thinking_summaries",
@@ -298,10 +326,7 @@ func TestSeedAddsGeminiThinkingSummariesToPreviousDefaultModelOptionAllowedPaths
 }
 
 func TestSeedReplacesLegacyGeminiInteractionsOptionPaths(t *testing.T) {
-	previousDefault := map[string][]string{}
-	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &previousDefault); err != nil {
-		t.Fatalf("decode current model option defaults: %v", err)
-	}
+	previousDefault := previousVideoModelOptionDefaults(t)
 	previousDefault["gemini_interactions"] = append(
 		removeStringValue(previousDefault["gemini_interactions"], "response_format.schema"),
 		"responseFormat.type",
@@ -331,10 +356,7 @@ func TestSeedReplacesLegacyGeminiInteractionsOptionPaths(t *testing.T) {
 }
 
 func TestSeedAddsGeminiGenerateContentThinkingPathsToPreviousDefaultModelOptionAllowedPaths(t *testing.T) {
-	previousDefault := map[string][]string{}
-	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &previousDefault); err != nil {
-		t.Fatalf("decode current model option defaults: %v", err)
-	}
+	previousDefault := previousVideoModelOptionDefaults(t)
 	previousDefault["gemini_generate_content"] = removeStringValue(
 		removeStringValue(
 			previousDefault["gemini_generate_content"],

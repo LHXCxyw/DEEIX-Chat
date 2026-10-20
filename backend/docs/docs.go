@@ -11364,6 +11364,104 @@ const docTemplate = `{
                 }
             }
         },
+        "/conversation-runs/{run_id}/media/artifact-retry": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "上游生成已成功但产物下载瞬时失败时，输出节点按 runID + 产物序号重试一次保存：重新下载 -\u003e 上传 -\u003e 追加消息附件",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "重试保存待保存的图像产物",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "运行 ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "产物序号 {index}",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/RetryMediaImageArtifactResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/conversation-runs/{run_id}/media/requery": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态",
+                "tags": [
+                    "chat"
+                ],
+                "summary": "重查失败的视频生成任务",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "运行 ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/RequeryMediaVideoRunResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/conversation-runs/{run_id}/stream": {
             "get": {
                 "security": [
@@ -12902,6 +13000,136 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/ConversationUpdateResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/conversations/{id}/messages/{message_id}/rewind": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "将会话截断到指定消息（其后消息保留为非当前分支），并把项目工作区文件恢复到该消息完成时的状态；回退前请先调用 preview 获取影响清单",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "回退到指定消息",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "会话 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "消息 public_id",
+                        "name": "message_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationRewindResultResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/conversations/{id}/messages/{message_id}/rewind/preview": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "计算回退到指定消息将产生的文件影响清单（恢复/重建/删除），不做任何变更",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "预览回退到指定消息的影响",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "会话 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "消息 public_id",
+                        "name": "message_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationRewindPreviewResponseDoc"
                         }
                     },
                     "400": {
@@ -17316,6 +17544,110 @@ const docTemplate = `{
                 }
             }
         },
+        "/shared-conversations/{share_id}/project/files": {
+            "get": {
+                "description": "公开读取分享快照内冻结的项目工作区文件树",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "获取公开分享项目文件树",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "分享 ID",
+                        "name": "share_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/PublicSharedProjectFilesResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/shared-conversations/{share_id}/project/files/{file_id}/content": {
+            "get": {
+                "description": "只允许读取公开分享快照中冻结的项目文件原件",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "获取公开分享项目文件内容",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "分享 ID",
+                        "name": "share_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件 ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/skills": {
             "get": {
                 "security": [
@@ -18010,6 +18342,86 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/UicomponentErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/canvas-state": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "返回最近一次保存的画布快照与服务端写入时间；从未保存过时 state 为空、updatedAt 为 0",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user/canvas-state"
+                ],
+                "summary": "读取当前用户的画布快照",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/CanvasStateResponseDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "整份覆盖保存画布快照，返回服务端写入时间；服务端不做合并，读取始终以最近一次写入为准",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user/canvas-state"
+                ],
+                "summary": "保存当前用户的画布快照",
+                "parameters": [
+                    {
+                        "description": "画布快照",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/CanvasStatePutRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/CanvasStateResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
                         }
                     }
                 }
@@ -20233,6 +20645,47 @@ const docTemplate = `{
                 }
             }
         },
+        "CanvasStatePutRequest": {
+            "type": "object",
+            "required": [
+                "state"
+            ],
+            "properties": {
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "CanvasStateResponse": {
+            "type": "object",
+            "required": [
+                "state",
+                "updatedAt"
+            ],
+            "properties": {
+                "state": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "integer"
+                }
+            }
+        },
+        "CanvasStateResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/CanvasStateResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
         "Capabilities": {
             "type": "object",
             "required": [
@@ -21873,6 +22326,7 @@ const docTemplate = `{
         "ConversationResponse": {
             "type": "object",
             "required": [
+                "activeTipMessagePublicID",
                 "contextPolicyJSON",
                 "createdAt",
                 "isStarred",
@@ -21897,6 +22351,10 @@ const docTemplate = `{
                 "userID"
             ],
             "properties": {
+                "activeTipMessagePublicID": {
+                    "description": "ActiveTipMessagePublicID 回退后的续聊锚点消息公开ID；空表示未回退过。",
+                    "type": "string"
+                },
                 "contextPolicyJSON": {
                     "type": "string"
                 },
@@ -21970,6 +22428,67 @@ const docTemplate = `{
                 },
                 "userID": {
                     "type": "integer"
+                }
+            }
+        },
+        "ConversationRewindPreviewItem": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "currentVersion": {
+                    "type": "integer"
+                },
+                "relativePath": {
+                    "type": "string"
+                },
+                "targetSizeBytes": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "targetVersion": {
+                    "type": "integer"
+                }
+            }
+        },
+        "ConversationRewindPreviewResponseDoc": {
+            "type": "object",
+            "required": [
+                "hasProjectFiles",
+                "items",
+                "messagePublicID"
+            ],
+            "properties": {
+                "hasProjectFiles": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ConversationRewindPreviewItem"
+                    }
+                },
+                "messagePublicID": {
+                    "type": "string"
+                }
+            }
+        },
+        "ConversationRewindResultResponseDoc": {
+            "type": "object",
+            "required": [
+                "activeTipMessagePublicID",
+                "items"
+            ],
+            "properties": {
+                "activeTipMessagePublicID": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ConversationRewindPreviewItem"
+                    }
                 }
             }
         },
@@ -25385,7 +25904,7 @@ const docTemplate = `{
                 },
                 "fileIDs": {
                     "type": "array",
-                    "maxItems": 1,
+                    "maxItems": 20,
                     "items": {
                         "type": "string"
                     }
@@ -29858,6 +30377,66 @@ const docTemplate = `{
                 }
             }
         },
+        "PublicSharedProjectFileResponse": {
+            "type": "object",
+            "required": [
+                "entryType",
+                "fileName",
+                "mimeType",
+                "publicID",
+                "relativePath",
+                "sizeBytes"
+            ],
+            "properties": {
+                "entryType": {
+                    "type": "string"
+                },
+                "fileName": {
+                    "type": "string"
+                },
+                "mimeType": {
+                    "type": "string"
+                },
+                "publicID": {
+                    "type": "string"
+                },
+                "relativePath": {
+                    "type": "string"
+                },
+                "sizeBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "PublicSharedProjectFilesResponse": {
+            "type": "object",
+            "required": [
+                "files"
+            ],
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/PublicSharedProjectFileResponse"
+                    }
+                }
+            }
+        },
+        "PublicSharedProjectFilesResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/PublicSharedProjectFilesResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
         "RedeemCodeRequest": {
             "type": "object",
             "required": [
@@ -30393,6 +30972,56 @@ const docTemplate = `{
                 }
             }
         },
+        "RequeryMediaVideoAttachmentResponse": {
+            "type": "object",
+            "required": [
+                "fileID",
+                "fileName",
+                "mimeType",
+                "sizeBytes"
+            ],
+            "properties": {
+                "durationSeconds": {
+                    "type": "integer"
+                },
+                "fileID": {
+                    "type": "string"
+                },
+                "fileName": {
+                    "type": "string"
+                },
+                "mimeType": {
+                    "type": "string"
+                },
+                "sizeBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "RequeryMediaVideoRunResponse": {
+            "type": "object",
+            "required": [
+                "runID",
+                "status"
+            ],
+            "properties": {
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/RequeryMediaVideoAttachmentResponse"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "runID": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "ResetUpstreamCircuitResponseDoc": {
             "type": "object",
             "required": [
@@ -30503,6 +31132,54 @@ const docTemplate = `{
                 "vendor": {
                     "type": "string",
                     "maxLength": 128
+                }
+            }
+        },
+        "RetryMediaImageArtifactAttachmentResult": {
+            "type": "object",
+            "required": [
+                "fileID",
+                "fileName",
+                "mimeType",
+                "sizeBytes"
+            ],
+            "properties": {
+                "fileID": {
+                    "type": "string"
+                },
+                "fileName": {
+                    "type": "string"
+                },
+                "mimeType": {
+                    "type": "string"
+                },
+                "sizeBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "RetryMediaImageArtifactResponse": {
+            "type": "object",
+            "required": [
+                "index",
+                "runID",
+                "status"
+            ],
+            "properties": {
+                "attachment": {
+                    "$ref": "#/definitions/RetryMediaImageArtifactAttachmentResult"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "runID": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },

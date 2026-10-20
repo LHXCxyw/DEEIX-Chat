@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,14 +130,21 @@ type llmGateway interface {
 
 // Service 封装会话业务能力。
 type Service struct {
-	cfg             *config.Runtime
-	repo            repository.ConversationRepository
-	cache           repository.UserSettingCacheRepository
-	routeResolver   routeResolver
-	memoryRecorder  memoryRecorder
-	mcpRepo         mcpToolResolver
-	llmClient       llmGateway
-	mediaDownloader generatedMediaDownloader
+	toolApprovals         repository.ToolApprovalRepository
+	agentSettings         repository.UserSettingsRepository
+	approvalSettings      repository.SettingsRepository
+	approvalRoutes        routeResolver
+	agentRuntime          *agentCommandRuntime
+	screenshotRuntime     *agentCommandRuntime
+	projectBrowserRuntime *agentCommandRuntime
+	cfg                   *config.Runtime
+	repo                  repository.ConversationRepository
+	cache                 repository.UserSettingCacheRepository
+	routeResolver         routeResolver
+	memoryRecorder        memoryRecorder
+	mcpRepo               mcpToolResolver
+	llmClient             llmGateway
+	mediaDownloader       generatedMediaDownloader
 	// untrustedMediaDownloader 下载用户自带 Key 端点返回的制品：始终只允许公网目标，端点不放宽出站策略。
 	untrustedMediaDownloader generatedMediaDownloader
 	mcpClient                mcpToolCaller
@@ -202,7 +210,38 @@ type AttachmentInput struct {
 }
 
 // SendMessageInput 定义消息发送请求。
+type AgentPermissions struct {
+	Mode            string `json:"mode,omitempty"`
+	EditFiles       bool   `json:"edit_files"`
+	ExecuteCode     bool   `json:"execute_code"`
+	BrowseProject   bool   `json:"browse_project"`
+	BrowsePublic    bool   `json:"browse_public"`
+	ExtractArchives bool   `json:"extract_archives"`
+}
+
+func ValidateAgentPermissions(p AgentPermissions) error {
+	if p.Mode != "" && !validAgentPermissionMode(p.Mode) {
+		return ErrAgentPermissionUnsupported
+	}
+	if p.BrowseProject || p.BrowsePublic || p.ExtractArchives {
+		return ErrAgentPermissionUnsupported
+	}
+	return nil
+}
+
+// Normalized 按三级模式推导能力。显式 mode 优先于旧布尔字段：
+// 三种模式都允许文件编辑和代码执行，区别只在审批方式（manual/auto/full）。
+func (p AgentPermissions) Normalized() AgentPermissions {
+	if strings.TrimSpace(p.Mode) == "" {
+		return p
+	}
+	p.EditFiles = true
+	p.ExecuteCode = true
+	return p
+}
+
 type SendMessageInput struct {
+	AgentPermissions  AgentPermissions
 	UserID            uint
 	ConversationID    uint
 	RequestID         string

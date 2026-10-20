@@ -1129,7 +1129,7 @@ func (c *Client) generateAnthropicStream(
 	idleReader := newIdleTimeoutReader(resp.Body, resolveStreamIdleTimeout(route.StreamIdleTimeoutMS))
 	streamBody := newUpstreamBodyRecorder(idleReader)
 	if err = consumeAnthropicStream(streamBody, result, onEvent, newAnthropicToolClassifier(requestBody, input.Tools)); err != nil {
-		return nil, portllm.MarkRequestAccepted(attachUpstreamDebug(err, upstreamDebugSnapshot(req, payload, resp, streamErrorBody(streamBody, err))))
+		return nil, portllm.MarkRequestAccepted(attachStreamUpstreamDebug(err, upstreamDebugSnapshot(req, payload, resp, streamErrorBody(streamBody, err))))
 	}
 	compactAnthropicStreamToolCalls(result)
 	return result, nil

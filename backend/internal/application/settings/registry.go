@@ -44,6 +44,7 @@ func (s settingSpec) seedSetting() domainsettings.SystemSetting {
 }
 
 var settingSpecs = []settingSpec{
+	{Namespace: "agent", Key: "approval_model", ValueType: "string", Default: "", Description: "自动工具审批专用平台模型，留空时拒绝自动审批", Validate: maxLength(255)},
 	// 认证配置
 	{Namespace: "auth", Key: "token_ttl_hours", ValueType: "int", Default: "24", Description: "Access Token 有效期(小时)",
 		Validate: intRange(1, 168), Apply: applyField(func(c *config.Config) *int { return &c.TokenTTLHours }, toInt)},

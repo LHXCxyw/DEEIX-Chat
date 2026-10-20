@@ -16,7 +16,7 @@ import { MessageAttachmentRow } from "@/features/chat/components/message/message
 import { MessageKnowledgeSources } from "@/features/chat/components/message/message-knowledge-sources";
 import type { AssistantReaction } from "@/features/chat/components/message/message-meta";
 import { AssistantMessageMeta } from "@/features/chat/components/message/message-meta";
-import { MessageAgentTrace, MessageProcessTrace } from "@/features/chat/components/message/message-process-trace";
+import { MessageTaskTrace } from "@/features/chat/components/message/message-process-trace";
 import { type ProjectChange, projectChanges } from "@/features/chat/components/sections/chat-project-workspace";
 import { UpstreamExchangeDetails } from "@/features/chat/components/message/message-upstream-debug";
 import { useChatInlineVideoSource } from "@/features/chat/hooks/use-chat-inline-video-source";
@@ -314,7 +314,8 @@ export function ChatMessageBot({
           event.phase === "tools" ||
           event.phase === "upstream_think" ||
           event.eventType === "tool" ||
-          event.eventType === "think",
+          event.eventType === "think" ||
+          event.eventType === "text",
       ),
     [traceEvents],
   );
@@ -392,23 +393,19 @@ export function ChatMessageBot({
 
   return (
     <div className="group/assistant-message flex w-full flex-col items-start">
-      {showProcessTrace ? (
-        <MessageProcessTrace
-          trace={processTrace}
-          active={messageStreaming}
-          autoCollapseReady={processAutoCollapseReady}
-        />
-      ) : null}
-      <MessageAgentTrace
+      <MessageTaskTrace
+        trace={processTrace}
         events={postProcessEvents}
         activeToolBlock={toolTrace}
         activeThinkBlock={upstreamThink}
+        activeThinkBlocks={processTrace?.thinkBlocks}
         messageStreaming={messageStreaming}
-        autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
+        autoCollapseReady={processAutoCollapseReady}
         autoExpandThinking={autoExpandThinking}
         autoExpandToolCalls={autoExpandToolCalls}
         runID={item.runID}
         allowFullToolResults={allowFullToolResults && !messageStreaming}
+        showProcessTrace={showProcessTrace}
       />
 
       <div
@@ -570,9 +567,16 @@ export function ChatInlineAlertCard({
   const hasSuccessfulStreamDebug =
     Boolean(summary.statusCode && summary.statusCode >= 200 && summary.statusCode < 300) &&
     isUpstreamStreamingDebugBody(details?.response?.body || message);
-  const summaryText = hasSuccessfulStreamDebug
-    ? t("streamResponseParseFailed", { statusCode: summary.statusCode ?? 200 })
-    : [summary.statusCode ? `HTTP ${summary.statusCode}` : "", summary.reason].filter(Boolean).join(", ");
+  // 后端摘要里的“原因：”行携带真实失败原因（空闲超时、连接中断、数据块解析失败），
+  // 有原因时直接展示完整摘要，不能再被“协议不兼容”的兜底文案覆盖。
+  const hasStreamFailureCause = message
+    .split("\n")
+    .some((line) => line.trim().startsWith("原因："));
+  const summaryText = hasStreamFailureCause
+    ? message
+    : hasSuccessfulStreamDebug
+      ? t("streamResponseParseFailed", { statusCode: summary.statusCode ?? 200 })
+      : [summary.statusCode ? `HTTP ${summary.statusCode}` : "", summary.reason].filter(Boolean).join(", ");
   return (
     <Alert className={cn("min-w-0 max-w-full overflow-hidden", className)} variant="destructive">
       <CircleAlert className="size-4" />

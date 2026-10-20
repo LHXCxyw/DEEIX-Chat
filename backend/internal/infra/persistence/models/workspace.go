@@ -6,8 +6,9 @@ import "time"
 type ProjectWorkspace struct {
 	BaseModel
 	PublicID              string `gorm:"size:32;not null;uniqueIndex:idx_project_workspaces_public_id;comment:公开工作区ID"`
-	OwnerUserID           uint   `gorm:"not null;uniqueIndex:idx_project_workspaces_owner_project,priority:1;index:idx_project_workspaces_owner;comment:归属用户ID"`
-	ConversationProjectID uint   `gorm:"not null;uniqueIndex:idx_project_workspaces_project;uniqueIndex:idx_project_workspaces_owner_project,priority:2;comment:会话项目ID"`
+	OwnerUserID           uint   `gorm:"not null;uniqueIndex:idx_project_workspaces_owner_project,priority:1;uniqueIndex:idx_project_workspaces_owner_conversation,priority:1;index:idx_project_workspaces_owner;comment:归属用户ID"`
+	ConversationProjectID *uint  `gorm:"uniqueIndex:idx_project_workspaces_project;uniqueIndex:idx_project_workspaces_owner_project,priority:2;comment:会话项目ID"`
+	ConversationID        *uint  `gorm:"uniqueIndex:idx_project_workspaces_owner_conversation,priority:2;comment:归属会话ID"`
 	Status                string `gorm:"size:24;not null;default:'active';index:idx_project_workspaces_status;comment:工作区状态"`
 	StorageBytes          int64  `gorm:"not null;default:0;comment:工作区存储字节数"`
 	FileCount             int    `gorm:"not null;default:0;comment:工作区文件数"`

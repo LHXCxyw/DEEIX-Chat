@@ -26,8 +26,8 @@ import (
 // 超时默认值。
 const (
 	defaultConnectTimeoutMS    = 10000  // TCP 建连超时 10s
-	defaultReadTimeoutMS       = 120000 // 非流式/首字节超时 120s（含 LLM 推理）
-	defaultStreamIdleTimeoutMS = 60000  // 流式 chunk 间隔超时 60s
+	defaultReadTimeoutMS       = 180000 // 非流式/首字节超时 180s（含 LLM 推理与图像生成等待）
+	defaultStreamIdleTimeoutMS = 120000 // 流式 chunk 间隔超时 120s
 	maxUpstreamBodyBytes       = 64 * 1024 * 1024
 	// maxStreamToolCallIndex 防止异常稀疏的上游索引触发无界切片扩容。
 	maxStreamToolCallIndex = 1024
@@ -534,6 +534,7 @@ func newClientWithUntrustedPolicy(outboundPolicy security.OutboundPolicy, untrus
 		portllm.AdapterXAIImageEdits:          &xAIImageEditsAdapter{client: client},
 		portllm.AdapterXAIVideo:               &xAIVideoAdapter{client: client},
 		portllm.AdapterXAIVideoExtensions:     &xAIVideoExtensionsAdapter{client: client},
+		portllm.AdapterOpenAIVideo:            &openAIVideoAdapter{client: client},
 		portllm.AdapterAnthropicMessages:      &anthropicMessagesAdapter{client: client},
 		portllm.AdapterGoogleGenerateContent:  &geminiGenerateContentAdapter{client: client},
 		portllm.AdapterGoogleImageGeneration:  &geminiImageGenerationAdapter{client: client},
@@ -654,7 +655,7 @@ func (c *Client) Generate(ctx context.Context, route portllm.RouteConfig, input 
 }
 
 // RetrieveVideoTask 回查一次异步媒体任务（如视频生成）的上游状态，不重新提交任务。
-// 仅支持具备异步任务 ID 的 xAI 视频协议。
+// 仅支持具备异步任务 ID 的协议（openai_video_generations / xai_video / xai_video_extensions）。
 func (c *Client) RetrieveVideoTask(ctx context.Context, route portllm.RouteConfig, taskID string) (*portllm.VideoTaskRetrieval, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
@@ -663,6 +664,8 @@ func (c *Client) RetrieveVideoTask(ctx context.Context, route portllm.RouteConfi
 	adapterName := portllm.NormalizeAdapter(route.Protocol)
 	var requestURL string
 	switch adapterName {
+	case portllm.AdapterOpenAIVideo:
+		requestURL = buildOpenAIVideoResultURL(route.BaseURL, taskID)
 	case portllm.AdapterXAIVideo, portllm.AdapterXAIVideoExtensions:
 		requestURL = buildXAIVideoResultURL(route.BaseURL, taskID)
 	default:
@@ -692,18 +695,35 @@ func (c *Client) RetrieveVideoTask(ctx context.Context, route portllm.RouteConfi
 		return nil, parseUpstreamError(resp.StatusCode, body, debug)
 	}
 
-	output, pending, err := parseXAIVideoResult(body, taskID, 0)
-	if err != nil {
-		// 上游明确上报 failed 时转成 failed 状态，而不是传输错误
-		if strings.HasPrefix(err.Error(), "xAI video generation failed:") {
-			return &portllm.VideoTaskRetrieval{Status: "failed", Message: err.Error()}, nil
+	switch adapterName {
+	case portllm.AdapterOpenAIVideo:
+		output, pending, progress, err := parseOpenAIVideoResult(body, taskID, 0, buildOpenAIVideoContentURL(route.BaseURL, taskID))
+		if err != nil {
+			// 上游明确上报 failed 时转成 failed 状态，而不是传输错误
+			if isOpenAIVideoTaskFailedError(err) {
+				return &portllm.VideoTaskRetrieval{Status: "failed", Message: err.Error()}, nil
+			}
+			return nil, err
 		}
-		return nil, err
+		if pending {
+			return &portllm.VideoTaskRetrieval{Status: "pending", Progress: progress}, nil
+		}
+		return &portllm.VideoTaskRetrieval{Status: "completed", Output: output, Progress: 100}, nil
+	default: // xAI 视频族
+		output, pending, err := parseXAIVideoResult(body, taskID, 0)
+		if err != nil {
+			// 上游明确上报 failed 时转成 failed 状态，而不是传输错误
+			if strings.HasPrefix(err.Error(), "xAI video generation failed:") {
+				return &portllm.VideoTaskRetrieval{Status: "failed", Message: err.Error()}, nil
+			}
+			return nil, err
+		}
+		if pending {
+			// xAI 回查不报进度：置 -1 让客户端显示不确定态，而不是假装 0%
+			return &portllm.VideoTaskRetrieval{Status: "pending", Progress: -1}, nil
+		}
+		return &portllm.VideoTaskRetrieval{Status: "completed", Output: output, Progress: 100}, nil
 	}
-	if pending {
-		return &portllm.VideoTaskRetrieval{Status: "pending"}, nil
-	}
-	return &portllm.VideoTaskRetrieval{Status: "completed", Output: output}, nil
 }
 
 // GenerateStream 调用上游适配器并实时回传增量文本。
@@ -1088,6 +1108,44 @@ func responseStatusCodeFromDebug(debug *portllm.UpstreamDebugSnapshot) int {
 		return debug.Response.StatusCode
 	}
 	return http.StatusBadGateway
+}
+
+// attachStreamUpstreamDebug 标记“响应头已以 2xx 返回、随后流内失败”的错误。
+// SSE 的响应头先于内容发出，建流后的故障无法再用 HTTP 状态码表达；此时状态码
+// 仍是 200，但它不代表响应格式有问题，真实原因必须原样保留给上层展示。
+func attachStreamUpstreamDebug(err error, debug *portllm.UpstreamDebugSnapshot) error {
+	err = attachUpstreamDebug(err, debug)
+	var upstreamErr *portllm.UpstreamError
+	if errors.As(err, &upstreamErr) && upstreamErr.StatusCode >= 200 && upstreamErr.StatusCode < 300 {
+		upstreamErr.StreamInterrupted = true
+	}
+	return err
+}
+
+// streamChunkParseError 保留无法解析的流式数据块，让错误摘要能直接指出上游返回了什么。
+type streamChunkParseError struct {
+	Payload string
+	Err     error
+}
+
+// 片段长度需保证“流中断摘要 + 原因”能完整落库（error_message 上限 255 字符）。
+const streamChunkPayloadSnippetLimit = 120
+
+func (e *streamChunkParseError) Error() string {
+	payload := portllm.SanitizeUpstreamDebugBody(e.Payload)
+	return fmt.Sprintf("invalid stream chunk: %v; payload=%q", e.Err, truncateStreamChunkPayload(payload))
+}
+
+func (e *streamChunkParseError) Unwrap() error {
+	return e.Err
+}
+
+func truncateStreamChunkPayload(payload string) string {
+	runes := []rune(strings.TrimSpace(payload))
+	if len(runes) <= streamChunkPayloadSnippetLimit {
+		return string(runes)
+	}
+	return string(runes[:streamChunkPayloadSnippetLimit]) + "..."
 }
 
 func upstreamErrorBody(err error) []byte {

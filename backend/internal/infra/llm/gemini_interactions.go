@@ -129,7 +129,7 @@ func (c *Client) generateGeminiInteractionStream(
 	idleReader := newIdleTimeoutReader(resp.Body, resolveStreamIdleTimeout(route.StreamIdleTimeoutMS))
 	streamBody := newUpstreamBodyRecorder(idleReader)
 	if err = consumeGeminiInteractionStream(streamBody, result, onEvent); err != nil {
-		return nil, portllm.MarkRequestAccepted(attachUpstreamDebug(err, upstreamDebugSnapshot(req, payload, resp, streamErrorBody(streamBody, err))))
+		return nil, portllm.MarkRequestAccepted(attachStreamUpstreamDebug(err, upstreamDebugSnapshot(req, payload, resp, streamErrorBody(streamBody, err))))
 	}
 	for index := range result.GeneratedImages {
 		if result.GeneratedImages[index].RevisedPrompt == "" {

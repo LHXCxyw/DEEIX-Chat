@@ -66,7 +66,15 @@ func (r *Repo) trimFunctionName() string {
 // CreateConversation 创建会话。
 func (r *Repo) CreateConversation(ctx context.Context, item *domainconversation.Conversation) error {
 	entity := toConversationModel(item)
-	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if item.ProjectID != nil {
+			var project models.ConversationProject
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ? AND status <> ?", *item.ProjectID, item.UserID, "deleting").First(&project).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(&entity).Error
+	}); err != nil {
 		return dberror.Translate(err)
 	}
 	*item = toConversationDomain(entity)
@@ -358,9 +366,15 @@ func (r *Repo) hydrateConversationProjectSummary(ctx context.Context, item *doma
 func (r *Repo) GetConversationByUser(ctx context.Context, conversationID uint, userID uint) (*domainconversation.Conversation, error) {
 	var item models.Conversation
 	if err := r.db.WithContext(ctx).
-		Where("id = ? AND user_id = ?", conversationID, userID).
+		Where("id = ? AND user_id = ? AND status <> ?", conversationID, userID, "deleting").
 		First(&item).Error; err != nil {
 		return nil, dberror.Translate(err)
+	}
+	if item.ProjectID != nil {
+		var project models.ConversationProject
+		if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ? AND status <> ?", *item.ProjectID, userID, "deleting").First(&project).Error; err != nil {
+			return nil, dberror.Translate(err)
+		}
 	}
 	result := toConversationDomain(item)
 	if err := r.hydrateConversationShareSummary(ctx, &result); err != nil {
@@ -376,9 +390,15 @@ func (r *Repo) GetConversationByUser(ctx context.Context, conversationID uint, u
 func (r *Repo) GetConversationByPublicID(ctx context.Context, publicID string, userID uint) (*domainconversation.Conversation, error) {
 	var item models.Conversation
 	if err := r.db.WithContext(ctx).
-		Where("public_id = ? AND user_id = ?", publicID, userID).
+		Where("public_id = ? AND user_id = ? AND status <> ?", publicID, userID, "deleting").
 		First(&item).Error; err != nil {
 		return nil, dberror.Translate(err)
+	}
+	if item.ProjectID != nil {
+		var project models.ConversationProject
+		if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ? AND status <> ?", *item.ProjectID, userID, "deleting").First(&project).Error; err != nil {
+			return nil, dberror.Translate(err)
+		}
 	}
 	result := toConversationDomain(item)
 	if err := r.hydrateConversationShareSummary(ctx, &result); err != nil {
@@ -969,7 +989,19 @@ func lockParentMessageForAppend(tx *gorm.DB, parentMessageID uint) error {
 	return nil
 }
 
-// CreateAssistantBranchMessage 原子创建 assistant 分支消息并递增会话消息数。
+// advanceConversationActiveTip 在消息创建事务内推进会话活跃续聊锚点。
+// 锚点若长期停留在旧消息，客户端刷新时以锚点解析可见分支，最新一轮会被当作
+// 非活跃分支而表现为「回退到之前的对话记录」；因此新消息落库时必须同步推进。
+func advanceConversationActiveTip(tx *gorm.DB, conversationID uint, messageID uint, publicID string) error {
+	return tx.Model(&models.Conversation{}).
+		Where("id = ?", conversationID).
+		Updates(map[string]any{
+			"active_tip_message_id":        messageID,
+			"active_tip_message_public_id": strings.TrimSpace(publicID),
+		}).Error
+}
+
+// CreateAssistantBranchMessage 原子创建 assistant 分支消息，递增会话消息数并推进活跃续聊锚点。
 func (r *Repo) CreateAssistantBranchMessage(ctx context.Context, assistantMessage *domainconversation.Message) error {
 	if assistantMessage == nil || assistantMessage.ParentMessageID == nil {
 		return repository.ErrInvalidInput
@@ -998,11 +1030,11 @@ func (r *Repo) CreateAssistantBranchMessage(ctx context.Context, assistantMessag
 		if result.RowsAffected == 0 {
 			return repository.ErrNotFound
 		}
-		return nil
+		return advanceConversationActiveTip(tx, assistantMessage.ConversationID, assistantMessage.ID, assistantMessage.PublicID)
 	}))
 }
 
-// CreateMessagePairWithUserAttachments 原子创建用户消息、助手占位消息、用户附件并递增会话消息数。
+// CreateMessagePairWithUserAttachments 原子创建用户消息、助手占位消息、用户附件，递增会话消息数并推进活跃续聊锚点。
 func (r *Repo) CreateMessagePairWithUserAttachments(
 	ctx context.Context,
 	userMessage *domainconversation.Message,
@@ -1065,7 +1097,7 @@ func (r *Repo) CreateMessagePairWithUserAttachments(
 		if result.RowsAffected == 0 {
 			return repository.ErrNotFound
 		}
-		return nil
+		return advanceConversationActiveTip(tx, userMessage.ConversationID, assistantMessage.ID, assistantMessage.PublicID)
 	}))
 }
 
@@ -2528,6 +2560,9 @@ func (r *Repo) ListFileObjectsByUserWithFilter(ctx context.Context, input reposi
 	if condition, args := buildFileKindWhereClause(input.FilterKind); condition != "" {
 		query = query.Where(condition, args...)
 	}
+	if condition, args := buildFileSourceWhereClause(input.FilterSource); condition != "" {
+		query = query.Where(condition, args...)
+	}
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, dberror.Translate(err)
 	}
@@ -2668,6 +2703,19 @@ func (r *Repo) GetLatestActiveFileObjectBySHA(
 	}
 	result := toFileObjectDomain(item)
 	return &result, nil
+}
+
+// buildFileSourceWhereClause 按文件来源筛选：generated 为 AI 产出资产，
+// uploaded 为用户上传（含历史空 purpose），不改变其他筛选与排序语义。
+func buildFileSourceWhereClause(filterSource string) (string, []any) {
+	switch strings.ToLower(strings.TrimSpace(filterSource)) {
+	case "generated":
+		return "purpose LIKE ?", []any{"generated_%"}
+	case "uploaded":
+		return "purpose NOT LIKE ?", []any{"generated_%"}
+	default:
+		return "", nil
+	}
 }
 
 func buildFileKindWhereClause(filterKind string) (string, []any) {
@@ -3933,20 +3981,21 @@ func toConversationDomains(items []models.Conversation) []domainconversation.Con
 
 func toConversationShareDomain(item models.ConversationShare) domainconversation.ConversationShare {
 	return domainconversation.ConversationShare{
-		ID:                    item.ID,
-		ShareID:               item.ShareID,
-		ConversationID:        item.ConversationID,
-		UserID:                item.UserID,
-		Status:                item.Status,
-		TitleSnapshot:         item.TitleSnapshot,
-		ModelSnapshot:         item.ModelSnapshot,
-		MessageIDsJSON:        item.MessageIDsJSON,
-		DefaultMessageIDsJSON: item.DefaultMessageIDsJSON,
-		RevokedAt:             item.RevokedAt,
-		RegeneratedAt:         item.RegeneratedAt,
-		LastAccessedAt:        item.LastAccessedAt,
-		CreatedAt:             item.CreatedAt,
-		UpdatedAt:             item.UpdatedAt,
+		ID:                      item.ID,
+		ShareID:                 item.ShareID,
+		ConversationID:          item.ConversationID,
+		UserID:                  item.UserID,
+		Status:                  item.Status,
+		TitleSnapshot:           item.TitleSnapshot,
+		ModelSnapshot:           item.ModelSnapshot,
+		MessageIDsJSON:          item.MessageIDsJSON,
+		DefaultMessageIDsJSON:   item.DefaultMessageIDsJSON,
+		ProjectFileSnapshotJSON: item.ProjectFileSnapshotJSON,
+		RevokedAt:               item.RevokedAt,
+		RegeneratedAt:           item.RegeneratedAt,
+		LastAccessedAt:          item.LastAccessedAt,
+		CreatedAt:               item.CreatedAt,
+		UpdatedAt:               item.UpdatedAt,
 	}
 }
 
@@ -3986,17 +4035,18 @@ func toConversationShareModel(item *domainconversation.ConversationShare) models
 		return models.ConversationShare{}
 	}
 	return models.ConversationShare{
-		ShareID:               item.ShareID,
-		ConversationID:        item.ConversationID,
-		UserID:                item.UserID,
-		Status:                item.Status,
-		TitleSnapshot:         item.TitleSnapshot,
-		ModelSnapshot:         item.ModelSnapshot,
-		MessageIDsJSON:        item.MessageIDsJSON,
-		DefaultMessageIDsJSON: item.DefaultMessageIDsJSON,
-		RevokedAt:             item.RevokedAt,
-		RegeneratedAt:         item.RegeneratedAt,
-		LastAccessedAt:        item.LastAccessedAt,
+		ShareID:                 item.ShareID,
+		ConversationID:          item.ConversationID,
+		UserID:                  item.UserID,
+		Status:                  item.Status,
+		TitleSnapshot:           item.TitleSnapshot,
+		ModelSnapshot:           item.ModelSnapshot,
+		MessageIDsJSON:          item.MessageIDsJSON,
+		DefaultMessageIDsJSON:   item.DefaultMessageIDsJSON,
+		ProjectFileSnapshotJSON: item.ProjectFileSnapshotJSON,
+		RevokedAt:               item.RevokedAt,
+		RegeneratedAt:           item.RegeneratedAt,
+		LastAccessedAt:          item.LastAccessedAt,
 	}
 }
 

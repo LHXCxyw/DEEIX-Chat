@@ -39,8 +39,8 @@ export type ChatModelOption = {
   reasoning: ModelReasoningCapability | null;
   // User-facing controls declared by the administrator (the reasoning switcher is one of them).
   controls: ModelControl[];
-  // Input modalities the model accepts (explicit declaration, else models.dev); empty when unknown.
-  // Describes the model only: whether a file is sent natively also depends on the route, decided by the server.
+  // 输入模态声明仅用于展示，不作为附件上传或发送的支持判定。
+  // 原生编码由实际任务路由与协议决定，上游负责判断模型是否支持。
   inputModalities: ModelModality[];
   // Output modalities from the models.dev catalog, for display only; empty when unknown.
   outputModalities: ModelModality[];

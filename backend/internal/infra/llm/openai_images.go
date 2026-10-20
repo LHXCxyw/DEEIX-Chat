@@ -235,7 +235,7 @@ func (c *Client) postOpenAIImageJSONStream(
 	idleReader := newIdleTimeoutReader(resp.Body, idleTimeout)
 	streamBody := newUpstreamBodyRecorder(idleReader)
 	if err = consumeOpenAIImageStream(streamBody, outputFormat, result, onEvent); err != nil {
-		return nil, attachUpstreamDebug(err, upstreamDebugSnapshot(req, debugPayload, resp, streamErrorBody(streamBody, err)))
+		return nil, attachStreamUpstreamDebug(err, upstreamDebugSnapshot(req, debugPayload, resp, streamErrorBody(streamBody, err)))
 	}
 	return result, nil
 }
@@ -371,7 +371,7 @@ func (c *Client) generateOpenAIImageEditsStream(
 	idleReader := newIdleTimeoutReader(resp.Body, idleTimeout)
 	streamBody := newUpstreamBodyRecorder(idleReader)
 	if err = consumeOpenAIImageStream(streamBody, outputFormat, result, onEvent); err != nil {
-		return nil, attachUpstreamDebug(err, upstreamDebugSnapshot(req, debugBody, resp, streamErrorBody(streamBody, err)))
+		return nil, attachStreamUpstreamDebug(err, upstreamDebugSnapshot(req, debugBody, resp, streamErrorBody(streamBody, err)))
 	}
 	return result, nil
 }

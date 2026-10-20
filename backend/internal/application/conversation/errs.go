@@ -2,7 +2,9 @@ package conversation
 
 import (
 	"errors"
+	"strings"
 
+	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/apperr"
 )
@@ -12,6 +14,9 @@ import (
 // apperr.NewMasked 的第三个参数保留原有内部文本，供日志与错误链使用。
 // 仓储层哨兵暂时保留原始身份；transport 必须在边界显式映射为稳定的 apperr 契约。
 var (
+	ErrAgentPermissionUnsupported = apperr.New("agent.permission_unsupported", "unsupported agent permission: only edit_files is supported")
+	ErrAgentEditRequired          = apperr.New("agent.edit_authorization_required", "explicit agent_permissions.edit_files authorization is required")
+	ErrAgentDeleteDenied          = apperr.New("agent.delete_denied", "high-risk agent deletion is denied; use explicit manual file deletion")
 	// ErrConversationNotFound 会话不存在或无权限。
 	ErrConversationNotFound = apperr.New("conversation.not_found", "conversation not found")
 	// ErrConversationEventNotFound 对话事件日志不存在。
@@ -40,6 +45,10 @@ var (
 	ErrInvalidFileName = apperr.New("file.invalid_name", "invalid file name")
 	// ErrFileNotFound 文件不存在。
 	ErrFileNotFound = apperr.New("file.not_found", "file not found")
+	// ErrProjectFileVersionConflict 文件已被修改或删除，需要重新读取后再保存。
+	ErrProjectFileVersionConflict = apperr.New("project.file_version_conflict", "project file version conflict; reload before saving")
+	// ErrInvalidProjectFileVersion 预期版本必须为非负整数。
+	ErrInvalidProjectFileVersion = apperr.New("project.invalid_expected_version", "expected_version must be a non-negative integer")
 	// ErrFileInUse 文件正在被头像、知识库等资源使用。
 	ErrFileInUse = apperr.NewMasked("file.in_use", "file is in use", "file in use")
 	// ErrStorageQuotaExceeded 文件配额超限。
@@ -151,11 +160,50 @@ var (
 	ErrMediaVideoInputInvalid = apperr.New("media.video_input_invalid", "video generation input is invalid")
 	// ErrMediaVideoTooManyInputs 视频生成输入图数量超限。
 	ErrMediaVideoTooManyInputs = apperr.New("media.video_too_many_inputs", "too many video generation input images")
+	// ErrMediaVideoReferenceURLUnavailable 参考素材无法签发上游可访问的限时 URL。
+	ErrMediaVideoReferenceURLUnavailable = apperr.New("media.video_reference_url_unavailable", "video reference material cannot be exposed as an accessible url")
 	// ErrMediaRouteProtocolMismatch 图片任务命中的路由协议与任务类型不匹配。
 	ErrMediaRouteProtocolMismatch = apperr.New("media.route_protocol_mismatch", "media route protocol does not match task")
+	// ErrMediaRequeryUnavailable 该运行缺少回查上游结果所需的信息（上游任务编号或渠道）。
+	ErrMediaRequeryUnavailable = apperr.New("media.requery_unavailable", "this media task has no upstream task to requery")
+	// ErrMediaVideoPollTimeout 平台侧等待预算耗尽而上游视频任务仍未终态：上游没有失败，
+	// 任务通常仍在执行，结果可以稍后通过任务重查回收。
+	ErrMediaVideoPollTimeout = apperr.New("media.video_poll_timeout", "video task is still processing upstream; waiting limit exceeded")
 	// ErrDuplicateMessageGenerationRun 表示客户端重复提交同一个生成 run。
 	ErrDuplicateMessageGenerationRun = apperr.NewMasked("message_generation_run.already_exists", "message generation run already exists", "duplicate message generation run")
 )
+
+// MediaRunContextError 承载媒体任务被前置校验拦下时的定位上下文：哪个运行、什么任务类型、
+// 哪个协议、上游任务编号与运行状态。对外错误码与文案仍由被包裹的哨兵决定，errors.Is 判定不变。
+type MediaRunContextError struct {
+	Err            error
+	RunID          string
+	TaskType       string
+	Protocol       string
+	UpstreamID     uint
+	UpstreamTaskID string
+	Status         string
+}
+
+func (e *MediaRunContextError) Error() string { return e.Err.Error() }
+
+func (e *MediaRunContextError) Unwrap() error { return e.Err }
+
+// withRunContext 给媒体任务的校验错误挂上定位上下文，供边界层写入错误详情。
+func withRunContext(err error, run *model.Run) error {
+	if err == nil || run == nil {
+		return err
+	}
+	return &MediaRunContextError{
+		Err:            err,
+		RunID:          strings.TrimSpace(run.RunID),
+		TaskType:       strings.TrimSpace(run.TaskType),
+		Protocol:       strings.TrimSpace(run.ProviderProtocol),
+		UpstreamID:     run.UpstreamID,
+		UpstreamTaskID: strings.TrimSpace(run.UpstreamTaskID),
+		Status:         strings.TrimSpace(run.Status),
+	}
+}
 
 // mapMessageWriteError 把仓储层在消息写入与删除路径上返回的哨兵转换为应用层契约哨兵。
 // 仓储层只表达存储语义，对外错误码与文案必须由应用边界收敛（约定见本文件顶部），

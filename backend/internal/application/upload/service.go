@@ -113,12 +113,13 @@ type ListFilesResult struct {
 
 // ListFilesInput 定义用户文件列表的分页、筛选与排序条件。
 type ListFilesInput struct {
-	UserID      uint
-	Page        int
-	PageSize    int
-	SearchQuery string
-	FilterKind  string
-	SortBy      string
+	UserID       uint
+	Page         int
+	PageSize     int
+	SearchQuery  string
+	FilterKind   string
+	FilterSource string
+	SortBy       string
 }
 
 type saveUploadedFileInput struct {
@@ -172,12 +173,13 @@ func (s *Service) openObjectStore(ctx context.Context) (objectstorage.Store, err
 func (s *Service) ListFiles(ctx context.Context, input ListFilesInput) (*ListFilesResult, error) {
 	offset, limit := pagination.Offset(input.Page, input.PageSize)
 	items, total, err := s.repo.ListFileObjectsByUserWithFilter(ctx, repository.ListFileObjectsInput{
-		UserID:      input.UserID,
-		Offset:      offset,
-		Limit:       limit,
-		SearchQuery: input.SearchQuery,
-		FilterKind:  input.FilterKind,
-		SortBy:      input.SortBy,
+		UserID:       input.UserID,
+		Offset:       offset,
+		Limit:        limit,
+		SearchQuery:  input.SearchQuery,
+		FilterKind:   input.FilterKind,
+		FilterSource: input.FilterSource,
+		SortBy:       input.SortBy,
 	})
 	if err != nil {
 		return nil, err

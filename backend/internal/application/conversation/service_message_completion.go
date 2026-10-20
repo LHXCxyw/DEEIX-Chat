@@ -302,6 +302,17 @@ func (s *Service) finishSuccessfulMessageGeneration(ctx context.Context, input p
 		return err
 	}
 
+	for _, tool := range input.ToolCallRows {
+		if (tool.ToolName == "project_create_archive" || tool.ToolName == "project_render_screenshot" || tool.ToolName == "project_browser_run") && (tool.Status == "success" || tool.Status == "reused") {
+			message, err := s.repo.GetMessageByID(ctx, input.SendInput.ConversationID, input.AssistantMessage.ID)
+			if err != nil {
+				return err
+			}
+			input.AssistantMessage.Attachments = message.Attachments
+			break
+		}
+	}
+
 	// 非默认分支不代表会话主链，不能覆盖后续默认消息使用的 Responses 状态。
 	if normalizeBranchReason(input.SendInput.BranchReason) == "default" {
 		s.updateStatefulResponseAsync(ctx, input.SendInput.ConversationID, input.ResponseID, input.StatefulPromptFingerprint)

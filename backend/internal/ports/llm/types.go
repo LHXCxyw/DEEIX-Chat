@@ -34,8 +34,8 @@ type RouteConfig struct {
 	APIKey              string
 	HeadersJSON         string
 	ConnectTimeoutMS    int // TCP 建连超时（默认 10s）
-	ReadTimeoutMS       int // 非流式整体超时 / 流式首字节超时（默认 120s）
-	StreamIdleTimeoutMS int // 流式两个 chunk 之间最大间隔（默认 60s）
+	ReadTimeoutMS       int // 非流式整体超时 / 流式首字节超时（默认 180s）
+	StreamIdleTimeoutMS int // 流式两个 chunk 之间最大间隔（默认 120s）
 	Endpoint            string
 	UpstreamModel       string
 	AttributionReferer  string
@@ -60,11 +60,14 @@ const (
 
 // ContentPart 表示多模态消息中的一个内容片段。
 type ContentPart struct {
-	Kind         string        // text | image | audio | video | file | document
-	Text         string        // Kind=text 或 Kind=file 时的文本内容
-	MimeType     string        // Kind=image / audio / video / document 时的 MIME 类型（如 "image/jpeg"、"audio/mp3"、"application/pdf"）
-	Data         []byte        // Kind=image / audio / video / document 时的原始字节（发送时 base64 编码）
-	FileName     string        // Kind=file / audio / video / document 时的文件显示名
+	Kind     string // text | image | audio | video | file | document
+	Text     string // Kind=text 或 Kind=file 时的文本内容
+	MimeType string // Kind=image / audio / video / document 时的 MIME 类型（如 "image/jpeg"、"audio/mp3"、"application/pdf"）
+	Data     []byte // Kind=image / audio / video / document 时的原始字节（发送时 base64 编码）
+	FileName string // Kind=file / audio / video / document 时的文件显示名
+	// URL 为素材的可访问地址。非空时适配器直接上送该地址，不再内联 Data 字节；
+	// 当前用于视频生成参考素材的签名 URL 直传（见 docs/adr/0003）。
+	URL          string
 	CacheControl *CacheControl // 支持块级缓存的 adapter 可读取该提示
 	// PageCount 为 Kind=document 时的页数（未知为 0），用于上下文预算估算。
 	PageCount int
@@ -129,6 +132,9 @@ type GenerateInput struct {
 	// OnTaskStarted 供异步媒体 adapter 在上游任务提交成功后回调任务编号；
 	// 调用方据此持久化上游任务 ID，支持失败后的任务重查。可为 nil。
 	OnTaskStarted func(upstreamTaskID string)
+	// OnProgress 供异步媒体 adapter 在轮询期间回调任务进度百分比（0-100）；
+	// 调用方据此向前端推送实时进度。可为 nil。
+	OnProgress func(percent int)
 }
 
 // ToolDefinition 是模型可调用工具的统一声明。
@@ -268,6 +274,8 @@ type VideoTaskRetrieval struct {
 	Output *GenerateOutput
 	// Message 是 failed/pending 时的人类可读说明。
 	Message string
+	// Progress 是上游上报的进度百分比；-1 表示上游未提供（客户端应显示不确定态）。
+	Progress int
 }
 
 // GeneratedImage 表示图片生成/编辑接口返回的一张图片。
@@ -323,6 +331,11 @@ type UpstreamError struct {
 	Body       string
 	Debug      *UpstreamDebugSnapshot
 	Cause      error
+	// StreamInterrupted 表示上游已用 2xx 建流，随后流式传输中途失败。
+	// SSE 的响应头先于内容发出，这种故障无法再用 HTTP 状态码表达，
+	// 必须依赖真实原因（空闲超时、连接中断、数据块解析失败）来定位，
+	// 不能笼统归因为“响应格式不兼容”。
+	StreamInterrupted bool
 }
 
 func (e *UpstreamError) Error() string {

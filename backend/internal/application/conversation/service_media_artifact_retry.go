@@ -62,7 +62,7 @@ func (s *Service) RetryMediaImageArtifact(ctx context.Context, userID uint, runI
 		return nil, err
 	}
 	if run.TaskType != string(MediaImageTaskGeneration) && run.TaskType != string(MediaImageTaskEdit) {
-		return nil, ErrMediaRouteProtocolMismatch
+		return nil, withRunContext(ErrMediaRouteProtocolMismatch, run)
 	}
 	artifact, ok := s.pendingArtifacts.Take(runID, index)
 	if !ok {
@@ -75,10 +75,10 @@ func (s *Service) RetryMediaImageArtifact(ctx context.Context, userID uint, runI
 		}, nil
 	}
 
-	route, err := s.routeResolver.BuildRouteForUpstream(ctx, run.UpstreamID, run.ProviderProtocol, run.UpstreamModelName)
+	route, err := s.buildMediaRunRoute(ctx, run, userID)
 	if err != nil {
 		s.pendingArtifacts.Register(runID, []pendingImageArtifact{artifact})
-		return nil, mapRouteResolutionError(err)
+		return nil, withRunContext(mapRouteResolutionError(err), run)
 	}
 	source := mediaArtifactSourceFor(route)
 

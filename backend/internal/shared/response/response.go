@@ -84,6 +84,12 @@ func ErrorDescribed(c *gin.Context, description Description) {
 	write(c, description.Status, description.Code, description.Message, nil)
 }
 
+// ErrorDescribedWithDetails 写出已确定的错误描述及结构化详情。
+// 详情用于让用户自助定位失败原因（如脱敏后的上游响应），不参与错误码契约。
+func ErrorDescribedWithDetails(c *gin.Context, description Description, details any) {
+	write(c, description.Status, description.Code, description.Message, details)
+}
+
 // InternalError 返回通用内部错误响应（500 / internal.error）。
 // err 是失败原因，只进入日志；不得传 nil 掩盖原因，依赖未配置等场景也应构造说明性错误。
 func InternalError(c *gin.Context, err error) {

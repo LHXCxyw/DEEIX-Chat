@@ -93,7 +93,8 @@ function mergeUpstreamThinkDeltaTrace(
   const eventID = event.eventID?.trim() || current?.currentEventID || "";
   const fullTrace = toPendingProcessTrace(event.trace);
   if (fullTrace) {
-    return { trace: fullTrace, currentEventID: eventID };
+    // 快照已携带历史事件，但实时思考块列表仍需保留（快照里的思考事件可能滞后）。
+    return { trace: { ...fullTrace, thinkBlocks: current?.trace?.thinkBlocks ?? [] }, currentEventID: eventID };
   }
   const currentTrace = current?.trace;
   const previousBlock = currentTrace?.upstreamThink;
@@ -103,6 +104,8 @@ function mergeUpstreamThinkDeltaTrace(
     events.push(thinkBlockToEvent(previousBlock, current?.currentEventID || ""));
   }
   const upstreamThink = mergeUpstreamThinkBlock(previousBlock, event);
+  // 每一轮思考独立保留：按 roundID upsert，避免连续多轮思考只显示一个板块、历史轮次被覆盖。
+  const thinkBlocks = upsertThinkBlock(currentTrace?.thinkBlocks ?? [], upstreamThink);
   return {
     trace: {
       enabled: true,
@@ -110,11 +113,33 @@ function mergeUpstreamThinkDeltaTrace(
       process: currentTrace?.process,
       tools: currentTrace?.tools,
       upstreamThink,
+      thinkBlocks,
       promptTrace: currentTrace?.promptTrace,
       events: events.length > 0 ? events : undefined,
     },
     currentEventID: eventID,
   };
+}
+
+// 按 roundID 归档思考块：同一轮覆盖，新轮追加；无 roundID 时退化为单块语义。
+function upsertThinkBlock(blocks: ChatTraceBlock[], block: ChatTraceBlock): ChatTraceBlock[] {
+  const roundID = block.roundID?.trim() || "";
+  if (!roundID) {
+    const index = blocks.findIndex((item) => item.status === "streaming");
+    if (index >= 0) {
+      const next = blocks.slice();
+      next[index] = block;
+      return next;
+    }
+    return [...blocks, block];
+  }
+  const index = blocks.findIndex((item) => item.roundID?.trim() === roundID);
+  if (index >= 0) {
+    const next = blocks.slice();
+    next[index] = block;
+    return next;
+  }
+  return [...blocks, block];
 }
 
 function notify(runID: string) {
@@ -222,6 +247,7 @@ export function mergeLiveUpstreamThinkTrace(
     process: base?.process,
     tools: base?.tools,
     upstreamThink: live.upstreamThink,
+    thinkBlocks: live.thinkBlocks,
     promptTrace: base?.promptTrace,
     events: enrichThinkEvents(base?.events, live),
   };
@@ -234,6 +260,9 @@ export function preserveRicherLiveUpstreamThinkTrace(
   const baseContent = base?.upstreamThink?.contentMarkdown ?? "";
   const liveContent = live?.upstreamThink?.contentMarkdown ?? "";
   if (!live?.upstreamThink || liveContent.length <= baseContent.length) {
+    if (base && live?.thinkBlocks?.length && !base.thinkBlocks?.length) {
+      return { ...base, thinkBlocks: live.thinkBlocks };
+    }
     return base ?? live;
   }
   return mergeLiveUpstreamThinkTrace(base, live);

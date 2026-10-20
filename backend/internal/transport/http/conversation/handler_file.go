@@ -138,15 +138,17 @@ func (h *Handler) ListFiles(c *gin.Context) {
 	page, pageSize := pagination.Parse(c.Query("page"), c.Query("page_size"))
 	searchQuery := strings.TrimSpace(c.Query("q"))
 	filterKind := normalizeFileKinds(c.Query("kind"))
+	filterSource := normalizeFileSource(c.Query("source"))
 	sortBy := normalizeFileSort(c.Query("sort"))
 
 	result, err := h.uploads.ListFiles(c.Request.Context(), appupload.ListFilesInput{
-		UserID:      userID,
-		Page:        page,
-		PageSize:    pageSize,
-		SearchQuery: searchQuery,
-		FilterKind:  filterKind,
-		SortBy:      sortBy,
+		UserID:       userID,
+		Page:         page,
+		PageSize:     pageSize,
+		SearchQuery:  searchQuery,
+		FilterKind:   filterKind,
+		FilterSource: filterSource,
+		SortBy:       sortBy,
 	})
 	if err != nil {
 		response.InternalError(c, err)

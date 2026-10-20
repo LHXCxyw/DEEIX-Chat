@@ -1,4 +1,13 @@
-import { isPersonalModelRef, resolveModelOptionLabel } from "@/entities/model";
+import {
+  ASPECT_RATIO_VALUES,
+  IMAGE_OPTION_PATHS,
+  IMAGE_SIZE_VALUES,
+  isPersonalModelRef,
+  resolveModelOptionLabel,
+  resolveProtocolImageControls,
+  resolveProtocolVideoControls,
+  VIDEO_OPTION_PATHS,
+} from "@/entities/model";
 import type { CanvasMediaType } from "@/features/canvas/model/canvas-types";
 import type { ChatModelOption as CanvasModelBaseOption, ModelOptionControl } from "@/features/chat";
 import type { ConversationOptions } from "@/shared/api/conversation-types";
@@ -15,6 +24,9 @@ export type CanvasModelOption = CanvasModelBaseOption & {
   upstreamID?: number;
   upstreamName?: string;
   upstreamCompatible?: string;
+  // 用户自带密钥的提供商名与图标：上游同名字段，画布分组与徽标直接透传使用
+  personalProviderName: string | null;
+  personalProviderIcon: string;
 };
 
 // 确定性哈希：把上游模型的唯一名称映射为正整数标识，跨会话/刷新可复现（0 视为未设置）。
@@ -75,163 +87,17 @@ export type CanvasRouteDecision =
   | { route: CanvasRoute; blockedReason: null }
   | { route: null; blockedReason: CanvasRouteBlockReason };
 
-const ASPECT_RATIO_VALUES = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
-const IMAGE_SIZE_VALUES = ["1K", "2K", "4K"];
-const OPENAI_SIZE_VALUES = [
-  "auto",
-  "1024x1024",
-  "1024x1536",
-  "1536x1024",
-  "2048x2048",
-  "2048x1152",
-  "3840x2160",
-  "2160x3840",
-];
-const XAI_ASPECT_RATIO_VALUES = [
-  "auto",
-  "1:1",
-  "3:4",
-  "4:3",
-  "9:16",
-  "16:9",
-  "2:3",
-  "3:2",
-  "9:19.5",
-  "19.5:9",
-  "9:20",
-  "20:9",
-  "1:2",
-  "2:1",
-];
-
-// 各图像协议对应的可视化参数控件，与普通对话的参数集合保持一致
-const PROTOCOL_IMAGE_CONTROLS: Record<string, ModelOptionControl[]> = {
-  openai_image_generations: [
-    { path: "size", type: "select", options: OPENAI_SIZE_VALUES },
-    { path: "quality", type: "select", options: ["auto", "low", "medium", "high", "standard", "hd"] },
-    { path: "background", type: "select", options: ["auto", "opaque", "transparent"] },
-    { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
-  ],
-  openai_image_edits: [
-    { path: "size", type: "select", options: OPENAI_SIZE_VALUES },
-    { path: "quality", type: "select", options: ["auto", "low", "medium", "high", "standard", "hd"] },
-    { path: "background", type: "select", options: ["auto", "opaque", "transparent"] },
-    { path: "input_fidelity", type: "select", options: ["low", "high"] },
-    { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
-  ],
-  google_image_generation: [
-    { path: "generationConfig.responseModalities", type: "select", options: ["TEXT", "IMAGE"] },
-    { path: "generationConfig.imageConfig.aspectRatio", type: "select", options: ASPECT_RATIO_VALUES },
-    { path: "generationConfig.imageConfig.imageSize", type: "select", options: IMAGE_SIZE_VALUES },
-  ],
-  google_generate_content: [
-    { path: "generationConfig.imageConfig.aspectRatio", type: "select", options: ASPECT_RATIO_VALUES },
-    { path: "generationConfig.imageConfig.imageSize", type: "select", options: IMAGE_SIZE_VALUES },
-  ],
-  gemini_generate_content: [
-    { path: "generationConfig.imageConfig.aspectRatio", type: "select", options: ASPECT_RATIO_VALUES },
-    { path: "generationConfig.imageConfig.imageSize", type: "select", options: IMAGE_SIZE_VALUES },
-  ],
-  gemini_interactions: [
-    { path: "response_format.aspect_ratio", type: "select", options: ASPECT_RATIO_VALUES },
-    { path: "response_format.image_size", type: "select", options: IMAGE_SIZE_VALUES },
-    { path: "response_format.mime_type", type: "select", options: ["image/png", "image/jpeg", "image/webp"] },
-  ],
-  xai_image: [
-    { path: "aspect_ratio", type: "select", options: XAI_ASPECT_RATIO_VALUES },
-    { path: "n", type: "number" },
-    { path: "resolution", type: "select", options: ["1k", "2k"] },
-    { path: "response_format", type: "select", options: ["url", "b64_json"] },
-  ],
-  xai_image_edits: [
-    { path: "aspect_ratio", type: "select", options: XAI_ASPECT_RATIO_VALUES },
-    { path: "resolution", type: "select", options: ["1k", "2k"] },
-    { path: "response_format", type: "select", options: ["url", "b64_json"] },
-  ],
-  stability_ai_generate: [
-    { path: "aspect_ratio", type: "select", options: ASPECT_RATIO_VALUES },
-    { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
-  ],
-  // image_edits_json：size 为宽高像素组合（auto 或 32 倍数），response_format 与 OpenAI 命名一致
-  image_edits_json: [
-    {
-      path: "size",
-      type: "select",
-      options: ["auto", "2048x2048", "2720x1536", "1536x2720", "1664x2496", "2496x1664", "4096x4096"],
-    },
-    { path: "response_format", type: "select", options: ["b64_json", "url"] },
-  ],
-};
-
 // chat 路由图像模型的通用提示词参数（与普通对话的画图参数一致）
 const CHAT_ROUTE_IMAGE_CONTROLS: ModelOptionControl[] = [
   { path: "aspect_ratio", type: "select", options: ASPECT_RATIO_VALUES },
   { path: "image_size", type: "select", options: IMAGE_SIZE_VALUES },
 ];
 
-// 各视频协议对应的可视化参数控件（与后端 SanitizeOpenAIVideoOptions / SanitizeXAIVideoOptions 对齐，
-// resolution 除预设外支持在参数面板输入自定义值，后端放行 NNNp / Nk / 宽x高 格式）
-const VIDEO_ASPECT_RATIO_VALUES = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"];
-const VIDEO_RESOLUTION_VALUES = ["420p", "480p", "512p", "720p", "768p", "1080p", "2k"];
-const PROTOCOL_VIDEO_CONTROLS: Record<string, ModelOptionControl[]> = {
-  xai_video: [
-    { path: "aspect_ratio", type: "select", options: VIDEO_ASPECT_RATIO_VALUES },
-    { path: "duration", type: "number" },
-    { path: "resolution", type: "select", options: VIDEO_RESOLUTION_VALUES },
-  ],
-  openai_video_generations: [
-    { path: "aspect_ratio", type: "select", options: VIDEO_ASPECT_RATIO_VALUES },
-    { path: "duration", type: "number" },
-    { path: "resolution", type: "select", options: VIDEO_RESOLUTION_VALUES },
-  ],
-  gemini_interactions: [
-    { path: "generation_config.video_config.duration_seconds", type: "number" },
-  ],
-};
-
-const VIDEO_OPTION_PATHS = new Set([
-  "aspect_ratio",
-  "duration",
-  "resolution",
-  "seconds",
-  "size",
-  "generation_config.video_config.duration_seconds",
-  "generationConfig.videoConfig.durationSeconds",
-]);
-
 // 视频协议白名单：与后端 IsRouteAllowedForTask(video_generation) 的 isProtocolAllowedForKind 保持一致
 const VIDEO_GENERATION_PROTOCOLS = new Set([
   "xai_video",
   "openai_video_generations",
   "gemini_interactions",
-]);
-
-const IMAGE_OPTION_PATHS = new Set([
-  "aspect_ratio",
-  "aspectRatio",
-  "background",
-  "generationConfig.imageConfig.aspectRatio",
-  "generationConfig.imageConfig.imageSize",
-  "generationConfig.mediaResolution",
-  "generationConfig.responseMimeType",
-  "generationConfig.responseModalities",
-  "imageConfig.aspectRatio",
-  "imageConfig.imageSize",
-  "image_size",
-  "imageSize",
-  "input_fidelity",
-  "moderation",
-  "n",
-  "output_compression",
-  "output_format",
-  "partial_images",
-  "quality",
-  "resolution",
-  "response_format",
-  "response_format.aspect_ratio",
-  "response_format.image_size",
-  "response_format.mime_type",
-  "size",
 ]);
 
 // 协议白名单与后端 IsRouteAllowedForTask 的 isProtocolAllowedForKind 保持一致。
@@ -377,10 +243,8 @@ export function resolveCanvasVideoControls(model: CanvasModelOption | null): Mod
       controlsByPath.set(path, { ...control, path });
     }
   };
-  for (const protocol of model.protocols) {
-    for (const control of PROTOCOL_VIDEO_CONTROLS[protocol.trim().toLowerCase()] ?? []) {
-      addControl(control);
-    }
+  for (const control of resolveProtocolVideoControls(model.protocols)) {
+    addControl(control);
   }
   for (const control of model.optionControls) {
     addControl(control);
@@ -408,10 +272,8 @@ export function resolveCanvasImageControls(model: CanvasModelOption | null): Mod
     }
   };
 
-  for (const protocol of model.protocols) {
-    for (const control of PROTOCOL_IMAGE_CONTROLS[protocol.trim().toLowerCase()] ?? []) {
-      addControl(control);
-    }
+  for (const control of resolveProtocolImageControls(model.protocols)) {
+    addControl(control);
   }
   if (isChatRouteImageModel(model)) {
     for (const control of CHAT_ROUTE_IMAGE_CONTROLS) {

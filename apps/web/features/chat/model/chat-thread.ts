@@ -4,6 +4,7 @@ import type { MessageDTO, UpstreamDebugInfo } from "@/shared/api/conversation-ty
 import { normalizeMessageReasoningEffort } from "@/features/chat/model/chat-reasoning-effort";
 import { isUIBlockState } from "@/shared/components/markdown/ui-blocks/ui-block-state";
 import { isRecord, parseJSON } from "@/shared/lib/type-guards";
+import { fileDisplayName } from "@/shared/lib/string";
 
 function parseAttachmentDurationSeconds(value: unknown): number | undefined {
   const parsed = Number(value);
@@ -22,7 +23,7 @@ export function parseAttachments(raw: string): MessageAttachment[] {
       .filter(isRecord)
       .map((item) => ({
         fileID: String(item.file_id ?? ""),
-        fileName: String(item.file_name ?? ""),
+        fileName: fileDisplayName(String(item.file_name ?? "")),
         mimeType: String(item.mime_type ?? ""),
         detectedMime: String(item.detected_mime ?? ""),
         fileCategory: String(item.file_category ?? ""),
@@ -180,10 +181,15 @@ function resolveAssistantErrorMessage(item: MessageDTO, labels: MessageLabels, d
     return labels.streamInterrupted || fallback;
   }
   const errorCode = item.errorCode.trim();
-  if (errorCode && labels.resolveErrorMessage) {
+  // 上游流内失败的后端摘要带“原因：”行，优先保留，避免被通用错误码文案覆盖掉真实原因。
+  if (errorCode && labels.resolveErrorMessage && !hasStreamFailureCause(fallback)) {
     return labels.resolveErrorMessage(errorCode, fallback, details);
   }
   return fallback;
+}
+
+function hasStreamFailureCause(message: string): boolean {
+  return message.split(/\r?\n/).some((line) => line.trim().startsWith("原因："));
 }
 
 export function mapServerMessage(

@@ -88,11 +88,14 @@ type ConversationShare struct {
 	ModelSnapshot         string
 	MessageIDsJSON        string
 	DefaultMessageIDsJSON string
-	RevokedAt             *time.Time
-	RegeneratedAt         *time.Time
-	LastAccessedAt        *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	// ProjectFileSnapshotJSON 是分享时冻结的项目工作区文件清单 JSON；
+	// 会话未绑定项目或项目无文件时为空数组，保证分享页稳定复现当时产出文件。
+	ProjectFileSnapshotJSON string
+	RevokedAt               *time.Time
+	RegeneratedAt           *time.Time
+	LastAccessedAt          *time.Time
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // MessageTraceBlock 表示单个消息轨迹块。

@@ -237,6 +237,8 @@ func isLegacyDefaultModelOptionAllowedPaths(value string) bool {
 	previousWithoutXAIVideoExtensions := cloneStringSliceMap(latestDefault)
 	delete(previousWithoutXAIVideoExtensions, "xai_video_extensions")
 	previousDefaults := []map[string][]string{
+		// 视频协议字段集替换的上一版默认：除视频键集合外与当前默认一致。
+		cloneStringSliceMap(latestDefault),
 		previousWithoutXAIVideoExtensions,
 		previousGenerateContentDefault,
 		previousInteractionsDefault,
@@ -246,18 +248,44 @@ func isLegacyDefaultModelOptionAllowedPaths(value string) bool {
 		legacyCombinedDefault,
 	}
 	for _, previousDefault := range previousDefaults {
-		if sameStringSliceMap(current, previousDefault) {
+		if matchesLegacyOpenAIVideoDefault(current, previousDefault, false) {
 			return true
 		}
 	}
 	olderDefaults := append([]map[string][]string{cloneStringSliceMap(latestDefault)}, previousDefaults...)
 	for _, olderDefault := range olderDefaults {
-		delete(olderDefault, "xai_video")
-		if sameStringSliceMap(current, olderDefault) {
+		if matchesLegacyOpenAIVideoDefault(current, olderDefault, true) {
 			return true
 		}
-		olderDefault["xai_responses"] = []string{"reasoning.effort"}
-		if sameStringSliceMap(current, olderDefault) {
+	}
+	return false
+}
+
+// legacyOpenAIVideoOptionPathSets 是 openai_video_generations 在字段集替换前出现过的默认放行键集合。
+// 存量装机保存的旧默认必须被识别出来并重置，否则新参数会被 allowlist 静默过滤。
+var legacyOpenAIVideoOptionPathSets = [][]string{
+	{"aspect_ratio", "duration", "first_last_frame", "resolution"},
+	{"aspect_ratio", "duration", "resolution"},
+}
+
+// matchesLegacyOpenAIVideoDefault 判断存量设置是否命中某个历史默认。
+// openai_video_generations 的键集合在字段集替换前有多种历史形态，逐一代入比对；
+// dropXAIVideo 用于识别引入 xai_video 之前的默认。
+func matchesLegacyOpenAIVideoDefault(current map[string][]string, previousDefault map[string][]string, dropXAIVideo bool) bool {
+	for _, videoPaths := range legacyOpenAIVideoOptionPathSets {
+		candidate := cloneStringSliceMap(previousDefault)
+		if dropXAIVideo {
+			delete(candidate, "xai_video")
+		}
+		candidate["openai_video_generations"] = append([]string(nil), videoPaths...)
+		if sameStringSliceMap(current, candidate) {
+			return true
+		}
+		if !dropXAIVideo {
+			continue
+		}
+		candidate["xai_responses"] = []string{"reasoning.effort"}
+		if sameStringSliceMap(current, candidate) {
 			return true
 		}
 	}

@@ -6,5 +6,16 @@
   "signInToContinue": "Sign in to DEEIX Chat to continue",
   "notFoundTitle": "Share unavailable",
   "notFoundDescription": "This share does not exist, has been closed, or the original conversation was deleted.",
-  "cloneFailed": "Failed to continue conversation"
+  "cloneFailed": "Failed to continue conversation",
+  "files": "Files",
+  "filesCount": "{count} files",
+  "filesExpand": "Show files",
+  "filesCollapse": "Hide files",
+  "previewSelect": "Select a file to preview",
+  "previewLoading": "Loading…",
+  "previewUnavailable": "Preview is not available for this file type",
+  "previewFailed": "Failed to load preview",
+  "previewTitle": "{path} preview",
+  "unresolvedResources": "Unresolved resources: {items}",
+  "unresolvedMore": " and {count} more"
 }

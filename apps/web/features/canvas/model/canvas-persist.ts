@@ -12,8 +12,8 @@ import type {
   GraphInputPort,
   GraphNode,
   GraphNodeKind,
-  HtmlGraphNode,
   ImageGraphNode,
+  MediaGraphNode,
   OutputGraphNode,
   OutputPendingRetry,
   PersistedCanvasNode,
@@ -55,8 +55,8 @@ export function toPersistedGraphNodes(nodes: ReadonlyArray<GraphNode>): Persiste
           // 运行中任务的恢复引用（仅运行期间存在）；状态文案/进度/预览为瞬态字段不落盘
           conversationID: node.conversationID, runID: node.runID,
         };
-      case "html":
-        return { ...meta, kind: "html", html: node.html };
+      case "media":
+        return { ...meta, kind: "media", mediaKind: node.mediaKind, reference: node.reference };
     }
   });
 }
@@ -131,10 +131,16 @@ export function graphNode(value: unknown): PersistedGraphNode | null {
       completedAt: finite(v.completedAt) || undefined, durationMs: finite(v.durationMs) || undefined,
       durationSeconds: finite(v.durationSeconds) || undefined,
       pendingRetry: pendingRetryOf(v.pendingRetry),
+      // 运行引用必须原样读回：缺失会被 restoreGraphNodes 判为不可恢复，把运行中的输出节点降级为空节点
+      conversationID: text(v.conversationID) || undefined, runID: text(v.runID) || undefined,
     };
   }
-  if (kind === "html") {
-    return { ...meta, kind: "html", html: text(v.html) };
+  if (kind === "media") {
+    return {
+      ...meta, kind: "media",
+      mediaKind: v.mediaKind === "audio" ? "audio" as const : "video" as const,
+      reference: reference(v.reference),
+    };
   }
   return null;
 }
@@ -146,7 +152,7 @@ export function graphEdge(value: unknown, validNodeIDs: ReadonlySet<string>): Pe
   const toNodeID = text(v.toNodeID);
   const toPort = v.toPort;
   if (!fromNodeID || !toNodeID || !validNodeIDs.has(fromNodeID) || !validNodeIDs.has(toNodeID)) return null;
-  if (toPort !== "prompt" && toPort !== "image" && toPort !== "result") return null;
+  if (toPort !== "prompt" && toPort !== "image" && toPort !== "video" && toPort !== "audio" && toPort !== "result") return null;
   return { id: identifier(v.id), fromNodeID, toNodeID, toPort: toPort as GraphInputPort, createdAt: finite(v.createdAt, Date.now()) };
 }
 
@@ -303,8 +309,8 @@ export function restoreGraphNodes(items: ReadonlyArray<PersistedGraphNode>): Gra
           durationSeconds: item.durationSeconds, pendingRetry: item.pendingRetry,
           conversationID: item.conversationID, runID: item.runID,
         } satisfies OutputGraphNode;
-      case "html":
-        return { ...meta, kind: "html", html: item.html } satisfies HtmlGraphNode;
+      case "media":
+        return { ...meta, kind: "media", mediaKind: item.mediaKind ?? "video", reference: item.reference } satisfies MediaGraphNode;
     }
   });
 }

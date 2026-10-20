@@ -10,6 +10,7 @@ import {
   AttachmentTitle,
   AttachmentTrigger,
 } from "@/components/ui/attachment";
+import { AttachmentWorkingCopyAction } from "@/features/chat/components/message/attachment-working-copy-action";
 import type { MessageAttachment } from "@/features/chat/types/messages";
 import {
   type FileContentLoader,
@@ -39,9 +40,11 @@ function resolveCardMeta(att: MessageAttachment): string {
 function AttachmentCard({
   att,
   onClick,
+  allowWorkingCopy,
 }: {
   att: MessageAttachment;
   onClick: () => void;
+  allowWorkingCopy: boolean;
 }) {
   const meta = resolveCardMeta(att);
   const fileIcon = resolveFileIcon(att);
@@ -67,6 +70,7 @@ function AttachmentCard({
         aria-label={att.fileName}
         className="rounded-lg focus-visible:ring-2 focus-visible:ring-ring"
       />
+      {allowWorkingCopy && att.fileID ? <AttachmentWorkingCopyAction attachment={att} /> : null}
     </Attachment>
   );
 }
@@ -77,11 +81,13 @@ export function MessageAttachmentRow({
   attachments,
   loadContent,
   allowDownload = true,
+  allowWorkingCopy = false,
   align = "end",
 }: {
   attachments: MessageAttachment[];
   loadContent?: FileContentLoader;
   allowDownload?: boolean;
+  allowWorkingCopy?: boolean;
   align?: "start" | "end";
 }) {
   const [activeAtt, setActiveAtt] = React.useState<MessageAttachment | null>(null);
@@ -101,7 +107,7 @@ export function MessageAttachmentRow({
     <>
       <div className={`flex max-w-full flex-wrap gap-2 sm:max-w-[70%] ${align === "start" ? "justify-start" : "justify-end"}`}>
         {attachments.map((att) => (
-          <AttachmentCard key={att.fileID} att={att} onClick={() => handleClick(att)} />
+          <AttachmentCard key={att.fileID} att={att} onClick={() => handleClick(att)} allowWorkingCopy={allowWorkingCopy} />
         ))}
       </div>
       {activeAtt ? (

@@ -788,7 +788,9 @@
       "empty": "No matching models",
       "emptySelected": "No models selected",
       "protocolColumn": "Protocol",
-      "protocolFor": "Protocol for {model}"
+      "protocolFor": "Protocol for {model}",
+      "stale": "Not offered upstream",
+      "staleHint": "This model is no longer in the upstream catalog; it stays unselected by default and is removed on save."
     },
     "importLink": {
       "open": "Import link",

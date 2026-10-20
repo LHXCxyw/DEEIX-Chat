@@ -201,8 +201,10 @@ export function ChatModelControls({
       if (value === MODEL_CONTROL_REASONING_AUTO) return tReasoning("auto");
       if (isReasoningEffortLevel(value)) return tLevels(value);
     }
-    return String(value);
-  }, [t, tLevels, tReasoning]);
+    // 候选值文案：沿用控件文案约定，键为「控件路径（. 替换为 __）__候选值」，缺失时回退原始候选值。
+    const valueKey = `${control.id.replaceAll(".", "__")}__${String(value)}`;
+    return tOptionLabels.has(valueKey) ? tOptionLabels(valueKey) : String(value);
+  }, [t, tLevels, tOptionLabels, tReasoning]);
 
   const isItemActive = React.useCallback((item: ComposerItem) => {
     if (item.source === "tool") return isNativeToolEnabled(item.tool);

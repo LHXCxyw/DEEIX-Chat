@@ -35,6 +35,7 @@ function ChatMentionMenuItemButton({
       code: item.model.platformModelName,
       vendor: item.model.vendor,
       icon: item.model.icon,
+      vendorIcon: item.model.vendorIcon,
     });
   }, [item]);
   const iconURL = React.useMemo(() => identity ? resolveModelIconURL(identity.modelIcon) : "", [identity]);

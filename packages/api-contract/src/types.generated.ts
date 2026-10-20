@@ -592,6 +592,20 @@ export interface BrandingResponseDoc {
   errorMsg: string;
 }
 
+export interface CanvasStatePutRequest {
+  state: string;
+}
+
+export interface CanvasStateResponse {
+  state: string;
+  updatedAt: number;
+}
+
+export interface CanvasStateResponseDoc {
+  data: CanvasStateResponse;
+  errorMsg: string;
+}
+
 export interface Capabilities {
   /** AccountSecurity 密码、邮箱、两步验证、会话、注销账号。 */
   accountSecurity: boolean;
@@ -1077,6 +1091,8 @@ export interface ConversationProjectResponseDoc {
 }
 
 export interface ConversationResponse {
+  /** ActiveTipMessagePublicID 回退后的续聊锚点消息公开ID；空表示未回退过。 */
+  activeTipMessagePublicID: string;
   contextPolicyJSON: string;
   createdAt: string;
   isStarred: boolean;
@@ -1099,6 +1115,26 @@ export interface ConversationResponse {
   title: string;
   updatedAt: string;
   userID: number;
+}
+
+export interface ConversationRewindPreviewItem {
+  action?: string;
+  currentVersion?: number;
+  relativePath?: string;
+  /** @format int64 */
+  targetSizeBytes?: number;
+  targetVersion?: number;
+}
+
+export interface ConversationRewindPreviewResponseDoc {
+  hasProjectFiles: boolean;
+  items: ConversationRewindPreviewItem[];
+  messagePublicID: string;
+}
+
+export interface ConversationRewindResultResponseDoc {
+  activeTipMessagePublicID: string;
+  items: ConversationRewindPreviewItem[];
 }
 
 export interface ConversationRunListResponseDoc {
@@ -2262,7 +2298,7 @@ export interface MediaVideoRequest {
   branchReason?: "default" | "retry" | "edit";
   /** @maxLength 64 */
   clientRunID?: string;
-  /** @maxItems 1 */
+  /** @maxItems 20 */
   fileIDs?: string[];
   /** @maxLength 128 */
   model?: string;
@@ -3670,6 +3706,24 @@ export interface PublicSharedMessageResponse {
   upstreamModelName: string;
 }
 
+export interface PublicSharedProjectFileResponse {
+  entryType: string;
+  fileName: string;
+  mimeType: string;
+  publicID: string;
+  relativePath: string;
+  sizeBytes: number;
+}
+
+export interface PublicSharedProjectFilesResponse {
+  files: PublicSharedProjectFileResponse[];
+}
+
+export interface PublicSharedProjectFilesResponseDoc {
+  data: PublicSharedProjectFilesResponse;
+  errorMsg: string;
+}
+
 export interface RedeemCodeRequest {
   /**
    * @minLength 3
@@ -3830,6 +3884,21 @@ export interface ReorderServersRequest {
   servers: ReorderServerOrderItem[];
 }
 
+export interface RequeryMediaVideoAttachmentResponse {
+  durationSeconds?: number;
+  fileID: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface RequeryMediaVideoRunResponse {
+  attachments?: RequeryMediaVideoAttachmentResponse[];
+  message?: string;
+  runID: string;
+  status: string;
+}
+
 export interface ResetUpstreamCircuitResponseDoc {
   data: CircuitResetResponse;
   errorMsg: string;
@@ -3880,6 +3949,21 @@ export interface ResolveModelCatalogRequest {
   protocols?: string[];
   /** @maxLength 128 */
   vendor?: string;
+}
+
+export interface RetryMediaImageArtifactAttachmentResult {
+  fileID: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface RetryMediaImageArtifactResponse {
+  attachment?: RetryMediaImageArtifactAttachmentResult;
+  index: number;
+  message?: string;
+  runID: string;
+  status: string;
 }
 
 export interface RevokeConversationSharesRequest {
@@ -9613,6 +9697,44 @@ export namespace ConversationRuns {
   }
 
   /**
+   * @description 上游生成已成功但产物下载瞬时失败时，输出节点按 runID + 产物序号重试一次保存：重新下载 -> 上传 -> 追加消息附件
+   * @tags chat
+   * @name MediaArtifactRetryCreate
+   * @summary 重试保存待保存的图像产物
+   * @request POST:/conversation-runs/{run_id}/media/artifact-retry
+   * @secure
+   */
+  export namespace MediaArtifactRetryCreate {
+    export type RequestParams = {
+      /** 运行 ID */
+      runId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = object;
+    export type RequestHeaders = {};
+    export type ResponseBody = RetryMediaImageArtifactResponse;
+  }
+
+  /**
+   * @description 按运行记录中的上游任务 ID 回原上游查询一次：completed 时回收产物并补写消息附件，返回最新状态
+   * @tags chat
+   * @name MediaRequeryCreate
+   * @summary 重查失败的视频生成任务
+   * @request POST:/conversation-runs/{run_id}/media/requery
+   * @secure
+   */
+  export namespace MediaRequeryCreate {
+    export type RequestParams = {
+      /** 运行 ID */
+      runId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = RequeryMediaVideoRunResponse;
+  }
+
+  /**
    * @description 页面刷新后按 run_id 重新订阅仍在运行的生成流，返回 NDJSON 事件
    * @tags chat
    * @name StreamList2
@@ -10092,6 +10214,48 @@ export namespace Conversations {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = ConversationUpdateResponseDoc;
+  }
+
+  /**
+   * @description 将会话截断到指定消息（其后消息保留为非当前分支），并把项目工作区文件恢复到该消息完成时的状态；回退前请先调用 preview 获取影响清单
+   * @tags chat
+   * @name MessagesRewindCreate
+   * @summary 回退到指定消息
+   * @request POST:/conversations/{id}/messages/{message_id}/rewind
+   * @secure
+   */
+  export namespace MessagesRewindCreate {
+    export type RequestParams = {
+      /** 会话 public_id */
+      id: string;
+      /** 消息 public_id */
+      messageId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = ConversationRewindResultResponseDoc;
+  }
+
+  /**
+   * @description 计算回退到指定消息将产生的文件影响清单（恢复/重建/删除），不做任何变更
+   * @tags chat
+   * @name MessagesRewindPreviewCreate
+   * @summary 预览回退到指定消息的影响
+   * @request POST:/conversations/{id}/messages/{message_id}/rewind/preview
+   * @secure
+   */
+  export namespace MessagesRewindPreviewCreate {
+    export type RequestParams = {
+      /** 会话 public_id */
+      id: string;
+      /** 消息 public_id */
+      messageId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = ConversationRewindPreviewResponseDoc;
   }
 
   /**
@@ -11664,6 +11828,44 @@ export namespace SharedConversations {
     export type RequestHeaders = {};
     export type ResponseBody = Blob;
   }
+
+  /**
+   * @description 公开读取分享快照内冻结的项目工作区文件树
+   * @tags chat
+   * @name ProjectFilesList
+   * @summary 获取公开分享项目文件树
+   * @request GET:/shared-conversations/{share_id}/project/files
+   */
+  export namespace ProjectFilesList {
+    export type RequestParams = {
+      /** 分享 ID */
+      shareId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = PublicSharedProjectFilesResponseDoc;
+  }
+
+  /**
+   * @description 只允许读取公开分享快照中冻结的项目文件原件
+   * @tags chat
+   * @name ProjectFilesContentList
+   * @summary 获取公开分享项目文件内容
+   * @request GET:/shared-conversations/{share_id}/project/files/{file_id}/content
+   */
+  export namespace ProjectFilesContentList {
+    export type RequestParams = {
+      /** 文件 ID */
+      fileId: string;
+      /** 分享 ID */
+      shareId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = Blob;
+  }
 }
 
 export namespace Skills {
@@ -11914,6 +12116,38 @@ export namespace UiComponents {
 }
 
 export namespace User {
+  /**
+   * @description 返回最近一次保存的画布快照与服务端写入时间；从未保存过时 state 为空、updatedAt 为 0
+   * @tags user/canvas-state
+   * @name CanvasStateList
+   * @summary 读取当前用户的画布快照
+   * @request GET:/user/canvas-state
+   * @secure
+   */
+  export namespace CanvasStateList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = CanvasStateResponseDoc;
+  }
+
+  /**
+   * @description 整份覆盖保存画布快照，返回服务端写入时间；服务端不做合并，读取始终以最近一次写入为准
+   * @tags user/canvas-state
+   * @name CanvasStateUpdate
+   * @summary 保存当前用户的画布快照
+   * @request PUT:/user/canvas-state
+   * @secure
+   */
+  export namespace CanvasStateUpdate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = CanvasStatePutRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = CanvasStateResponseDoc;
+  }
+
   /**
    * @description 返回当前用户全部个人偏好配置，缺失项以默认值填充
    * @tags user/settings
