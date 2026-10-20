@@ -49,6 +49,9 @@ DEEIX Chat 是一款开源可部署的 AI 平台，面向需要长期、稳定�
 - **消息回退（Rewind）**：可将对话回退到任意历史时点，并按该时点的快照同步恢复项目工作区的文件状态。
 - **媒体重查与产物重试**：对未落盘的媒体产物提供重新查询与重试能力，减少生成成功但结果丢失的情况。
 - **渠道与模型协议预设**：管理端与用户自有渠道共用统一的兼容协议与模型调用协议预设清单，配置渠道和模型时按协议自动约束可选的能力类型。
+- **隔离 Agent 执行**：一次性、断网的 Docker 任务运行工作区命令与 Playwright Chromium 项目浏览器，支持受控点击/填写/按键/等待、DOM 摘要和截图附件，并强制资源限额与失败关闭的就绪检查。
+- **三级 Agent 权限**：手动审批、自动审批和完全访问；服务端按模式统一归一化，保证工具注册一致，审批方式仍按模式区分。
+- **生成文件与上传文件分离**：文件库可按 AI 产出筛选并批量删除，不会误删用户上传的参考文件。
 
 ![DEEIX Chat 工作区](./assets/screenshots/DEEIX-Chat.jpg)
 
@@ -253,20 +256,24 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080
 
 ### Docker 部署
 
-Docker 部署只有一个文件和一种运行方式：仓库根目录的 [`docker-compose.yml`](../docker-compose.yml) 会用当前源码本地编译镜像，并同时启动应用、PostgreSQL 和 Redis 容器。没有预构建镜像方案，也没有第二套方案——始终通过 `docker compose up -d --build` 本地编译。
+Docker 部署只有一个入口：仓库根目录的 [`docker-compose.yml`](../docker-compose.yml) 会用当前源码构建应用、命令 runner 和项目浏览器镜像，并启动常驻服务。无需复制配置、overlay 或手填镜像 digest：
 
 ```bash
-cp deploy/config.example.yaml config.yaml   # 仅首次
-docker compose up -d --build
+docker compose -f docker-compose.yml build
+docker compose -f docker-compose.yml up -d
 ```
+
+首次启动由一次性 `config-init` 自动生成根 `config.yaml`、数据库密码和 JWT/加密密钥；已有配置与 secret 不覆盖。运行中常驻容器只有 `app`、`postgres`、`redis`；`agent-command` 与 `agent-browser` 仅用于构建镜像，启动即退出。
 
 | 项目 | 取值 |
 | --- | --- |
-| 镜像 | 由 compose 本地编译（`deeix-chat:local`） |
-| 配置 | 根目录 `config.yaml`，只读挂载为容器内 `/app/config.yaml` |
+| 镜像 | 由 compose 本地构建（`deeix-chat:local`、`deeix-agent-command:local`、`deeix-agent-browser:local`） |
+| 配置 | `./data/agent-deploy/config.yaml`，只读挂载并由 app 读取 |
 | 服务 | `app`、`postgres`（`pgvector/pgvector:pg16`）、`redis`（`redis:7-bookworm`） |
 | 网络 | `deeix-chat-network` |
 | 宿主机端口 | `3700` 映射到容器 `8080` |
+
+执行模式：同机默认挂载宿主 `/var/run/docker.sock`，等同于把宿主高权限交给 `app`；独立节点通过 `AGENT_DOCKER_HOST`（TCP 需 TLS）和 `DEEIX_DOCKER_SOCKET=/dev/null` 连接，不挂宿主 socket。已在 Linux Docker 实测通过 Compose 启动、隔离命令执行与项目浏览器截图；公网浏览器、持久任务队列与物理清理仍未开放。
 
 #### 数据与持久化
 

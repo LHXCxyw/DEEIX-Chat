@@ -49,6 +49,9 @@ Personal upstream channels (BYOK), user model management, and user model routing
 - **Message rewind**: rewind a conversation to any earlier point and restore the project workspace file state from that point's snapshot.
 - **Media requery and artifact retry**: requery unsettled media artifacts and retry them, reducing cases where a generation succeeds but its output is lost.
 - **Channel and model protocol presets**: the admin console and personal upstream channels share one list of compatible-protocol and model-protocol presets, which constrains the selectable capability kinds per protocol.
+- **Sandboxed agent execution**: one-shot, network-disabled Docker tasks for workspace commands and a Playwright Chromium project browser, with typed actions, screenshots delivered as attachments, strict resource limits and a fail-closed readiness check.
+- **Three-level agent permissions**: manual approval, automatic approval and full access, normalised on the server so tools are registered consistently while approval behaviour still differs per mode.
+- **Generated vs uploaded files**: the file library can filter AI-generated assets and bulk-delete them without touching user-uploaded reference files.
 
 ![DEEIX Chat workspace](./docs/assets/screenshots/DEEIX-Chat.jpg)
 
@@ -267,7 +270,7 @@ docker compose -f docker-compose.yml up -d
 
 `app` 入口直接读取本地构建的 `deeix-agent-command:local` 与 `deeix-agent-browser:local`，校验镜像 ID 和 runner 标签后注入环境变量；不再使用 DinD、内部 registry、seed 或 `runtime.env`。`agent-command` 与 `agent-browser` 是 build-only 服务，启动即退出；运行中常驻容器只有 `app`、`postgres`、`redis`。
 
-**执行模式：同机默认挂载宿主 `/var/run/docker.sock`，等同于把宿主高权限交给 `app`；独立节点由管理员设置 `AGENT_DOCKER_HOST`（TCP 需 TLS）和 `DEEIX_DOCKER_SOCKET=/dev/null`，不挂宿主 socket，风险面更小。** 仅面向 Linux Docker Engine，Compose >= 2.20 + BuildKit。资源能力、任务容器真实 CPU/memory/swap/pids/seccomp 限额或 Chromium sandbox 不支持时 readiness 失败。迁移仍只需原两条命令，**无需 `down -v`**。完整链路和风险见 [deploy/README.md](deploy/README.md)。仍欠真实 Linux Docker build/up 验收，不声称 production ready。
+**执行模式：同机默认挂载宿主 `/var/run/docker.sock`，等同于把宿主高权限交给 `app`；独立节点由管理员设置 `AGENT_DOCKER_HOST`（TCP 需 TLS）和 `DEEIX_DOCKER_SOCKET=/dev/null`，不挂宿主 socket，风险面更小。** 仅面向 Linux Docker Engine，Compose >= 2.20 + BuildKit。资源能力、任务容器真实 CPU/memory/swap/pids/seccomp 限额或 Chromium sandbox 不支持时 readiness 失败。迁移仍只需原两条命令，**无需 `down -v`**。已在 Linux Docker 实测通过 Compose 启动、隔离命令执行与项目浏览器截图；公网浏览器、持久任务队列与物理清理仍未开放。完整链路和风险见 [deploy/README.md](deploy/README.md)。
 
 升级前备份 `config.yaml` 和整个 `data`；更新源码后仍执行上述两条命令。修改配置后同样执行两条命令以更新快照。状态与日志：
 

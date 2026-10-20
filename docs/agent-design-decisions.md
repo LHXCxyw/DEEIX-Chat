@@ -280,4 +280,46 @@ runtime 在 create 取得不可变容器 ID 后，先通过回调将该 ID 绑�
 
 整体任务排队、检查点续跑、浏览器硬隔离及物理清理继续保留为未完成任务。槽位恢复页面、取消跟踪与删除写入屏障均为局部进展，不代表任务恢复、跨实例停止或完整清理已完成真实环境验收。
 
+## 15. 执行架构收敛与真实服务器验收（2026-10-20）
+
+本节追加本次 Agent 架构改造的最终状态，保留第 1—14 节的设计决策与历史记录。凡前文关于嵌套 DinD、seed、内部 registry、`runtime.env` 或浏览器不可用的描述，以本节为准。
+
+### 15.1 部署与执行架构
+
+- 部署收敛为根目录单文件 Compose，唯一入口仍是 `docker compose -f docker-compose.yml build` 与 `up -d`。
+- 常驻容器只有 `app`、`postgres`、`redis`；`config-init` 与两个 agent 镜像构建服务为一次性退出容器。
+- 移除嵌套 Docker-in-Docker、内部镜像 registry、seed 导入与 `runtime.env`。任务容器改由宿主 Docker 直接创建，只保留一层容器隔离。
+- 同机模式默认挂载宿主 `/var/run/docker.sock`，等同于把宿主高权限交给 `app`；远程模式通过 `AGENT_DOCKER_HOST`（TCP 需 TLS）与 `DEEIX_DOCKER_SOCKET=/dev/null` 连接独立执行节点，不挂宿主 socket。
+- `app` 启动时读取本地 `deeix-agent-command:local`、`deeix-agent-browser:local` 的镜像 ID，并校验 runner 标签后注入白名单。
+
+### 15.2 命令与浏览器执行
+
+- `workspace_run_command` 使用离线 Python runner，输入为工作区文本快照，容器断网、非 root、只读根、`cap-drop=ALL`、资源限额；快照 hash、协议版本与持久化变更均由后端复核。
+- `project_browser_run` 使用 Playwright + Chromium，支持多文件快照、typed 点击/填写/按键/等待/DOM 摘要/截图，截图作为当前回复附件交付。
+- 浏览器 seccomp 策略升级为 `moby-27.5.1-chromium-userns-v2`：在基线之上放行 Chromium 创建用户及嵌套命名空间所需的 `clone`、`setns`、`unshare`，并保留 `chroot` 的 `CAP_SYS_CHROOT` 条件；未开启 `--no-sandbox`、`SYS_ADMIN` 或 seccomp unconfined。
+- 浏览器任务使用 `--ipc=private` 提供独立共享内存；sandbox 验证改为实际渲染空白页、执行脚本并截图，不再依赖 headless shell 不提供的 `chrome://sandbox` 页面。
+- 真实故障修复记录：`/opt/deeix` 目录权限导致 runner 无法读取；能力检查 2 秒超时内启动 Chromium 导致误报不可用；zygote 因 namespace clone 被拒绝而无法 fork。三者均已按上述方案修复。
+
+### 15.3 权限与文件来源
+
+- 前端只发送 `mode` 时，后端按 `manual`、`auto`、`full` 归一化为允许文件编辑与代码执行，三种模式只区别于审批方式，修复了工具未注册的问题。
+- 文件库新增 `source=generated|uploaded` 筛选，`generated` 匹配 `purpose` 为 `generated_image`、`generated_video`、`generated_archive` 的 AI 产出，支持筛选后批量清理而不误删用户上传。
+- 生成图片/视频的文件名改用模型短名，不再把 `personal:<providerID>/<model>` 前缀写入文件名；历史文件在前端展示时去除该前缀。
+
+### 15.4 真实服务器验收结果
+
+以下为本次在 Linux Docker 服务器上的实际结果：
+
+| 验证范围 | 实际结果 |
+|---|---|
+| 单文件 Compose 构建与启动 | 通过；常驻 `app`、`postgres`、`redis` |
+| `workspace_run_command` 执行 `python3 -c "print(1)"` | 通过，返回真实退出码与输出 |
+| `project_browser_run` 打开项目 HTML 并截图 | 通过，截图成功返回 |
+| 浏览器受限自检 | 通过；sandbox 策略为 `moby-27.5.1-chromium-userns-v2` |
+
+### 15.5 仍未完成
+
+公网浏览器仍未开放；持久任务队列、检查点续跑、跨重启预算、物理清理与删除清理 worker 仍未实现。同机 Docker socket 模式仍属高权限部署，生产环境应优先使用独立执行节点。上述真实验收覆盖命令、项目浏览器与部署链路，不覆盖未完成项。
+
+
 
