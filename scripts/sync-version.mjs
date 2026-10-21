@@ -40,6 +40,12 @@ const targets = {
       ),
     );
   },
+  // Web 与后端同步轮次只覆盖服务端应用及共享包，不触碰桌面端清单与 Rust 版本。
+  "web-backend": () => {
+    targets.workspace();
+    targets.web();
+    targets.backend();
+  },
 };
 
 const validModes = new Set(["all", ...Object.keys(targets)]);

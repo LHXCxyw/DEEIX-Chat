@@ -237,7 +237,8 @@ function syncVersions() {
   if (checkOnly) {
     arguments_.push("--check");
   }
-  arguments_.push("all");
+  // 契约生成只服务 Web 与后端；桌面端版本由桌面发行流程单独同步。
+  arguments_.push("web-backend");
   runCommand(process.execPath, arguments_, workspaceDir);
 }
 

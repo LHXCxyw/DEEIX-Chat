@@ -1091,11 +1091,25 @@ export async function getConversationToolCallDetail(
 }
 
 // Messages
+export async function getMessageProcessTrace(
+  accessToken: string,
+  messagePublicID: string,
+  signal?: AbortSignal,
+): Promise<MessageProcessTraceDTO | null> {
+  const data = await authedRequest<{ processTrace?: MessageProcessTraceDTO | null }>(
+    `/api/v1/messages/${pathParam(messagePublicID)}/trace`,
+    { accessToken, signal },
+    true,
+  );
+  return data.processTrace ?? null;
+}
+
 type ListMessagesOptions = {
   page?: number;
   pageSize?: number;
   tail?: boolean;
   beforeID?: number;
+  trace?: "summary";
 };
 
 export async function listMessagesPage(
@@ -1114,6 +1128,9 @@ export async function listMessagesPage(
   }
   if (options.beforeID && options.beforeID > 0) {
     params.set("before_id", String(options.beforeID));
+  }
+  if (options.trace) {
+    params.set("trace", options.trace);
   }
   const data = await authedRequest<PagePayload<MessageDTO>>(
     `/api/v1/conversations/${pathParam(conversationPublicID)}/messages?${params.toString()}`,

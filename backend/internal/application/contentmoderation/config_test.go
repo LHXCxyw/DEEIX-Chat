@@ -118,6 +118,21 @@ func (r *configTestSettingsRepo) Delete(_ context.Context, namespace, key string
 	return nil
 }
 
+func (r *configTestSettingsRepo) RemoveDuplicates(_ context.Context, ids []uint) error {
+	remove := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		remove[id] = struct{}{}
+	}
+	kept := r.items[:0]
+	for _, item := range r.items {
+		if _, ok := remove[item.ID]; !ok {
+			kept = append(kept, item)
+		}
+	}
+	r.items = kept
+	return nil
+}
+
 func TestGetConfigRequiresExplicitEnabledState(t *testing.T) {
 	repo := &configTestSettingsRepo{items: []domainsettings.SystemSetting{
 		{Namespace: settingsNamespace, Key: keyPolicyJSON, Value: `{"inputTextCategories":["hate"]}`},

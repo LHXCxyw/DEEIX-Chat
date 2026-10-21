@@ -327,7 +327,7 @@ type PublicSharedMessageResponse struct {
 	CacheWriteTokens int64  `json:"cacheWriteTokens"`
 	ReasoningTokens  int64  `json:"reasoningTokens"`
 	// ReasoningEffort 是生成该消息时生效的规范推理档位；模型无推理能力时为 null。
-	ReasoningEffort   *string                      `json:"reasoningEffort" enums:"none,minimal,low,medium,high,xhigh,max" extensions:"x-nullable,!x-omitempty"`
+	ReasoningEffort   *string                      `json:"reasoningEffort" enums:"none,minimal,low,medium,high,xhigh,max,ultra" extensions:"x-nullable,!x-omitempty"`
 	LatencyMS         int64                        `json:"latencyMS"`
 	Status            string                       `json:"status"`
 	ErrorCode         string                       `json:"errorCode"`
@@ -668,6 +668,13 @@ type MessageProcessTraceResponse struct {
 	UpstreamThink *MessageTraceBlockResponse  `json:"upstreamThink,omitempty"`
 	PromptTrace   *MessagePromptTraceResponse `json:"promptTrace,omitempty"`
 	Events        []MessageTraceEventResponse `json:"events,omitempty"`
+	// DetailOmitted 为 true 表示思考及中间正文截短、工具输入输出省略，全文通过 GET /messages/{id}/trace 查询。
+	DetailOmitted bool `json:"detailOmitted,omitempty"`
+}
+
+// MessageProcessTraceDetailResponse 单条消息的完整轨迹；没有轨迹时 processTrace 为 null。
+type MessageProcessTraceDetailResponse struct {
+	ProcessTrace *MessageProcessTraceResponse `json:"processTrace" extensions:"x-nullable,!x-omitempty"`
 }
 
 type MessageBillingCostResponse struct {
@@ -690,6 +697,7 @@ func toMessageProcessTraceResponse(trace *model.MessageProcessTrace) *MessagePro
 		UpstreamThink: toTraceBlockResponse(trace.UpstreamThink),
 		PromptTrace:   toPromptTraceResponse(trace.PromptTrace),
 		Events:        toTraceEventResponses(trace.Events),
+		DetailOmitted: trace.DetailOmitted,
 	}
 }
 
@@ -895,7 +903,7 @@ type MessageResponse struct {
 	CacheWriteTokens int64  `json:"cacheWriteTokens"`
 	ReasoningTokens  int64  `json:"reasoningTokens"`
 	// ReasoningEffort 是生成该消息时生效的规范推理档位；模型无推理能力时为 null。
-	ReasoningEffort *string `json:"reasoningEffort" enums:"none,minimal,low,medium,high,xhigh,max" extensions:"x-nullable,!x-omitempty"`
+	ReasoningEffort *string `json:"reasoningEffort" enums:"none,minimal,low,medium,high,xhigh,max,ultra" extensions:"x-nullable,!x-omitempty"`
 	LatencyMS       int64   `json:"latencyMS"`
 	Status          string  `json:"status"`
 	ErrorCode       string  `json:"errorCode"`
@@ -1413,7 +1421,7 @@ type RunResponse struct {
 	CacheWriteTokens   int64  `json:"cacheWriteTokens"`
 	ReasoningTokens    int64  `json:"reasoningTokens"`
 	// ReasoningEffort 是本次运行生效的规范推理档位；模型无推理能力时为 null。
-	ReasoningEffort     *string    `json:"reasoningEffort" enums:"none,minimal,low,medium,high,xhigh,max" extensions:"x-nullable,!x-omitempty"`
+	ReasoningEffort     *string    `json:"reasoningEffort" enums:"none,minimal,low,medium,high,xhigh,max,ultra" extensions:"x-nullable,!x-omitempty"`
 	ToolCallsCount      int        `json:"toolCallsCount"`
 	FirstTokenLatencyMS int64      `json:"firstTokenLatencyMS"`
 	TotalLatencyMS      int64      `json:"totalLatencyMS"`
@@ -1740,6 +1748,12 @@ type MessageResponseDoc struct {
 type MessageFeedbackResponseDoc struct {
 	ErrorMsg string                  `json:"errorMsg"`
 	Data     MessageFeedbackResponse `json:"data"`
+}
+
+// MessageProcessTraceDetailResponseDoc 消息处理轨迹响应文档。
+type MessageProcessTraceDetailResponseDoc struct {
+	ErrorMsg string                            `json:"errorMsg"`
+	Data     MessageProcessTraceDetailResponse `json:"data"`
 }
 
 // MessageUIStateResponseDoc 保存消息组件状态响应文档。

@@ -505,6 +505,9 @@ export function MessageTaskTrace({
   runID,
   allowFullToolResults = false,
   showProcessTrace = true,
+  detailPending = false,
+  detailFailed = false,
+  onLoadDetail,
 }: {
   trace?: ChatMessageProcessTrace;
   events: ChatTraceEvent[];
@@ -518,6 +521,9 @@ export function MessageTaskTrace({
   runID?: string;
   allowFullToolResults?: boolean;
   showProcessTrace?: boolean;
+  detailPending?: boolean;
+  detailFailed?: boolean;
+  onLoadDetail?: () => void;
 }) {
   const labels = useChatTraceLabels();
   const displayEvents = React.useMemo(() => buildTraceDisplayEvents(traceEvents), [traceEvents]);
@@ -573,7 +579,11 @@ export function MessageTaskTrace({
     collapseReady: autoCollapseReady || !messageStreaming,
   });
 
-  // 处理轨迹内容（文件上下文/内容检索/上下文压缩/Prompt 规划），受「显示处理轨迹」设置控制。
+  React.useEffect(() => {
+    if (open && detailPending && !detailFailed) onLoadDetail?.();
+  }, [open, detailPending, detailFailed, onLoadDetail]);
+
+  // 处理轨迹内容（文件上下文/内容检索/上下文压缩/Prompt 规划），受「显示处理轨迹」设置控制。"{"
   const process = trace?.process;
   const citations = process ? parseRAGCitations(process.payloadJson) : [];
   const fileBadges = process ? parseFileContextBadges(process.payloadJson, labels) : [];
@@ -604,7 +614,7 @@ export function MessageTaskTrace({
   const durationText = formatTaskDurationMS(traceRunActive ? liveElapsedMS : completedDurationMS);
   const title = durationText ? labels.process.taskDuration(durationText) : labels.process.taskTitle;
 
-  if (items.length === 0 && !hasProcessContent) {
+  if (items.length === 0 && !hasProcessContent && !detailPending) {
     return null;
   }
 
@@ -644,7 +654,17 @@ export function MessageTaskTrace({
             />
           </AccordionTrigger>
           <AccordionContent className="space-y-2.5 px-0 pb-0 pt-1.5 duration-[350ms] ease-in-out">
-            {hasProcessContent && process ? (
+            {detailPending ? (
+              <div role="status" className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                <span>{detailFailed ? labels.run.detailFailed : labels.run.detailLoading}</span>
+                {detailFailed ? (
+                  <button type="button" className="rounded-sm underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring" onClick={onLoadDetail}>
+                    {labels.run.detailRetry}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {!detailPending && hasProcessContent && process ? (
               <>
                 <TraceContent
                   block={process}
@@ -657,7 +677,7 @@ export function MessageTaskTrace({
                 {!hasRAGStage ? <RAGCitationList citations={citations} labels={labels} /> : null}
               </>
             ) : null}
-            {items.length > 0 ? (
+            {!detailPending && items.length > 0 ? (
               <AgentTraceTimeline
                 items={items}
                 labels={labels}

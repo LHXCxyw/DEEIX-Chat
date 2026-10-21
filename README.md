@@ -32,7 +32,7 @@ The system is designed around simple deployment, efficient static delivery, and 
 
 ## Personal Fork and Secondary Development
 
-This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat), maintained independently and not an official DEEIX Chat release. It is currently rebased on upstream v0.4.4 and keeps the upstream layout and upgrade path while re-applying and extending the customisations listed below. For the exact set of changes, refer to this repository's commit history.
+This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat), maintained independently and not an official DEEIX Chat release. Its web app and backend are synchronised with upstream v0.4.5 while the desktop app and desktop release pipeline remain on v0.4.4 and will be upgraded separately. The upstream layout and upgrade path are kept while re-applying and extending the customisations listed below. For the exact set of changes, refer to this repository's commit history.
 
 Personal upstream channels (BYOK), user model management, and user model routing are natively covered by the upstream personal provider system, so this fork no longer maintains its own implementations of those parts.
 
@@ -52,6 +52,9 @@ Personal upstream channels (BYOK), user model management, and user model routing
 - **Sandboxed agent execution**: one-shot, network-disabled Docker tasks for workspace commands and a Playwright Chromium project browser, with typed actions, screenshots delivered as attachments, strict resource limits and a fail-closed readiness check.
 - **Three-level agent permissions**: manual approval, automatic approval and full access, normalised on the server so tools are registered consistently while approval behaviour still differs per mode.
 - **Generated vs uploaded files**: the file library can filter AI-generated assets and bulk-delete them without touching user-uploaded reference files.
+- **Multi-provider import links**: one import link can carry several personal upstream services, with per-entry validation and a batch confirmation screen.
+- **Ultra reasoning level and owned-parameter hiding**: the OpenAI reasoning format can declare `ultra`, and native parameters controlled by reasoning-effort translation are no longer offered as separate controls.
+- **Edit with the send shortcut**: message editing saves with the configured send shortcut, with IME composition guarded.
 
 ![DEEIX Chat workspace](./docs/assets/screenshots/DEEIX-Chat.jpg)
 

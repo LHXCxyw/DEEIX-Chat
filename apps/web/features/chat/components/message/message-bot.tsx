@@ -20,7 +20,8 @@ import { MessageTaskTrace } from "@/features/chat/components/message/message-pro
 import { type ProjectChange, projectChanges } from "@/features/chat/components/sections/chat-project-workspace";
 import { UpstreamExchangeDetails } from "@/features/chat/components/message/message-upstream-debug";
 import { useChatInlineVideoSource } from "@/features/chat/hooks/use-chat-inline-video-source";
-import type { ChatRegenerateReasoningOptions } from "@/features/chat/model/chat-reasoning-effort";
+import { canLoadMessageTrace, hasWorkspaceChangeSummary, useChatMessageTraceDetail } from "@/features/chat/hooks/use-chat-message-trace-detail";
+import type { SendShortcut } from "@/features/settings";
 import { resolveLeadingImagePreview } from "@/features/chat/model/media-image-preview";
 import {
   clearLiveUpstreamThinkTrace,
@@ -41,8 +42,8 @@ import type { UIBlockStateBinding } from "@/shared/components/markdown/ui-blocks
 import { MediaActionBar, MediaActionButton } from "@/shared/components/media-action-bar";
 import { useBranding } from "@/shared/config/branding-provider";
 import { useCopyAction } from "@/shared/components/copy-action";
+import { isImeComposingKeyEvent, isSendShortcutEvent } from "@/shared/lib/platform-shortcuts";
 import type { BillingDisplayCurrency } from "@/entities/billing";
-import type { ReasoningEffortLevel } from "@/entities/model";
 
 const EMPTY_TRACE_EVENTS: NonNullable<NonNullable<ChatAreaMessage["processTrace"]>["events"]> = [];
 const GrainientBackground = dynamic(
@@ -140,8 +141,7 @@ type ChatMessageBotProps = {
   item: ChatAreaMessage;
   busy?: boolean;
   reaction: AssistantReaction;
-  onRetryAssistantMessage: (message: ChatAreaMessage, reasoningEffort?: ReasoningEffortLevel) => Promise<void> | void;
-  regenerateReasoning?: ChatRegenerateReasoningOptions | null;
+  onRetryAssistantMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
@@ -160,6 +160,8 @@ type ChatMessageBotProps = {
   showTokenUsage?: boolean;
   showBillingCost?: boolean;
   showProcessTrace?: boolean;
+  // Enter saves the edit, as the composer does, honouring the same user setting.
+  sendShortcut?: SendShortcut;
   billingDisplayCurrency?: BillingDisplayCurrency;
   billingDisplayUsdToCnyRate?: number | null;
   readOnly?: boolean;
@@ -180,7 +182,6 @@ export function ChatMessageBot({
   busy = false,
   reaction,
   onRetryAssistantMessage,
-  regenerateReasoning = null,
   onContinueAssistantMessage,
   onEditAssistantMessage,
   onForkMessage,
@@ -199,6 +200,7 @@ export function ChatMessageBot({
   showTokenUsage = true,
   showBillingCost = false,
   showProcessTrace = true,
+  sendShortcut = "enter",
   billingDisplayCurrency = "USD",
   billingDisplayUsdToCnyRate = null,
   readOnly = false,
@@ -217,11 +219,10 @@ export function ChatMessageBot({
   const workspaceT = useTranslations("chat.workspace");
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingValue, setEditingValue] = React.useState(item.content);
+  // Some IMEs end the composition before the Enter keydown arrives, so the state is tracked too.
+  const editingComposingRef = React.useRef(false);
   const onRetry = React.useCallback(() => {
     void onRetryAssistantMessage(item);
-  }, [item, onRetryAssistantMessage]);
-  const onRetryWithReasoning = React.useCallback((level: ReasoningEffortLevel) => {
-    void onRetryAssistantMessage(item, level);
   }, [item, onRetryAssistantMessage]);
   const onContinue = React.useCallback(() => {
     void onContinueAssistantMessage?.(item);
@@ -256,11 +257,21 @@ export function ChatMessageBot({
       setEditingValue(item.content);
     }
   }, [isEditing, item.content]);
+  const traceDetail = useChatMessageTraceDetail(
+    !readOnly && canLoadMessageTrace(item) ? item.publicID : undefined,
+    item.processTrace,
+  );
   const liveProcessTrace = useLiveUpstreamThinkTrace(item.runID);
   const processTrace =
-    liveProcessTrace && (item.isStreaming || !item.processTrace)
-      ? mergeLiveUpstreamThinkTrace(item.processTrace, liveProcessTrace)
-      : item.processTrace;
+    liveProcessTrace && (item.isStreaming || !traceDetail.trace)
+      ? mergeLiveUpstreamThinkTrace(traceDetail.trace, liveProcessTrace)
+      : traceDetail.trace;
+  const needsWorkspaceDetail = Boolean(onOpenProjectChange && hasWorkspaceChangeSummary(item.processTrace));
+  React.useEffect(() => {
+    if (needsWorkspaceDetail && traceDetail.detailPending && !traceDetail.detailFailed) {
+      traceDetail.loadDetail();
+    }
+  }, [needsWorkspaceDetail, traceDetail.detailPending, traceDetail.detailFailed, traceDetail.loadDetail]);
   React.useEffect(() => {
     if (!item.isStreaming && item.processTrace?.upstreamThink) {
       clearLiveUpstreamThinkTrace(item.runID);
@@ -353,7 +364,10 @@ export function ChatMessageBot({
   ]);
   const processAutoCollapseReady = Boolean(hasTraceBlocks || hasStreamdownContent || item.inlineAlert);
   // 本条回复触发的项目文件变更（写入/删除/归档），供 Diff 卡片点击后在工作区打开对应文件。
-  const changes = React.useMemo(() => projectChanges([item]), [item]);
+  const changes = React.useMemo(
+    () => processTrace?.detailOmitted ? [] : projectChanges([{ ...item, processTrace }]),
+    [item, processTrace],
+  );
 
   if (!readOnly && isEditing) {
     const nextContent = editingValue.trim();
@@ -368,6 +382,23 @@ export function ChatMessageBot({
             className="chat-font-content min-h-[160px] resize-none rounded-lg border-border border-[0.5px] bg-background px-3 py-2 text-sm leading-7 shadow-none focus-visible:border-primary focus-visible:ring-0"
             style={{ fontFamily: "var(--font-chat)", fontWeight: "var(--font-chat-weight)" }}
             onChange={(event) => setEditingValue(event.target.value)}
+            onCompositionStart={() => {
+              editingComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              editingComposingRef.current = false;
+            }}
+            onKeyDown={(event) => {
+              if (isImeComposingKeyEvent(event, editingComposingRef.current) || !isSendShortcutEvent(sendShortcut, event)) {
+                return;
+              }
+              // The send key is never a newline here; only what the save button could run happens.
+              event.preventDefault();
+              if (busy || nextContent.length === 0 || unchanged) {
+                return;
+              }
+              void onEditSave();
+            }}
           />
           <div className="mt-3 flex items-center justify-end gap-2">
             <Button
@@ -406,6 +437,9 @@ export function ChatMessageBot({
         runID={item.runID}
         allowFullToolResults={allowFullToolResults && !messageStreaming}
         showProcessTrace={showProcessTrace}
+        detailPending={traceDetail.detailPending}
+        detailFailed={traceDetail.detailFailed}
+        onLoadDetail={traceDetail.loadDetail}
       />
 
       <div
@@ -527,8 +561,6 @@ export function ChatMessageBot({
         reaction={reaction}
         onCycleBranch={onCycleMessageBranch}
         onRetry={onRetry}
-        regenerateReasoning={regenerateReasoning}
-        onRetryWithReasoning={onRetryWithReasoning}
         onContinue={onContinueAssistantMessage ? onContinue : undefined}
         onEdit={() => setIsEditing(true)}
         onCopy={onCopy}

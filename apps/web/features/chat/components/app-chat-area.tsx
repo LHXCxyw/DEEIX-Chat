@@ -54,6 +54,7 @@ import {
   useChatComposerState,
 } from "@/features/chat/hooks/use-chat-composer-state";
 import { useChatData } from "@/features/chat/hooks/use-chat-data";
+import { useChatMessagesWithTraceDetails } from "@/features/chat/hooks/use-chat-message-trace-detail";
 import { useChatModelOptions } from "@/features/chat/hooks/use-chat-model-options";
 import { useChatRuntime } from "@/features/chat/hooks/use-chat-runtime";
 import { useChatScreenshot } from "@/features/chat/hooks/use-chat-screenshot";
@@ -64,9 +65,6 @@ import { useChatConversationDefaults } from "@/features/chat/hooks/use-chat-conv
 import { useChatTemporaryRuntime } from "@/features/chat/hooks/use-chat-temporary-runtime";
 import { useChatUIBlockStateRuntime } from "@/features/chat/hooks/use-chat-ui-block-state";
 import { filterAvailableMCPToolIDs } from "@/features/chat/model/chat-mcp-tool-defaults";
-import type {
-  ChatRegenerateReasoningOptions,
-} from "@/features/chat/model/chat-reasoning-effort";
 import type { ChatAreaMessage, } from "@/features/chat/types/messages";
 import { useSettingsChatPreferences } from "@/features/settings";
 import { cn } from "@/lib/utils";
@@ -299,14 +297,6 @@ export function AppChatArea() {
     [modelOptions, selectedPlatformModelName],
   );
   const modelOptionPolicyDisabled = modelOptionPolicy?.mode?.trim() === "disabled";
-  // Regeneration runs on the composer model, so "Regenerate with…" offers that model's levels.
-  const regenerateReasoning = React.useMemo<ChatRegenerateReasoningOptions | null>(() => {
-    const capability = selectedModel?.reasoning;
-    if (!selectedModel || !capability || capability.locked) {
-      return null;
-    }
-    return { levels: capability.levels, defaultLevel: capability.default };
-  }, [selectedModel]);
   const refreshModelCatalogForComposer = React.useCallback(async () => {
     await refreshModelCatalog();
   }, [refreshModelCatalog]);
@@ -734,7 +724,7 @@ export function AppChatArea() {
     releaseAttachments,
     collectUIStates: uiBlockState.collectTurnUIStates,
   });
-  const displayMessages = temporaryMode ? temporaryRuntime.messages : messagesWithInlineError;
+  const displayMessages = useChatMessagesWithTraceDetails(temporaryMode ? temporaryRuntime.messages : messagesWithInlineError);
   const chatUIBlockState = React.useMemo(
     () => ({ store: uiBlockState.store, conversationPublicID: temporaryMode ? null : conversationID }),
     [conversationID, temporaryMode, uiBlockState.store],
@@ -1244,7 +1234,6 @@ export function AppChatArea() {
                   onForkMessage={temporaryMode ? undefined : onForkMessage}
                   onRewindMessage={temporaryMode || !workspaceProjectID ? undefined : handleRewindMessage}
                   onDeleteMessage={temporaryMode ? undefined : onDeleteMessage}
-                  regenerateReasoning={regenerateReasoning}
                   modelOptions={modelOptions}
                   selectedPlatformModelName={selectedPlatformModelName}
                   onModelChange={setSelectedPlatformModelName}
@@ -1279,6 +1268,7 @@ export function AppChatArea() {
                   showTokenUsage={showTokenUsage}
                   showBillingCost={showBillingCost}
                   showProcessTrace={showProcessTrace}
+                  sendShortcut={sendShortcut}
                   billingDisplayCurrency={billingDisplayCurrency}
                   billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
                   splitRightInset={hasInlineArtifact}

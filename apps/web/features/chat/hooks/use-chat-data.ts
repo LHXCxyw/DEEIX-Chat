@@ -119,6 +119,7 @@ export function useChatData(
           page: 1,
           pageSize: MESSAGE_PAGE_SIZE,
           tail: true,
+          trace: "summary",
         });
         if (cancelled) {
           return;
@@ -217,7 +218,9 @@ export function useChatData(
       const data = await listMessagesPage(token, conversationID, {
         pageSize: MESSAGE_PAGE_SIZE,
         beforeID,
+        trace: "summary",
       });
+
       if (previousConversationIDRef.current !== conversationID) {
         return false;
       }

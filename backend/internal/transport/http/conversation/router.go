@@ -75,6 +75,7 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup, gate middleware.F
 	authRequired.POST("/conversation-runs/:run_id/media/artifact-retry", m.Handler.RetryMediaImageArtifact)
 	authRequired.PATCH("/messages/:id", m.Handler.UpdateMessage)
 	authRequired.PUT("/messages/:id/feedback", m.Handler.SetMessageFeedback)
+	authRequired.GET("/messages/:id/trace", m.Handler.GetMessageProcessTrace)
 	authRequired.POST("/files", m.Handler.UploadFile)
 	authRequired.GET("/files", m.Handler.ListFiles)
 	authRequired.POST("/files/processing/statuses", m.Handler.GetFileProcessingStatuses)

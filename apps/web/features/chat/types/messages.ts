@@ -114,6 +114,7 @@ export type ChatMessageProcessTrace = {
   thinkBlocks?: ChatTraceBlock[];
   promptTrace?: ChatPromptTrace;
   events?: ChatTraceEvent[];
+  detailOmitted?: boolean;
 };
 
 export type ChatInlineAlert = {

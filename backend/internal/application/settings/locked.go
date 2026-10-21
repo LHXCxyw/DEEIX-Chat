@@ -71,7 +71,7 @@ func (s *Service) rejectLockedSettings(ctx context.Context, patches []PatchItem)
 }
 
 func (s *Service) currentValue(ctx context.Context, namespace, key string) (string, error) {
-	items, err := s.repo.ListByNamespace(ctx, namespace)
+	items, err := listNamespaceSettings(ctx, s.repo, namespace)
 	if err != nil {
 		return "", err
 	}

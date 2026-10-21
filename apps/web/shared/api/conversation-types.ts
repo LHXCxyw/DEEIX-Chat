@@ -158,6 +158,7 @@ export type MessageProcessTraceDTO = Omit<
   upstreamThink?: TraceBlockDTO;
   promptTrace?: PromptTraceDTO;
   events?: TraceEventDTO[];
+  detailOmitted?: boolean;
 };
 
 export type TraceEventDTO = MessageTraceEventResponse;

@@ -326,6 +326,7 @@ type yamlConfig struct {
 		SSRFProtectionEnabled      *bool    `yaml:"ssrf_protection_enabled"`
 		SSRFAllowedHosts           string   `yaml:"ssrf_allowed_hosts"`
 		SSRFAllowedCIDRs           string   `yaml:"ssrf_allowed_cidrs"`
+		FrameAncestors             string   `yaml:"frame_ancestors"`
 		TurnstileSiteverifyURL     string   `yaml:"turnstile_siteverify_url"`
 	} `yaml:"security"`
 	Database struct {
@@ -436,58 +437,61 @@ type Config struct {
 	SSRFProtectionEnabled        bool
 	SSRFAllowedHosts             string
 	SSRFAllowedCIDRs             string
-	DatabaseDriver               string
-	PostgresDSN                  string
-	PostgresMaxOpenConns         int
-	PostgresMaxIdleConns         int
-	PostgresConnMaxLifetimeMin   int
-	PostgresConnMaxIdleTimeMin   int
-	SQLitePath                   string
-	SQLiteDSN                    string
-	SQLiteMaxOpenConns           int
-	SQLiteBusyTimeoutMS          int
-	SQLiteCacheSizeKB            int
-	SQLiteMmapSizeBytes          int64
-	SQLiteSynchronous            string
-	SQLiteTempStore              string
-	CacheDriver                  string
-	RedisAddr                    string
-	RedisUsername                string
-	RedisPassword                string
-	RedisDB                      int
-	RedisTLSEnabled              bool
-	RedisTLSInsecureSkipVerify   bool
-	StorageBackend               string
-	StorageRootDir               string
-	StorageS3Endpoint            string
-	StorageS3Region              string
-	StorageS3Bucket              string
-	StorageS3Prefix              string
-	StorageS3AccessKeyID         string
-	StorageS3SecretAccessKey     string
-	StorageS3ForcePathStyle      bool
-	AdminUsername                string
-	AdminDisplayName             string
-	GeoIPProvider                string
-	GeoIPBaseURL                 string
-	GeoIPToken                   string
-	GeoIPTimeoutMS               int
-	GeoIPDatabaseURL             string
-	GeoIPDatabasePath            string
-	GeoIPDatabaseMaxBytes        int64
-	GeoIPRefreshIntervalHours    int
-	SMTPHost                     string
-	SMTPPort                     int
-	SMTPUsername                 string
-	SMTPPassword                 string
-	SMTPFrom                     string
-	TurnstileSiteverifyURL       string
-	OTelEnabled                  *bool
-	OTelExporterOTLPEndpoint     string
-	OTelExporterOTLPHeaders      string
-	OTelExporterOTLPInsecure     bool
-	OTelExporterOTLPProtocol     string
-	OTelSamplingRate             float64
+	// SecurityFrameAncestors 是允许在 iframe 中嵌套本站的来源（CSP frame-ancestors 语法）；
+	// 为空时保持 X-Frame-Options: DENY。
+	SecurityFrameAncestors     string
+	DatabaseDriver             string
+	PostgresDSN                string
+	PostgresMaxOpenConns       int
+	PostgresMaxIdleConns       int
+	PostgresConnMaxLifetimeMin int
+	PostgresConnMaxIdleTimeMin int
+	SQLitePath                 string
+	SQLiteDSN                  string
+	SQLiteMaxOpenConns         int
+	SQLiteBusyTimeoutMS        int
+	SQLiteCacheSizeKB          int
+	SQLiteMmapSizeBytes        int64
+	SQLiteSynchronous          string
+	SQLiteTempStore            string
+	CacheDriver                string
+	RedisAddr                  string
+	RedisUsername              string
+	RedisPassword              string
+	RedisDB                    int
+	RedisTLSEnabled            bool
+	RedisTLSInsecureSkipVerify bool
+	StorageBackend             string
+	StorageRootDir             string
+	StorageS3Endpoint          string
+	StorageS3Region            string
+	StorageS3Bucket            string
+	StorageS3Prefix            string
+	StorageS3AccessKeyID       string
+	StorageS3SecretAccessKey   string
+	StorageS3ForcePathStyle    bool
+	AdminUsername              string
+	AdminDisplayName           string
+	GeoIPProvider              string
+	GeoIPBaseURL               string
+	GeoIPToken                 string
+	GeoIPTimeoutMS             int
+	GeoIPDatabaseURL           string
+	GeoIPDatabasePath          string
+	GeoIPDatabaseMaxBytes      int64
+	GeoIPRefreshIntervalHours  int
+	SMTPHost                   string
+	SMTPPort                   int
+	SMTPUsername               string
+	SMTPPassword               string
+	SMTPFrom                   string
+	TurnstileSiteverifyURL     string
+	OTelEnabled                *bool
+	OTelExporterOTLPEndpoint   string
+	OTelExporterOTLPHeaders    string
+	OTelExporterOTLPInsecure   bool
+	OTelExporterOTLPProtocol   string
+	OTelSamplingRate           float64
 
 	// ── 动态配置（由 DB 种子初始化默认值，settings.RuntimeSettings.ApplyTo 覆盖） ──
 	// 认证配置
@@ -695,6 +699,7 @@ func Load() Config {
 		SSRFProtectionEnabled:        envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, false),
 		SSRFAllowedHosts:             envOr("SSRF_ALLOWED_HOSTS", yc.Security.SSRFAllowedHosts, ""),
 		SSRFAllowedCIDRs:             envOr("SSRF_ALLOWED_CIDRS", yc.Security.SSRFAllowedCIDRs, ""),
+		SecurityFrameAncestors:       envOr("SECURITY_FRAME_ANCESTORS", yc.Security.FrameAncestors, ""),
 		DatabaseDriver:               normalizeDatabaseDriver(envOr("DATABASE_DRIVER", yc.Database.Driver, "postgres")),
 		PostgresDSN:                  normalizePostgresDSN(envOr("POSTGRES_DSN", yc.Database.Postgres.DSN, "host=127.0.0.1 user=deeix_chat password=deeix_chat_dev_2026 dbname=deeix_chat port=5432 sslmode=disable TimeZone=Asia/Shanghai")),
 		PostgresMaxOpenConns:         envOrInt("POSTGRES_MAX_OPEN_CONNS", yc.Database.Postgres.MaxOpenConns, 30),
@@ -1368,6 +1373,9 @@ func (c Config) SecurityWarnings() []string {
 	}
 	if isPlaceholderSecret(c.JWTSecret) {
 		warnings = append(warnings, "JWT_SECRET uses a built-in or example placeholder value, so anyone with the source code can forge session tokens. Set it to a random value of at least 32 characters; existing sessions will be signed out.")
+	}
+	if raw := strings.TrimSpace(c.SecurityFrameAncestors); raw != "" && strings.ContainsAny(raw, ";`\r\n") {
+		warnings = append(warnings, "SECURITY_FRAME_ANCESTORS contains a semicolon, backtick or line break, so it is ignored and iframe embedding stays disabled. Use CSP frame-ancestors syntax without Markdown backticks, for example: 'self' https://newapi.example.com")
 	}
 	return warnings
 }

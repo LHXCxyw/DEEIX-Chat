@@ -62,6 +62,19 @@ func (r *settingsSeedRepo) Delete(_ context.Context, namespace string, key strin
 	return nil
 }
 
+func (r *settingsSeedRepo) RemoveDuplicates(_ context.Context, ids []uint) error {
+	remove := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		remove[id] = struct{}{}
+	}
+	for key, item := range r.items {
+		if _, ok := remove[item.ID]; ok {
+			delete(r.items, key)
+		}
+	}
+	return nil
+}
+
 func TestSeedMigratesLegacyDefaultAllowedMIMETypes(t *testing.T) {
 	for _, legacy := range legacyDefaultAllowedMIMETypes {
 		repo := newSettingsSeedRepo(domainsettings.SystemSetting{
