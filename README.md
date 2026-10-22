@@ -32,7 +32,7 @@ The system is designed around simple deployment, efficient static delivery, and 
 
 ## Personal Fork and Secondary Development
 
-This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat), maintained independently and not an official DEEIX Chat release. Its web app and backend are synchronised with upstream v0.4.5 while the desktop app and desktop release pipeline remain on v0.4.4 and will be upgraded separately. The upstream layout and upgrade path are kept while re-applying and extending the customisations listed below. For the exact set of changes, refer to this repository's commit history.
+This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat), maintained independently and not an official DEEIX Chat release. Its web app and backend are synchronised with upstream v0.4.6. The desktop app is not maintained in this fork: it stays at its v0.4.4 code baseline, with only its version fields kept consistent by the release tooling. The upstream layout and upgrade path are kept while re-applying and extending the customisations listed below. For the exact set of changes, refer to this repository's commit history.
 
 Personal upstream channels (BYOK), user model management, and user model routing are natively covered by the upstream personal provider system, so this fork no longer maintains its own implementations of those parts.
 
@@ -131,7 +131,7 @@ flowchart TB
 | Layer | Responsibility | Technologies |
 | --- | --- | --- |
 | Frontend | Chat UI, admin console, and static builds | Next.js 16, React 19, TypeScript, Tailwind CSS, Shadcn/UI, Streamdown, KaTeX, Mermaid, Recharts, Motion |
-| Backend runtime | APIs, authentication, authorization, orchestration, protocol adaptation, and static serving | Go 1.26, Gin, Gorm, Swagger, OpenTelemetry, Zap |
+| Backend runtime | APIs, authentication, authorization, orchestration, protocol adaptation, and static serving | Go 1.27, Gin, Gorm, Swagger, OpenTelemetry, Zap |
 | Data and cache | Domain data, vector retrieval, session state, and runtime cache | PostgreSQL, pgvector, SQLite, sqlite-vec, Redis, in-memory cache |
 | Files and storage | Uploaded files, generated files, object storage, and local persistence | Local filesystem, S3-compatible object storage |
 | File processing | Text extraction, OCR, document parsing, and LLM OCR fallback | Built-in extractors, Apache Tika, Docling, RapidOCR, Tesseract OCR, Paddle OCR, cloud OCR adapters, MinerU |
@@ -180,9 +180,9 @@ The backend keeps clear internal boundaries: `backend/cmd/server` is the executa
 
 ## Prerequisites
 
-- Node.js 20.9 or newer (the repository Docker image and CI use Node.js 24).
-- pnpm 10.17.0, normally enabled through Corepack.
-- Go 1.26.8 for backend development.
+- Node.js 26.12.1 or newer — the patched release line this fork builds and deploys with; `.nvmrc`, CI and the Docker image all pin it.
+- pnpm 10.17.0 (`npm install -g pnpm@10.17.0`; Node 26 no longer bundles Corepack).
+- Go 1.27.3 for backend development.
 - Docker Engine with Docker Compose v2 for container deployments or local PostgreSQL/Redis services.
 
 The Docker deployment starts PostgreSQL and Redis in containers for you. Outside Docker, the default development configuration expects PostgreSQL and Redis reachable from the host.
@@ -253,7 +253,7 @@ repository root and routes to pnpm / turbo / cargo / go underneath.
 | `make build-desktop` / `make release-desktop` | Quick local `.app` / signed release bundle. |
 | `make verify` | check + test + build, what CI runs. |
 | `make api-docs` | Regenerate Swagger artifacts and TypeScript API types. |
-| `make version` | Propagate `VERSION` to every package manifest. |
+| `make version` / `make version-check` | Synchronize/check versions, Cargo.lock and generated Swagger/TypeScript API contracts. |
 
 The same verbs exist as pnpm scripts (`pnpm dev:api`, `pnpm check`, …) for
 tooling that prefers them; CI uses those directly.

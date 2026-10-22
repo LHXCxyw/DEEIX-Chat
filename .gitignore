@@ -188,3 +188,13 @@ frontend.zip
 
 # 本地编译打桩工具（无 C 编译器时用于 go build overlay），不纳入版本管理
 .verify/
+
+# 本地 Trae 工作区配置
+.trae/
+
+# 本地打包产物（apps.zip 为源码快照，不纳入版本管理）
+apps.zip
+
+# 本地 pnpm 缓存与安装日志（沙箱内验证时指定在工作区内）
+.pnpm-cache/
+.pnpm-install.log
