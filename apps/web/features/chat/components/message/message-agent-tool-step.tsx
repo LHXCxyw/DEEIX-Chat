@@ -612,12 +612,12 @@ function isToolStepDone(step: ToolChainStep): boolean {
   return status === "success" || status === "completed" || status === "reused";
 }
 
-function ToolStepStatusIcon({ step }: { step: ToolChainStep }) {
+function ToolStepStatusIcon({ step, active }: { step: ToolChainStep; active: boolean }) {
   return (
     <Wrench
       className={cn(
         "size-3 text-muted-foreground/68",
-        isToolChainStepActive(step) && "text-foreground/78",
+        active && "text-foreground/78",
         step.failed && "text-destructive",
       )}
     />
@@ -1008,19 +1008,26 @@ export function AgentToolStepRow({
   step,
   labels,
   autoExpand,
+  messageStreaming,
   runID,
   allowFullResult = false,
 }: {
   step: ToolChainStep;
   labels: ProcessTraceLabels;
   autoExpand: boolean;
+  messageStreaming: boolean;
   runID?: string;
   allowFullResult?: boolean;
 }) {
-  const active = isToolChainStepActive(step);
+  // 已结束的回复里仍可能留着最后状态为 calling 的步骤（末次写入丢失），此时按 startedAt 计时会显示成数天。
+  // 只有仍在流式输出的回复才算运行中。
+  const reportedActive = isToolChainStepActive(step);
+  const active = messageStreaming && reportedActive;
   const { open, onOpenChange } = useAutoExpandDisclosure({ active, autoExpand });
   const failed = step.failed;
-  const statusText = isToolStepDone(step) ? "" : toolStatusLabel(step.toolCall?.status ?? step.toolStatus, labels);
+  const statusText = isToolStepDone(step) || (reportedActive && !active)
+    ? ""
+    : toolStatusLabel(step.toolCall?.status ?? step.toolStatus, labels);
   const expandable = Boolean(step.toolCall || step.detail);
   const liveDurationMS = useChatElapsedDurationMS(active, step.startedAt);
   const durationText = formatDurationMS(active ? liveDurationMS : step.latencyMS);
@@ -1038,7 +1045,7 @@ export function AgentToolStepRow({
   return (
     <li className="group/agent-trace-step">
       <AgentTraceStep
-        icon={<ToolStepStatusIcon step={step} />}
+        icon={<ToolStepStatusIcon step={step} active={active} />}
         title={title}
         status={statusText || undefined}
         duration={durationText}

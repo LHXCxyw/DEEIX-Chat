@@ -410,6 +410,7 @@ function AgentTraceTimeline({
   labels,
   autoExpandThinking,
   autoExpandToolCalls,
+  messageStreaming,
   runID,
   allowFullToolResults,
 }: {
@@ -417,6 +418,7 @@ function AgentTraceTimeline({
   labels: ProcessTraceLabels;
   autoExpandThinking: boolean;
   autoExpandToolCalls: boolean;
+  messageStreaming: boolean;
   runID?: string;
   allowFullToolResults: boolean;
 }) {
@@ -442,6 +444,7 @@ function AgentTraceTimeline({
               step={item.step}
               labels={labels}
               autoExpand={autoExpandToolCalls}
+              messageStreaming={messageStreaming}
               runID={runID}
               allowFullResult={allowFullToolResults}
             />
@@ -683,6 +686,7 @@ export function MessageTaskTrace({
                 labels={labels}
                 autoExpandThinking={autoExpandThinking}
                 autoExpandToolCalls={autoExpandToolCalls}
+                messageStreaming={messageStreaming}
                 runID={runID}
                 allowFullToolResults={allowFullToolResults}
               />

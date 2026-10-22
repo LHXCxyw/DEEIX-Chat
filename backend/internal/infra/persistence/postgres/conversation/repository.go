@@ -15,6 +15,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/sqlitevec"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/vectorutil"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/textutil"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -4442,9 +4443,9 @@ func toConversationMessageTraceModel(item *domainconversation.MessageTrace) mode
 		RoundID:         item.RoundID,
 		ParentEventID:   item.ParentEventID,
 		Title:           item.Title,
-		Summary:         item.Summary,
-		ContentMarkdown: item.ContentMarkdown,
-		PayloadJSON:     item.PayloadJSON,
+		Summary:         textutil.SanitizeForTextColumn(item.Summary),
+		ContentMarkdown: textutil.SanitizeForTextColumn(item.ContentMarkdown),
+		PayloadJSON:     textutil.SanitizeForTextColumn(item.PayloadJSON),
 		Seq:             item.Seq,
 		StartedAt:       startedAt,
 		EndedAt:         item.EndedAt,
@@ -4503,9 +4504,9 @@ func toConversationMessageTraceEventModel(item *domainconversation.MessageTraceE
 		ParentEventID:   item.ParentEventID,
 		Status:          item.Status,
 		Title:           item.Title,
-		Summary:         item.Summary,
-		ContentMarkdown: item.ContentMarkdown,
-		PayloadJSON:     item.PayloadJSON,
+		Summary:         textutil.SanitizeForTextColumn(item.Summary),
+		ContentMarkdown: textutil.SanitizeForTextColumn(item.ContentMarkdown),
+		PayloadJSON:     textutil.SanitizeForTextColumn(item.PayloadJSON),
 		Seq:             item.Seq,
 		StartedAt:       startedAt,
 		EndedAt:         item.EndedAt,
@@ -4538,9 +4539,9 @@ func toConversationToolCallModel(item *domainconversation.ToolCall) models.ChatR
 		MCPServerName:  item.MCPServerName,
 		Status:         item.Status,
 		LatencyMS:      item.LatencyMS,
-		InputJSON:      item.InputJSON,
-		OutputJSON:     item.OutputJSON,
-		ErrorJSON:      item.ErrorJSON,
+		InputJSON:      textutil.SanitizeForTextColumn(item.InputJSON),
+		OutputJSON:     textutil.SanitizeForTextColumn(item.OutputJSON),
+		ErrorJSON:      textutil.SanitizeForTextColumn(item.ErrorJSON),
 		StartedAt:      startedAt,
 	}
 }
