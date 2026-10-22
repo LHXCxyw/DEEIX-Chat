@@ -48,6 +48,10 @@ security:
   ssrf_allowed_hosts: ""
   # Optional. Trusted integration and private redirect ranges in CIDR notation, comma-separated (for example: 172.17.0.0/16). Prefer administrator-saved exact endpoints when the integration supports them.
   ssrf_allowed_cidrs: ""
+  # Optional. Origins allowed to embed this site in an iframe, in CSP frame-ancestors syntax
+  # (for example: "'self' https://newapi.example.com"). Leave empty to keep X-Frame-Options: DENY.
+  # Only same-site origins can keep the login cookie working inside the iframe.
+  frame_ancestors: ""
   # Optional. Override only when using a compatible Turnstile verification proxy. This exact administrator-configured origin is locally trusted and does not require the global SSRF allowlist.
   turnstile_siteverify_url: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 

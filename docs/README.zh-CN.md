@@ -32,7 +32,7 @@ DEEIX Chat 是一款开源可部署的 AI 平台，面向需要长期、稳定�
 
 ## 个人 Fork 与二次开发说明
 
-本仓库是基于 [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat) 的个人 Fork 和二次开发项目，由个人独立维护，不代表 DEEIX Chat 官方发行版本。当前以官方 v0.4.4 为基线，在保持上游目录结构与升级路径的前提下重新落地并增强了下列二次开发能力，具体修改记录请以本仓库提交历史为准。
+本仓库是基于 [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat) 的个人 Fork 和二次开发项目，由个人独立维护，不代表 DEEIX Chat 官方发行版本。当前 Web 与后端已同步至官方 v0.4.6；桌面端不在本 Fork 维护范围内，代码基线停留在 v0.4.4，仅由发布脚本保持版本字段一致。在保持上游目录结构与升级路径的前提下重新落地并增强了下列二次开发能力，具体修改记录请以本仓库提交历史为准。
 
 个人上游渠道（BYOK）、用户模型管理与用户模型路由等能力，已由上游官方的个人上游渠道体系原生承接，本 Fork 不再单独维护对应实现。
 
@@ -128,7 +128,7 @@ flowchart TB
 | 层面 | 职责 | 主要技术 |
 | --- | --- | --- |
 | 前端 | 用户对话、后台管理、静态构建 | Next.js 16、React 19、TypeScript、Tailwind CSS、Shadcn/UI、Streamdown、KaTeX、Mermaid、Recharts、Motion |
-| 后端运行时 | API、认证授权、业务编排、协议适配、静态资源托管 | Go 1.26、Gin、Gorm、Swagger、OpenTelemetry、Zap |
+| 后端运行时 | API、认证授权、业务编排、协议适配、静态资源托管 | Go 1.27、Gin、Gorm、Swagger、OpenTelemetry、Zap |
 | 数据与缓存 | 领域数据、向量检索、会话状态、运行时缓存 | PostgreSQL、pgvector、SQLite、sqlite-vec、Redis、内存缓存 |
 | 文件与存储 | 上传文件、生成文件、对象存储和本地持久化 | 本地文件系统、S3 兼容对象存储 |
 | 文件处理 | 文本提取、OCR、文档解析和 LLM OCR 回退 | 内置提取、Apache Tika、Docling、RapidOCR、Tesseract OCR、Paddle OCR、云 OCR 适配、MinerU |
@@ -177,9 +177,9 @@ flowchart TB
 
 ## 开发前置条件
 
-- Node.js 20.9 或更高版本（仓库 Docker 镜像和 CI 使用 Node.js 24）。
-- pnpm 10.17.0，通常通过 Corepack 启用。
-- Go 1.26.8，用于后端开发。
+- Node.js 26.12.1 或更高版本——本 Fork 构建与部署所用的补丁版本线；`.nvmrc`、CI 与 Docker 镜像都固定在该版本。
+- pnpm 10.17.0（`npm install -g pnpm@10.17.0`；Node 26 不再内置 Corepack）。
+- Go 1.27.3，用于后端开发。
 - Docker Engine 与 Docker Compose v2，用于容器部署或启动本地 PostgreSQL/Redis。
 
 Docker 部署会在容器内启动 PostgreSQL 和 Redis。在 Docker 之外，默认开发配置要求本机可访问 PostgreSQL 和 Redis。
@@ -248,7 +248,7 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080
 | `make build-desktop` / `make release-desktop` | 本地快速 `.app` / 签名发版包。 |
 | `make verify` | check + test + build，即 CI 跑的内容。 |
 | `make api-docs` | 重新生成 Swagger 与 TypeScript API 类型。 |
-| `make version` | 把 `VERSION` 同步到所有包清单。 |
+| `make version` / `make version-check` | 同步／校验版本号、Cargo.lock 与生成的 Swagger／TypeScript API 契约。 |
 
 同一组动作也以 pnpm 脚本存在（`pnpm dev:api`、`pnpm check` …），CI 直接用它们。
 

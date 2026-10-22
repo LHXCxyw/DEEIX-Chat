@@ -364,7 +364,7 @@
     "input": {
       "sectionTitle": "Input and sending",
       "shortcutTitle": "Send shortcut",
-      "shortcutDescription": "This platform uses {shortcut} to submit messages.",
+      "shortcutDescription": "This platform uses {shortcut} to submit messages and to save message edits.",
       "heightTitle": "Input area height",
       "heightDescription": "Controls the maximum height allowed when the input box auto-expands.",
       "height": {
@@ -812,7 +812,11 @@
         "name": "Name"
       },
       "protocolAuto": "Auto-detect",
-      "copied": "Copied"
+      "copied": "Copied",
+      "linkHintMultiple": "With several services, fill in the base URL and API key for each.",
+      "entryTitle": "Service {index}",
+      "addEntry": "Add service",
+      "removeEntry": "Remove {title}"
     }
   },
   "importPage": {
@@ -845,7 +849,31 @@
       "missing_key": "Missing API key.",
       "invalid_key": "Invalid API key format.",
       "invalid_protocol": "Unsupported API protocol.",
-      "invalid_name": "Invalid name."
+      "invalid_name": "Invalid name.",
+      "entry": "Service {entry}: {reason}",
+      "too_many_entries": "The link has too many services.",
+      "duplicate_entry": "The link repeats the same address and API key."
+    },
+    "titleMultiple": "Import {count} providers",
+    "warningMultiple": "Conversations will be sent to the addresses below. Only import links you trust.",
+    "slotsLeft": "You can add {count} more; the rest won't be imported.",
+    "importAll": "Import all",
+    "done": "Done",
+    "batchDone": "Imported {count} providers",
+    "status": {
+      "pending": "Ready to import",
+      "probing": "Fetching models",
+      "saving": "Saving",
+      "throttled": "Too many requests; continuing in {seconds}s",
+      "imported": "Imported · {count} models",
+      "needsSelection": "{count} models; choose which to enable",
+      "noModels": "No models found",
+      "overLimit": "Over the provider limit",
+      "existing": "Already added as “{name}”"
+    },
+    "actions": {
+      "selectModels": "Choose models",
+      "retry": "Retry"
     }
   }
 }

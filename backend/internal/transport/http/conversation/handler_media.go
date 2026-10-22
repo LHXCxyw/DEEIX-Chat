@@ -172,6 +172,10 @@ func (h *Handler) streamMediaVideo(c *gin.Context, taskType appconversation.Medi
 	}
 	req.ClientRunID = appconversation.EnsureMessageGenerationRunID(req.ClientRunID)
 	req.Options = sanitizeMessageOptions(req.Options)
+	if err := h.service.EnsureGeneratedMediaStorage(c.Request.Context(), userID); err != nil {
+		handleSendMessageError(c, err)
+		return
+	}
 	session, ok := h.beginUsageSession(c, buildBillingInput(billingRequestInput{
 		UserID:            userID,
 		Conversation:      conversation,
@@ -243,6 +247,10 @@ func (h *Handler) streamMediaImage(c *gin.Context, taskType appconversation.Medi
 	}
 	req.ClientRunID = appconversation.EnsureMessageGenerationRunID(req.ClientRunID)
 	req.Options = sanitizeMessageOptions(req.Options)
+	if err := h.service.EnsureGeneratedMediaStorage(c.Request.Context(), userID); err != nil {
+		handleSendMessageError(c, err)
+		return
+	}
 	session, ok := h.beginUsageSession(c, buildBillingInput(billingRequestInput{
 		UserID:            userID,
 		Conversation:      conversation,

@@ -364,7 +364,7 @@
     "input": {
       "sectionTitle": "输入与发送",
       "shortcutTitle": "发送快捷键",
-      "shortcutDescription": "当前平台使用 {shortcut} 提交消息。",
+      "shortcutDescription": "当前平台使用 {shortcut} 提交消息，消息编辑也用同一按键保存。",
       "heightTitle": "输入区域高度",
       "heightDescription": "控制输入框自动扩展时允许占用的最大高度。",
       "height": {
@@ -812,7 +812,11 @@
         "name": "服务名称"
       },
       "protocolAuto": "自动识别",
-      "copied": "已复制"
+      "copied": "已复制",
+      "linkHintMultiple": "包含多个服务时，每个服务的地址与 API Key 都需填写。",
+      "entryTitle": "服务 {index}",
+      "addEntry": "添加服务",
+      "removeEntry": "移除{title}"
     }
   },
   "importPage": {
@@ -845,7 +849,31 @@
       "missing_key": "缺少 API Key。",
       "invalid_key": "API Key 格式无效。",
       "invalid_protocol": "不支持的接口协议。",
-      "invalid_name": "名称无效。"
+      "invalid_name": "名称无效。",
+      "entry": "第 {entry} 个服务：{reason}",
+      "too_many_entries": "链接中的服务过多。",
+      "duplicate_entry": "链接中重复包含同一个地址与 API Key。"
+    },
+    "titleMultiple": "导入 {count} 个服务商",
+    "warningMultiple": "对话内容将发送至以下地址，请确认链接来源可信。",
+    "slotsLeft": "还可添加 {count} 个，超出的不会导入。",
+    "importAll": "全部导入",
+    "done": "完成",
+    "batchDone": "已导入 {count} 个服务商",
+    "status": {
+      "pending": "待导入",
+      "probing": "正在获取模型",
+      "saving": "正在保存",
+      "throttled": "请求过于频繁，{seconds} 秒后继续",
+      "imported": "已导入 · {count} 个模型",
+      "needsSelection": "{count} 个模型，需手动选择",
+      "noModels": "未获取到模型",
+      "overLimit": "超出数量上限",
+      "existing": "该域名已添加为「{name}」"
+    },
+    "actions": {
+      "selectModels": "选择模型",
+      "retry": "重试"
     }
   }
 }

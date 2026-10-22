@@ -2456,6 +2456,7 @@ export interface MessageResponse {
     | "high"
     | "xhigh"
     | "max"
+    | "ultra"
     | null;
   reasoningTokens: number;
   role: string;
@@ -2538,7 +2539,7 @@ export interface MessageUIStateResponseDoc {
 
 export interface ModelCatalogReasoningResponse {
   /** Default 为未显式选择时使用的档位。 */
-  default: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  default: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   format:
     | "openai"
     | "anthropic_effort"
@@ -2548,7 +2549,7 @@ export interface ModelCatalogReasoningResponse {
     | "qwen"
     | "toggle";
   /** Levels 为可选规范档位，按由低到高排列。 */
-  levels: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[];
+  levels: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra")[];
   /** Source 为 inferred（由旧版思考参数推断）或 catalog（models.dev 目录）。 */
   source: "inferred" | "catalog";
 }
@@ -2808,7 +2809,7 @@ export interface ModelReasoningTemplateResponse {
     | "qwen"
     | "toggle";
   /** Levels 为该格式可声明的规范档位，按由低到高排列。 */
-  levels: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[];
+  levels: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra")[];
 }
 
 export interface ModelResponse {
@@ -3591,9 +3592,9 @@ export interface PublicModelReasoningResponse {
   /** ControlPath 为推断来源的原生参数路径（高级参数面板需隐藏该控件）；显式声明时为 null。 */
   controlPath: string | null;
   /** Default 为未显式选择时使用的档位。 */
-  default: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  default: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   /** Levels 为可选规范档位，按由低到高排列。 */
-  levels: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[];
+  levels: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra")[];
   /** Locked 为 true 时档位被管理员锁定为 default，客户端传入的档位不生效。 */
   locked: boolean;
   /** Source 为能力来源。catalog 表示由 models.dev 目录自动识别：未显式选择档位时不下发推理参数，由上游决定默认行为。 */
@@ -3697,6 +3698,7 @@ export interface PublicSharedMessageResponse {
     | "high"
     | "xhigh"
     | "max"
+    | "ultra"
     | null;
   reasoningTokens: number;
   role: string;
@@ -4018,6 +4020,7 @@ export interface RunResponse {
     | "high"
     | "xhigh"
     | "max"
+    | "ultra"
     | null;
   reasoningTokens: number;
   requestID: string;

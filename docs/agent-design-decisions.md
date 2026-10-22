@@ -10,7 +10,9 @@ Q1—Q21 已完成逐项确认。本文为最终共识汇总，等待用户确�
 
 第一版覆盖代码、文本、配置文件及 ZIP 项目，不承诺任意 Office/PDF 原格式编辑。上传附件默认只读，原件不可变；用户明确要求编辑后才创建工作副本。ZIP 默认不自动解压，必须明确授权。允许编辑不等于允许执行代码。
 
-会话提升为项目保留同一工作区和历史，不复制文件；提升时不得有运行中的修改任务。第一版不自动合并到已有项目。
+任务启动时提供独立权限项：编辑文件、解压指定 ZIP、运行项目代码、浏览当前项目、公网浏览。明确用户指令可以预选，但用户须确认任务授权。在已授权范围内自主执行低风险操作，不逐条确认。授权绑定任务和工作区，不跨任务复用。
+
+项目提升保留同一工作区和历史，不复制文件；提升时不得有运行中的修改任务。第一版不自动合并到已有项目。
 
 单文件修复直接提供文件下载，多文件同时提供 ZIP。交付内容固定为交付时版本，不随后续编辑变化。交付物随所属会话或项目保留并计入存储配额，访问链接过期后可登录重新下载。删除生命周期按第 7 节执行。
 
@@ -137,7 +139,7 @@ Agent 删除及预览执行当前禁用。其余权限 `execute_code`、`browse_
 
 此前代理执行的定向 HTTP、权限、普通会话写入、CAS、archive 测试通过；这些是此前定向测试结果，不等同于本批完整包测试通过。完整包测试仍受 CGO 与既有测试桩缺失阻断，不能报告为全部通过。
 
-尚未进行真实 Postgres 迁移验证、Docker 端到端验证或浏览器端到端验证。上述构建、类型检查与单元／定向测试不替代这些真实环境验收，也不证明隔离、网络、取消、恢复或清理语义已在真实环境成立。
+尚未进行真实 Postgres 迁移验证、Docker 端到端验证或浏览器端到端验证。上述构建、类型检查及单元／定向测试不替代这些真实环境验收，也不证明隔离、网络、取消、恢复或清理语义已在真实环境成立。
 
 ### 10.4 剩余实施与验收缺口
 
@@ -321,5 +323,135 @@ runtime 在 create 取得不可变容器 ID 后，先通过回调将该 ID 绑�
 
 公网浏览器仍未开放；持久任务队列、检查点续跑、跨重启预算、物理清理与删除清理 worker 仍未实现。同机 Docker socket 模式仍属高权限部署，生产环境应优先使用独立执行节点。上述真实验收覆盖命令、项目浏览器与部署链路，不覆盖未完成项。
 
+## 16. Web 后端同步确认决策与 D1 后端进展（2026-10-20）
 
+### 16.1 已确认决策与授权边界
 
+本次确认 D1-A、D2-B、D3-A、D4-A、D5-B、D6-A，M1—M5 均认可。D5-B 允许未来启动时自动去重、删除重复行并重建索引；本轮不访问实际数据库，也不实施或验证该数据库操作。D6-A 明确桌面端不动。
+
+仅第一组 D1 获得执行授权，后续组必须审阅后另行批准；已认可决策不等于已授权全部实现。本轮子任务仅实施 D1 的后端轨迹摘要与详情接口，不据此宣称第一组或整体同步完成。
+
+保持 `sync/web-backend-v0.4.5` 分支，实施起点 HEAD 为 `e6eb32ad`；既定同步目标为 `700f88a2`，本轮仅参考本地 `43acb166..v0.4.5` 对应文件选择性移植，不切分支、不合并全仓。同步范围仅 Web、后端及必要共享代码；本次子任务不修改 Web 或桌面端，不引入 ultra、PDF、重试、压缩等其他功能，不修改生成的 Swagger／types 文件及版本。不提交、不推送、不部署、不操作线上。
+
+### 16.2 D1 后端实际实现范围
+
+消息列表仅在显式 `trace=summary` 时，为成功助手消息生成响应副本摘要；默认请求以及运行中、失败、中断消息保持原行为。新增 `detailOmitted` 标记、完整轨迹响应及文档包装、认证路由 `GET /messages/{id}/trace`。详情复用按当前用户读取消息的归属约束与现有轨迹装配；未知或他人消息返回 404，blocked、非助手及无轨迹返回 `processTrace: null`，详情不进行摘要截断。
+
+与上游过滤全部非 think／tool 事件不同，本地摘要保留 text 事件身份、轮次、顺序和时间；思考与中间正文按 rune 保留前 80 字符。工具摘要删除完整输入输出等展开大字段，保留预览、身份、状态和耗时；不可解析的历史工具载荷保持原样。原始轨迹、持久化正文以及现有详情脱敏逻辑不变。当前领域轨迹结构未发现独立 ThinkBlocks 字段，不为此新增平行结构。
+
+新增测试覆盖中文截断、text 多轮及身份／时间保留、原数据不变、非成功消息不摘要、工具瘦身、详情原文、用户归属、blocked、功能关闭及错误边界；这些测试的实际执行情况分别记录如下，不将编写完成视为执行通过。
+
+### 16.3 本轮实际后端验证与限制
+
+在 `backend` 目录执行以下命令，未启动服务、未访问真实数据库，未使用生产桩绕过依赖：
+
+| 命令 | 实际结果 |
+|---|---|
+| `go test ./internal/application/conversation -run 'Test(SummarizeMessageProcessTraces|SlimToolTracePayload|GetMessageProcessTrace)' -count=1` | setup failed，退出码 1；当前 `CGO_ENABLED=0`，既有测试导入 persistence／sqlitevec，`sqlite-vec-go-bindings/cgo` 被 build constraints 排除；新增应用层测试尚未执行 |
+| `go test ./internal/transport/http/conversation -run 'Test(GetMessageProcessTraceHTTPBoundaries|MessageProcessTraceSummaryResponseContract)' -count=1` | 通过，退出码 0；仅内存仓储替身与 httptest 请求，不启动监听服务 |
+| `go build ./internal/application/conversation ./internal/transport/http/conversation ./internal/domain/conversation` | 通过，退出码 0 |
+
+以上仅为 D1 后端局部实现与定向验证，不代表全部应用层测试、第一组 D1、后续分组或全仓同步完成。真实数据库、真实服务及端到端验收未执行；应用层测试仍需具备原有 CGO／sqlite-vec 依赖的环境复跑。
+
+## 17. D2-B 重试菜单调整（2026-10-21）
+
+用户已批准 D2-B。本次仅移除助手回复重试时选择其他 reasoning effort 的菜单与单次请求 override；普通 reasoning 配置、消息上的 reasoning 元数据归一化及 composer 控件保持不变。点击重试使用当前 composer model/options，不再从消息重试入口传递 reasoning effort 参数。持久化与临时聊天调用保持单消息参数兼容；临时聊天重试也继续基于当前 runtime 配置。
+
+实现涉及 `apps/web/features/chat/components/message/message-meta.tsx`、`apps/web/features/chat/components/message/message-bot.tsx`、`apps/web/features/chat/components/sections/chat-area.tsx`、`apps/web/features/chat/components/app-chat-area.tsx`、`apps/web/features/chat/hooks/use-chat-message-actions.ts` 与 `apps/web/features/chat/model/chat-reasoning-effort.ts`。`chat-reasoning-effort.ts` 保留 `normalizeMessageReasoningEffort`，移除仅供该菜单使用的类型与 override helper。现有 D1 改动保留，本次未涉及后端、桌面、依赖、版本或生成文件。
+
+本轮 `git diff --check` 通过；在 `apps/web` 搜索 `RegenerateMenuButton`、`ChatRegenerateReasoningOptions`、`regenerateReasoning`、`onRetryWithReasoning` 与 `withChatReasoningEffortOverride` 均无残留。临时 runtime 的重试函数仍仅接收消息，提交使用闭包中的当前 model/options。本机 root 与 `apps/web` 均无 `node_modules`，因此未运行前端 typecheck；未安装依赖，也未启动服务。
+
+同时删除 `chat.reasoningEffort` 下仅供该菜单使用的 `regenerate`、`regenerateWith`、`usedByReply` 三个中英文文案键，避免留下不可达文案；其余 reasoning 文案与 composer 控件未改动。
+
+## 18. D3—D6 实施记录（2026-10-21）
+
+用户要求先完成 D3—D6，前端与端到端体验统一留到后续验证。以下只记录本轮实际完成与未验证边界，不宣称同步完成。
+
+### 18.1 D3-A：保留本地附件策略，接入失败 PDF 原生回退
+
+保留本地「按协议编码能力决定原生附件、不按模型声明或中转地址预过滤」的策略。新增 `nativeInputPolicy.readsWithoutExtraction`：仅当路由支持原生 PDF、文件有存储路径、单文件大小与页数在上限内时，本轮提取失败的 PDF 不再阻断发送，而是进入原生候选；合计预算超出时仍按「无法读取」说明提供。提取失败的音频/视频仍被排除。
+
+`hydrateAttachmentsForSend` 增加原生策略入参，发送入口按当前路由解析策略后传入。新增 `native_input_failed_pdf_test.go` 覆盖策略判定、失败 PDF 候选、失败音频排除及发送前放行/拒绝边界。相关包 `go build` 通过；应用层测试仍受 CGO／sqlite-vec 构建约束阻断，未执行。
+
+### 18.2 D4-A：生成图片独立上限与配额预检
+
+`UploadFileInput` 新增可选 `MaxBytes`：非零时替代管理员上传上限与按类型上限，仅用于平台生成制品。生成图片保存、图片编辑输入读取及上游图片下载统一使用 `maxGeneratedImageBytes`（复用历史图片读取上限 50 MiB）；base64 返回的图片同样受该上限约束。媒体图片与视频请求在计费会话开始前调用 `EnsureGeneratedMediaStorage`，存储已满时提前拒绝，避免上游已计费却必然保存失败。管理员上传限额、缩略图、产物补存/重试逻辑未改动。
+
+`application/upload` 与 `application/settings` 定向测试通过，相关包构建通过。未做真实大图、并发配额竞争或存储已满的端到端验证；配额预检只拒绝「已满」，不预留本次产物空间。
+
+### 18.3 D5-B：重复设置确定性读取与启动修复
+
+新增 `settings/duplicates.go`：同一 namespace+key 优先保留「被修改过」的行，其次更新时间较新，最后取较小 ID；所有配置读取路径改为经由该消解逻辑。`Seed` 先按全表已有键过滤默认值，避免唯一索引失效时重复插入，并在检测到重复行时删除其余行、在事务内重建 `system_settings` 索引；修复失败不阻断启动，只记录警告。设置服务新增日志注入并在 `app.go` 装配。
+
+`repository.SettingsRepository` 增加 `RemoveDuplicates`，Postgres 仓储按 `namespace, key, id` 稳定排序并实现删除与 `REINDEX`；测试替身同步补齐。`application/settings` 包测试通过（含新增重复行选择、种子不重复插入、修复失败继续启动、运行时读取一致性）。**该逻辑会使以后启动在检测到重复行时自动删行并重建索引；本轮未连接任何真实数据库，重复数据是否存在、选行是否符合预期及索引维护耗时均未验证。**
+
+### 18.4 D6-A：版本同步与契约生成不触碰桌面端
+
+`scripts/sync-version.mjs` 新增 `web-backend` 模式（workspace、web、backend），`packages/api-contract/scripts/generate.mjs` 改为使用该模式，契约生成不再改写桌面 `package.json`、Tauri 与 Cargo 版本。桌面原生代码与发行流程未修改，`all` 模式保留给桌面发行流程自行使用。
+
+`node --check` 与 `node scripts/sync-version.mjs --check web-backend`、`--check desktop` 均通过。本轮未提升 `VERSION`，未重新生成 Swagger 与 API 类型文件。
+
+### 18.5 本轮统一未验证项
+
+- 前端 `pnpm typecheck`、构建与页面体验：`node_modules` 缺失；`--frozen-lockfile` 因既有 overrides 与锁文件不一致失败，改用不写锁文件安装时依赖包持续解压失败，已停止且未改动 `pnpm-lock.yaml`。
+- 后端 `go build ./...` 与涉及 persistence 的测试：受既有 CGO／sqlite-vec 构建约束阻断；`infra/persistence/postgres/settings` 亦因 `dberror` 依赖 sqlite3 CGO 无法单独构建。
+- 未进行 Docker、Postgres、真实模型调用、大文件上传、存储已满或端到端验证；上述定向测试与构建不代表真实环境验收。
+
+## 19. M1—M5 实施记录（2026-10-21）
+
+用户批准继续实施 M1—M5。本轮仍只在 `sync/web-backend-v0.4.5` 分支修改，未提交、未推送、未操作线上。
+
+### 19.1 M1：ultra 档位与推理参数归属
+
+后端新增 `ultra` 规范档位（仅 `openai` 格式可声明）与 `ReasoningOwnedOptionPaths`；`ResolveModelControls` 隐藏被思考强度翻译接管的原生参数。二改保留的协议参数补缺（temperature / top_p / top_k 等）继续生效，测试按「接管路径隐藏、本地补缺保留」调整。前端同步 `ultra` 到模型推理档位列表、管理员档位列表、`reasoning.effort` / `reasoning_effort` 候选值及中英文档位文案；通道与对话 DTO 的 `enums` 注释同步。
+
+`go test ./internal/domain/channel` 通过，channel/conversation 相关包构建通过。
+
+### 19.2 M2：个人渠道批量导入
+
+`@deeix/core` 的导入链接解析支持 v2 多条目（单条仍输出 v1），新增条目数上限与重复条目校验；`/import` 页面新增批量确认界面与逐条导入 hook，链接生成对话框支持增删服务条目。中英文 `settings.json` 补充批量导入文案。
+
+使用 Node 类型剥离直接验证：v1 解析 1 条、v2 解析 2 条、重复条目返回 `duplicate_entry`、v2 链接往返解析仍为 2 条。
+
+### 19.3 M3：编辑快捷键与输入法保护
+
+新增共享 `isImeComposingKeyEvent`，输入框与消息编辑共用；消息编辑在配置的发送快捷键下保存，并跳过输入法组合中的 Enter。`sendShortcut` 从 `AppChatArea` 经 `ChatArea` 传到 `ChatMessageBot`，并纳入 memo 比较。设置页快捷键说明同步更新。
+
+### 19.4 M4：附件失败提示与 Markdown/UI 渲染
+
+附件状态原因改为锚定整卡的 Tooltip；后台处理失败会逐条弹出带原因的提示，上传失败优先展示服务端原因。Markdown 美元公式解析按 Pandoc 规则重写（避免把价格误判为公式），闭合的不支持内联 HTML 按标记处理；新增图片 UI block 与图片画廊，并更新 stat/card/table/quiz 等块的图片支持。工作区 HTML/SVG 沙箱与可执行预览的隔离边界未改变。
+
+Docker 前端构建曾报 `isFileProcessingFailed` 未从 `@/entities/file` 导出；已在 `entities/file/index.ts` 补齐该导出。该错误由构建发现，修复后尚未重新执行 Docker 构建。
+
+### 19.5 M5：契约与文档适配
+
+`packages/api-contract/src/types.generated.ts` 的推理档位联合类型手工补充 `ultra`。`pnpm api:generate` 因缺少 `swagger-typescript-api`（`node_modules` 未安装）在生成阶段失败，未改动任何生成文件；Swagger `docs.go/json/yaml` 尚未重新生成，待依赖可用后统一执行。README 的 fork 说明改为「Web 与后端同步 v0.4.5，桌面端仍为 v0.4.4，另行升级」。
+
+### 19.6 本轮实际验证与未验证项
+
+| 检查 | 实际结果 |
+|---|---|
+| `go test ./internal/domain/channel` | 通过 |
+| `go test ./internal/transport/http/conversation` | 通过 |
+| `go test ./internal/application/settings` | 通过 |
+| `go test ./internal/application/upload` | 通过 |
+| channel / conversation / upload / settings / repository 相关包构建 | 通过 |
+| 导入链接 v1/v2/重复/往返（Node 直接执行） | 通过 |
+| 中英文 i18n JSON 解析、`git diff --check` | 通过 |
+| 前端 typecheck / 构建 / 页面体验 | 未执行，`node_modules` 仍缺失 |
+| Swagger 与 API 类型重新生成 | 未执行，生成器依赖缺失；仅手工同步了枚举类型 |
+| Docker / Postgres / 真实模型 / 端到端 | 未执行 |
+
+## 20. 允许指定来源 iframe 嵌套（2026-10-21）
+
+New API 的「聊天链接」会在其页面内用 iframe 打开目标站点，而本系统原先对所有响应发送 `X-Frame-Options: DENY`，导致导入链接与聊天界面都无法在 iframe 中加载。
+
+新增配置 `security.frame_ancestors`（环境变量 `SECURITY_FRAME_ANCESTORS`），取值为 CSP `frame-ancestors` 语法：
+
+- 留空、`none` 或含换行/分号等非法内容：保持 `X-Frame-Options: DENY`，行为与之前一致。
+- 配置为 `'self'`：发送 `Content-Security-Policy: frame-ancestors 'self'` 与 `X-Frame-Options: SAMEORIGIN`。
+- 配置为来源白名单（如 `'self' https://newapi.example.com`）：只发送 CSP，不再发送 `X-Frame-Options`，因为该头无法表达跨子域白名单。
+
+只有同站来源（同一注册域下的不同子域）才能在 iframe 内保持 `SameSite=Lax` 登录 Cookie 可用；跨站来源即使放开嵌套，仍可能受第三方 Cookie 限制。公开文件内容响应继续使用自身的 `frame-ancestors 'none'`，不随该配置放开。
+
+验证：新增中间件测试覆盖默认拒绝、白名单、`'self'` 与非法值；`go test ./internal/transport/http/middleware` 通过，`internal/transport/http` 的静态/版本相关测试通过。`internal/infra/config` 的本地模式密钥权限测试在 Windows 上仍因文件权限表现失败，属既有环境问题。

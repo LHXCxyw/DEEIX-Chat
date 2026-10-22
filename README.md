@@ -32,7 +32,7 @@ The system is designed around simple deployment, efficient static delivery, and 
 
 ## Personal Fork and Secondary Development
 
-This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat), maintained independently and not an official DEEIX Chat release. It is currently rebased on upstream v0.4.4 and keeps the upstream layout and upgrade path while re-applying and extending the customisations listed below. For the exact set of changes, refer to this repository's commit history.
+This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat), maintained independently and not an official DEEIX Chat release. Its web app and backend are synchronised with upstream v0.4.6. The desktop app is not maintained in this fork: it stays at its v0.4.4 code baseline, with only its version fields kept consistent by the release tooling. The upstream layout and upgrade path are kept while re-applying and extending the customisations listed below. For the exact set of changes, refer to this repository's commit history.
 
 Personal upstream channels (BYOK), user model management, and user model routing are natively covered by the upstream personal provider system, so this fork no longer maintains its own implementations of those parts.
 
@@ -52,6 +52,9 @@ Personal upstream channels (BYOK), user model management, and user model routing
 - **Sandboxed agent execution**: one-shot, network-disabled Docker tasks for workspace commands and a Playwright Chromium project browser, with typed actions, screenshots delivered as attachments, strict resource limits and a fail-closed readiness check.
 - **Three-level agent permissions**: manual approval, automatic approval and full access, normalised on the server so tools are registered consistently while approval behaviour still differs per mode.
 - **Generated vs uploaded files**: the file library can filter AI-generated assets and bulk-delete them without touching user-uploaded reference files.
+- **Multi-provider import links**: one import link can carry several personal upstream services, with per-entry validation and a batch confirmation screen.
+- **Ultra reasoning level and owned-parameter hiding**: the OpenAI reasoning format can declare `ultra`, and native parameters controlled by reasoning-effort translation are no longer offered as separate controls.
+- **Edit with the send shortcut**: message editing saves with the configured send shortcut, with IME composition guarded.
 
 ![DEEIX Chat workspace](./docs/assets/screenshots/DEEIX-Chat.jpg)
 
@@ -128,7 +131,7 @@ flowchart TB
 | Layer | Responsibility | Technologies |
 | --- | --- | --- |
 | Frontend | Chat UI, admin console, and static builds | Next.js 16, React 19, TypeScript, Tailwind CSS, Shadcn/UI, Streamdown, KaTeX, Mermaid, Recharts, Motion |
-| Backend runtime | APIs, authentication, authorization, orchestration, protocol adaptation, and static serving | Go 1.26, Gin, Gorm, Swagger, OpenTelemetry, Zap |
+| Backend runtime | APIs, authentication, authorization, orchestration, protocol adaptation, and static serving | Go 1.27, Gin, Gorm, Swagger, OpenTelemetry, Zap |
 | Data and cache | Domain data, vector retrieval, session state, and runtime cache | PostgreSQL, pgvector, SQLite, sqlite-vec, Redis, in-memory cache |
 | Files and storage | Uploaded files, generated files, object storage, and local persistence | Local filesystem, S3-compatible object storage |
 | File processing | Text extraction, OCR, document parsing, and LLM OCR fallback | Built-in extractors, Apache Tika, Docling, RapidOCR, Tesseract OCR, Paddle OCR, cloud OCR adapters, MinerU |
@@ -177,9 +180,9 @@ The backend keeps clear internal boundaries: `backend/cmd/server` is the executa
 
 ## Prerequisites
 
-- Node.js 20.9 or newer (the repository Docker image and CI use Node.js 24).
-- pnpm 10.17.0, normally enabled through Corepack.
-- Go 1.26.8 for backend development.
+- Node.js 26.12.1 or newer — the patched release line this fork builds and deploys with; `.nvmrc`, CI and the Docker image all pin it.
+- pnpm 10.17.0 (`npm install -g pnpm@10.17.0`; Node 26 no longer bundles Corepack).
+- Go 1.27.3 for backend development.
 - Docker Engine with Docker Compose v2 for container deployments or local PostgreSQL/Redis services.
 
 The Docker deployment starts PostgreSQL and Redis in containers for you. Outside Docker, the default development configuration expects PostgreSQL and Redis reachable from the host.
@@ -250,7 +253,7 @@ repository root and routes to pnpm / turbo / cargo / go underneath.
 | `make build-desktop` / `make release-desktop` | Quick local `.app` / signed release bundle. |
 | `make verify` | check + test + build, what CI runs. |
 | `make api-docs` | Regenerate Swagger artifacts and TypeScript API types. |
-| `make version` | Propagate `VERSION` to every package manifest. |
+| `make version` / `make version-check` | Synchronize/check versions, Cargo.lock and generated Swagger/TypeScript API contracts. |
 
 The same verbs exist as pnpm scripts (`pnpm dev:api`, `pnpm check`, …) for
 tooling that prefers them; CI uses those directly.
