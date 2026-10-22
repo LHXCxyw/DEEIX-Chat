@@ -20,7 +20,7 @@ concurrency:
 
 env:
   PNPM_VERSION: 10.17.0
-  NODE_VERSION: 24
+  NODE_VERSION: 26.12.1
   # Incremental artefacts are useless across CI runs and bloat the Rust cache.
   CARGO_INCREMENTAL: 0
 
