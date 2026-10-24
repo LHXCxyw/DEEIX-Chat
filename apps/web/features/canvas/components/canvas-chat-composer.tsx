@@ -1,21 +1,50 @@
 "use client";
 
-import { ArrowUp, ImagePlus, LayoutList, Loader2, Maximize2, X } from "lucide-react";
+import {
+  ArrowUp,
+  AudioLines,
+  ImagePlus,
+  Image as ImageIcon,
+  Loader2,
+  Maximize2,
+  Video,
+  Workflow,
+  X,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { CanvasImageParams } from "@/features/canvas/components/canvas-image-params";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
+import { CanvasPromptExpandDialog } from "@/features/canvas/components/canvas-prompt-expand";
 import {
   canvasModelKey,
   type CanvasModelOption,
 } from "@/features/canvas/model/canvas-image-options";
-import type { GraphNode } from "@/features/canvas/model/canvas-types";
+import type { GenerateGraphNode } from "@/features/canvas/model/canvas-types";
 import { cn } from "@/lib/utils";
 import type { ConversationOptions } from "@/shared/api/conversation-types";
 
 // 对话输入条：叠加在无限画布底部。画布的拖动/捏合缩放/节点交互保持原样，
 // 任务经此创建后结果作为输出节点直接出现在画布上。
 // 与桌面节点图共用同一 store 与生成管线，来回切换不丢数据。
+
+// 继承生成节点时展示的上游素材（可逐个移除，与原画布连线一一对应）
+export type ChatInheritedAsset = {
+  fileID: string;
+  fileName: string;
+  kind: "image" | "video" | "audio";
+  // 素材来源节点与接入端口：移除继承时按此断开对应连线
+  sourceNodeID: string;
+  port: "image" | "video" | "audio";
+};
+
+// 选中的生成节点（或其输出节点所属的生成节点）：输入条继承其模型、参数与素材，
+// 发送时直接在该生成节点上发起任务，不再新建一批节点
+export type ChatInheritedContext = {
+  node: GenerateGraphNode;
+  prompt: string;
+  assets: ChatInheritedAsset[];
+};
 
 export type ChatTaskInput = {
   prompt: string;
@@ -24,28 +53,38 @@ export type ChatTaskInput = {
   // 模型参数与生成数量：与节点图内的生成节点共用同一套参数面板
   options: ConversationOptions;
   resultCount: number;
-  // 是否附带画布上下文（开关打开时由工作区拼到提示词前缀）
-  includeCanvasContext: boolean;
+  // 继承生成节点时携带目标任务节点 ID：发送后在该节点上直接发起生成
+  inheritedGenerateNodeID?: string;
 };
+
+function assetIcon(kind: ChatInheritedAsset["kind"]): React.ReactNode {
+  if (kind === "video") {
+    return <Video className="size-3 shrink-0 text-fuchsia-500" strokeWidth={1.8} />;
+  }
+  if (kind === "audio") {
+    return <AudioLines className="size-3 shrink-0 text-fuchsia-500" strokeWidth={1.8} />;
+  }
+  return <ImageIcon className="size-3 shrink-0 text-sky-500" strokeWidth={1.8} />;
+}
 
 export function CanvasChatComposer({
   imageModels,
   restoredModelKey,
   generatingCount,
-  nodes,
-  canvasContextEnabled,
-  onCanvasContextToggle,
+  inherited,
+  onClearInherited,
+  onRemoveInheritedAsset,
   onAddTask,
 }: {
   imageModels: CanvasModelOption[];
   // 上次选中的模型身份键（区分接口重名模型；兼容旧版纯名称值）
   restoredModelKey: string | null;
   generatingCount: number;
-  // 画布节点：用于附加上下文提示条的节点计数
-  nodes: GraphNode[];
-  // 是否附带画布上下文（状态由父组件持有）及其开关回调
-  canvasContextEnabled: boolean;
-  onCanvasContextToggle: (next: boolean) => void;
+  // 画布中选中的生成节点：输入条继承其状态与素材
+  inherited: ChatInheritedContext | null;
+  onClearInherited: () => void;
+  // 移除单个继承素材：断开该素材与生成节点的连线，不影响其他继承内容
+  onRemoveInheritedAsset: (asset: ChatInheritedAsset) => void;
   onAddTask: (input: ChatTaskInput) => void;
 }) {
   const t = useTranslations("canvas");
@@ -58,7 +97,6 @@ export function CanvasChatComposer({
   // 放大输入：仅把提示词框铺满一屏便于写长提示词，不引入其它编辑能力
   const [expanded, setExpanded] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
-  const expandedInputRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   const selectedModel = React.useMemo(() => {
     return (
@@ -71,6 +109,8 @@ export function CanvasChatComposer({
   }, [imageModels, restoredModelKey, selectedModelKey]);
   // 视频模型必须携带提示词（上游 prompt 必填）
   const isVideoModel = selectedModel?.kinds.includes("video_gen") ?? false;
+  const inheritedNodeID = inherited?.node.id ?? "";
+  const lastInheritedIDRef = React.useRef("");
 
   // 初始模型到位后回填默认选择
   React.useEffect(() => {
@@ -82,6 +122,32 @@ export function CanvasChatComposer({
       );
     }
   }, [imageModels, restoredModelKey, selectedModelKey]);
+
+  // 继承切换：把生成节点的模型、参数、提示词同步到输入条（同一节点内编辑不回填）
+  React.useEffect(() => {
+    if (lastInheritedIDRef.current === inheritedNodeID) {
+      return;
+    }
+    lastInheritedIDRef.current = inheritedNodeID;
+    if (!inherited) {
+      setPrompt("");
+      return;
+    }
+    const node = inherited.node;
+    const matched = imageModels.find((item) =>
+      item.platformModelName === node.model
+      && (node.modelScope === "user"
+        ? item.modelScope === "user" && item.userModelID === node.userModelID
+        : (item.modelScope ?? "platform") === (node.modelScope ?? "platform")))
+      ?? imageModels.find((item) => item.platformModelName === node.model)
+      ?? null;
+    if (matched) {
+      setSelectedModelKey(canvasModelKey(matched));
+    }
+    setOptions(node.options ?? {});
+    setResultCount(node.resultCount ?? 1);
+    setPrompt(inherited.prompt);
+  }, [imageModels, inherited, inheritedNodeID]);
 
   const addFiles = React.useCallback((files: File[]) => {
     const images = files.filter((file) => file.type.startsWith("image/"));
@@ -109,7 +175,12 @@ export function CanvasChatComposer({
     });
   }, []);
 
-  const canSend = Boolean(prompt.trim() || (pendingFiles.length > 0 && !isVideoModel)) && Boolean(selectedModel);
+  // 继承模式下即使留空也能发送：沿用生成节点已连接的提示词与素材
+  const canSend = Boolean(selectedModel) && (
+    inherited
+      ? Boolean(prompt.trim() || inherited.prompt.trim() || inherited.assets.length > 0)
+      : Boolean(prompt.trim() || (pendingFiles.length > 0 && !isVideoModel))
+  );
 
   const send = React.useCallback(() => {
     if (!canSend || !selectedModel) {
@@ -121,14 +192,17 @@ export function CanvasChatComposer({
       model: selectedModel,
       options,
       resultCount,
-      includeCanvasContext: canvasContextEnabled,
+      inheritedGenerateNodeID: inherited?.node.id,
     });
     for (const item of pendingFiles) {
       URL.revokeObjectURL(item.previewURL);
     }
     setPendingFiles([]);
-    setPrompt("");
-  }, [canSend, canvasContextEnabled, onAddTask, options, pendingFiles, prompt, resultCount, selectedModel]);
+    // 继承模式下保留提示词：同一节点可连续发起多次生成
+    if (!inherited) {
+      setPrompt("");
+    }
+  }, [canSend, inherited, onAddTask, options, pendingFiles, prompt, resultCount, selectedModel]);
 
   // 桌面（精确指针）Enter 发送、Shift+Enter 换行；触屏保留 Enter 换行
   const handlePromptKeyDown = React.useCallback(
@@ -142,42 +216,46 @@ export function CanvasChatComposer({
     [send],
   );
 
-  // 放大输入打开时聚焦大框并支持 Esc 退出
-  React.useEffect(() => {
-    if (!expanded) {
-      return;
-    }
-    expandedInputRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setExpanded(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [expanded]);
-
   return (
     <div
       data-canvas-ui="chat-composer"
       className="pointer-events-auto absolute bottom-3 left-3 right-3 z-20 mx-auto max-w-xl rounded-2xl border border-border/70 bg-background/90 p-2.5 shadow-lg backdrop-blur-xl"
     >
-      {/* 附带画布上下文提示条：开关打开时展示节点数量，可一键移除 */}
-      {canvasContextEnabled ? (
-        <div className="mb-2 flex items-center">
-          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
-            <LayoutList className="size-3 shrink-0" strokeWidth={1.8} />
-            <span className="truncate">{t("canvasContextEnabled", { count: nodes.length })}</span>
+      {/* 继承提示条：选中的生成节点把模型、参数与素材带入输入条，可一键解除继承 */}
+      {inherited ? (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
+            <Workflow className="size-3 shrink-0" strokeWidth={1.8} />
+            <span className="truncate">{t("inheritedNodeChip")}</span>
             <button
               type="button"
-              aria-label={t("attachCanvasContext")}
-              title={t("attachCanvasContext")}
+              aria-label={t("inheritedClear")}
+              title={t("inheritedClear")}
               className="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/15"
-              onClick={() => onCanvasContextToggle(false)}
+              onClick={onClearInherited}
             >
               <X className="size-3" strokeWidth={1.8} />
             </button>
           </span>
+          {inherited.assets.map((asset) => (
+            <span
+              key={`${asset.port}-${asset.fileID}`}
+              title={asset.fileName}
+              className="inline-flex max-w-48 items-center gap-1 rounded-full border border-border/60 bg-background/70 py-1 pl-2 pr-1 text-[10px] text-muted-foreground"
+            >
+              {assetIcon(asset.kind)}
+              <span className="truncate">{asset.fileName}</span>
+              <button
+                type="button"
+                aria-label={t("inheritedAssetRemove")}
+                title={t("inheritedAssetRemove")}
+                className="shrink-0 rounded-full p-0.5 transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => onRemoveInheritedAsset(asset)}
+              >
+                <X className="size-2.5" strokeWidth={2} />
+              </button>
+            </span>
+          ))}
         </div>
       ) : null}
       {pendingFiles.length > 0 ? (
@@ -204,7 +282,11 @@ export function CanvasChatComposer({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={handlePromptKeyDown}
-          placeholder={isVideoModel ? t("videoPromptPlaceholder") : t("promptPlaceholder")}
+          placeholder={
+            inherited
+              ? t("inheritedPromptPlaceholder")
+              : isVideoModel ? t("videoPromptPlaceholder") : t("promptPlaceholder")
+          }
           rows={1}
           className="max-h-32 min-h-9 w-full resize-none rounded-xl border border-border/70 bg-background/80 px-3 py-2 pr-9 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/30"
         />
@@ -227,19 +309,6 @@ export function CanvasChatComposer({
           onClick={() => fileInputRef.current?.click()}
         >
           <ImagePlus className="size-4" strokeWidth={1.8} />
-        </button>
-        <button
-          type="button"
-          aria-label={t("attachCanvasContext")}
-          title={t("attachCanvasContextHint")}
-          aria-pressed={canvasContextEnabled}
-          className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background/80 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-            canvasContextEnabled && "bg-primary/10 text-primary ring-1 ring-primary/30 transition-colors",
-          )}
-          onClick={() => onCanvasContextToggle(!canvasContextEnabled)}
-        >
-          <LayoutList className="size-4" strokeWidth={1.8} />
         </button>
         <input
           ref={fileInputRef}
@@ -289,54 +358,36 @@ export function CanvasChatComposer({
           <ArrowUp className="size-4" strokeWidth={2} />
         </button>
       </div>
-      {/* 放大输入：把提示词框铺满一屏，Esc / 关闭按钮退出，其余行为与输入条一致 */}
-      {expanded ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("promptExpandTitle")}
-          className="fixed inset-0 z-50 flex flex-col gap-3 bg-background/95 p-4 backdrop-blur-md motion-reduce:backdrop-blur-none sm:p-8"
-        >
-          <div className="flex shrink-0 items-center justify-between gap-3">
-            <span className="text-xs font-medium text-muted-foreground">{t("promptExpandTitle")}</span>
-            <button
-              type="button"
-              aria-label={t("promptExpandClose")}
-              title={t("promptExpandClose")}
-              className="flex size-8 items-center justify-center rounded-lg border border-border/70 bg-background/90 text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => setExpanded(false)}
-            >
-              <X className="size-4" strokeWidth={1.8} />
-            </button>
-          </div>
-          <textarea
-            ref={expandedInputRef}
-            aria-label={isVideoModel ? t("videoPromptPlaceholder") : t("promptPlaceholder")}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            onKeyDown={handlePromptKeyDown}
-            placeholder={isVideoModel ? t("videoPromptPlaceholder") : t("promptPlaceholder")}
-            className="min-h-0 w-full flex-1 resize-none rounded-xl border border-border/70 bg-background/80 px-4 py-3 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/30"
-          />
-          <div className="flex shrink-0 justify-end">
-            <button
-              type="button"
-              disabled={!canSend}
-              className={cn(
-                "inline-flex h-9 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-all active:scale-95",
-                canSend ? "bg-primary hover:bg-primary/90" : "bg-muted text-muted-foreground/60",
-              )}
-              onClick={() => {
-                send();
-                setExpanded(false);
-              }}
-            >
-              <ArrowUp className="size-4" strokeWidth={2} />
-              {t("generate")}
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {/* 放大输入：渲染到 body，避免父级 backdrop-blur 把 fixed 全屏层压缩成卡片大小 */}
+      <CanvasPromptExpandDialog
+        open={expanded}
+        title={t("promptExpandTitle")}
+        value={prompt}
+        placeholder={
+          inherited
+            ? t("inheritedPromptPlaceholder")
+            : isVideoModel ? t("videoPromptPlaceholder") : t("promptPlaceholder")
+        }
+        onChange={setPrompt}
+        onClose={() => setExpanded(false)}
+        footer={
+          <button
+            type="button"
+            disabled={!canSend}
+            className={cn(
+              "inline-flex h-9 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-all active:scale-95",
+              canSend ? "bg-primary hover:bg-primary/90" : "bg-muted text-muted-foreground/60",
+            )}
+            onClick={() => {
+              send();
+              setExpanded(false);
+            }}
+          >
+            <ArrowUp className="size-4" strokeWidth={2} />
+            {t("generate")}
+          </button>
+        }
+      />
     </div>
   );
 }

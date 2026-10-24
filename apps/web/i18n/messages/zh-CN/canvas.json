@@ -286,7 +286,13 @@
   "mediaUploadVideo": "上传参考视频",
   "mediaUploadAudio": "上传参考音频",
   "mediaReplace": "替换",
-  "attachCanvasContext": "附带画布上下文",
-  "attachCanvasContextHint": "把当前画布的节点与连线摘要作为上下文注入提示词",
-  "canvasContextEnabled": "已附带画布上下文 · {count} 个节点"
+  "inheritedNodeChip": "已继承生成节点",
+  "inheritedClear": "取消继承该节点",
+  "inheritedPromptPlaceholder": "留空则沿用继承节点的提示词",
+  "inheritedAssetRemove": "移除该继承素材",
+  "assetPreviewVideo": "预览视频",
+  "mediaPreviewTitle": "媒体预览",
+  "mediaPreviewDescription": "在画布内预览该媒体资产",
+  "locateAllNodes": "定位全部节点",
+  "nodeVideoDuration": "视频时长"
 }

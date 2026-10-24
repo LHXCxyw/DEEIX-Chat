@@ -1879,7 +1879,7 @@ const canvasStoreImplementation = {
   // -------------------------------------------------------------------------
   // 图执行引擎：生成节点汇聚上游提示词与参考图并流式生成，结果写入输出节点
   // -------------------------------------------------------------------------
-  async runGenerateNode(generateNodeID: string): Promise<void> {
+  async runGenerateNode(generateNodeID: string, overrides?: { prompt?: string }): Promise<void> {
     const generateNode = state.nodes.find((node) => node.id === generateNodeID);
     if (!generateNode || generateNode.kind !== "generate" || !labels) {
       return;
@@ -1889,6 +1889,8 @@ const canvasStoreImplementation = {
     startAborts.delete(generateNodeID);
     const mediaType = generateNode.mediaType ?? "image";
     const inputs = gatherGraphGenerateInputs(generateNodeID, state.nodes, state.edges);
+    // 对话模式继承生成节点时，输入框文案作为本次提示词覆盖上游节点文本（不改动画布连线）
+    const prompt = overrides?.prompt?.trim() || inputs.prompt;
     const model = canvasStore.resolveModel(generateNode.model, mediaType, generateNode.modelScope, generateNode.userModelID);
     if (!model) {
       const message = mediaType === "video" ? (labels.noVideoModels ?? labels.noImageModels) : labels.noImageModels;
@@ -1896,9 +1898,9 @@ const canvasStoreImplementation = {
       toast.error(message);
       return;
     }
-    if (!graphGenerateHasInputs(inputs) || (mediaType === "video" && !inputs.prompt.trim())) {
+    if (!graphGenerateHasInputs({ ...inputs, prompt }) || (mediaType === "video" && !prompt.trim())) {
       // 视频生成的 prompt 为上游必填项，单独提示
-      const message = mediaType === "video" && !inputs.prompt.trim()
+      const message = mediaType === "video" && !prompt.trim()
         ? labels.videoPromptRequired
         : labels.missingPromptInput;
       markGenerateNodeError(generateNodeID, message);
@@ -1936,7 +1938,6 @@ const canvasStoreImplementation = {
       return;
     }
 
-    const prompt = inputs.prompt;
     const operation: CanvasOperation = references.length > 0 && generateNode.operation === "generate"
       ? "edit"
       : generateNode.operation;

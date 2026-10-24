@@ -133,7 +133,8 @@ export function CanvasImageParams({
           ) : null
         ) : (
           <>
-            <span className="hidden sm:inline">{isVideo ? t("videoParams") : t("imageParams")}</span>
+            {/* 参数文案在移动端同样展示：仅靠「3/4」计数无法表达按钮用途 */}
+            <span className="whitespace-nowrap">{isVideo ? t("videoParams") : t("imageParams")}</span>
             <span className="tabular-nums text-muted-foreground">
               {displayCount}/{totalCount}
             </span>

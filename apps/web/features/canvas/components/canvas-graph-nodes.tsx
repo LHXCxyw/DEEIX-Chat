@@ -12,6 +12,7 @@ import {
   ImagePlus,
   Images,
   ListOrdered,
+  Maximize2,
   Paintbrush,
   Pencil,
   Play,
@@ -30,6 +31,7 @@ import { GRAPH_NODE_ACCENTS, GraphNodeShell } from "@/features/canvas/components
 import { MediaGraphNodeView } from "@/features/canvas/components/canvas-media-node";
 import { CanvasImageParams } from "@/features/canvas/components/canvas-image-params";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
+import { CanvasPromptExpandDialog } from "@/features/canvas/components/canvas-prompt-expand";
 import { PromptTemplateLibrary } from "@/features/canvas/components/canvas-prompt-template-library";
 import { CopyActionButton } from "@/shared/components/copy-action";
 import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
@@ -37,6 +39,7 @@ import {
   type GraphConnectionSummary,
   type GraphNodeInputSummary,
   type GraphPortID,
+  graphModelDisplayName,
   graphNodePorts,
   isGraphPortCompatibleTarget,
 } from "@/features/canvas/model/canvas-graph";
@@ -151,6 +154,8 @@ function PromptGraphNodeView({
 }) {
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
+  // 全屏编辑：节点内输入框空间有限，长提示词需要更大的编辑区域
+  const [expanded, setExpanded] = React.useState(false);
   const truncated = node.text.length > PROMPT_MAX_LENGTH ? node.text.slice(0, PROMPT_MAX_LENGTH) : node.text;
   return (
     <GraphNodeShell
@@ -181,8 +186,30 @@ function PromptGraphNodeView({
           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
             {node.text.length} / {PROMPT_MAX_LENGTH.toLocaleString()}
           </span>
+          <button
+            type="button"
+            data-canvas-selectable
+            aria-label={t("promptExpandOpen")}
+            title={t("promptExpandOpen")}
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded(true);
+            }}
+          >
+            <Maximize2 className="size-3.5" strokeWidth={1.8} />
+          </button>
         </div>
       </div>
+      <CanvasPromptExpandDialog
+        open={expanded}
+        title={t("promptExpandTitle")}
+        value={node.text}
+        placeholder={t("promptPlaceholder")}
+        onChange={(text) => handlers.onUpdateNode(node.id, { text })}
+        onClose={() => setExpanded(false)}
+      />
     </GraphNodeShell>
   );
 }
@@ -753,6 +780,17 @@ function GenerateGraphNodeView({
   );
 }
 
+// 任务耗时展示：超过一分钟按「分 + 秒」折叠，避免出现 510s 这类难以阅读的数字
+function formatElapsedDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) {
+    return `${total}s`;
+  }
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return seconds > 0 ? `${minutes}m${seconds}s` : `${minutes}m`;
+}
+
 // ---------------------------------------------------------------------------
 // 输出节点：生成结果展示与后续操作入口
 // ---------------------------------------------------------------------------
@@ -774,10 +812,26 @@ function OutputGraphNodeView({
   // 运行中任务的取消目标：运行控制器按 runID 登记（并发多次生成互不影响）
   const cancelTargetID = node.status === "running" ? node.runID ?? node.sourceGenerateID ?? null : null;
   const displaySource = node.status === "done" ? node.objectURL : undefined;
+  // 视频真实时长：上游回传的时长可能是请求参数的缺省值（与成片不一致），
+  // 以播放器元数据为准并回写节点，使卡片与资产侧栏显示同一份准确时长
+  const [mediaDuration, setMediaDuration] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     setImageLoaded(false);
+    setMediaDuration(null);
   }, [displaySource]);
+
+  React.useEffect(() => {
+    if (mediaDuration === null || mediaDuration <= 0) {
+      return;
+    }
+    const rounded = Math.round(mediaDuration);
+    if (node.durationSeconds === undefined || Math.abs(node.durationSeconds - rounded) >= 1) {
+      handlers.onUpdateNode(node.id, { durationSeconds: rounded });
+    }
+  }, [handlers, mediaDuration, node.durationSeconds, node.id]);
+
+  const displayDuration = mediaDuration !== null && mediaDuration > 0 ? mediaDuration : node.durationSeconds;
 
   const copyPrompt = React.useCallback(async () => {
     if (!node.prompt) {
@@ -994,6 +1048,12 @@ function OutputGraphNodeView({
                 playsInline
                 className="size-full bg-black/80 object-contain"
                 data-canvas-selectable
+                onLoadedMetadata={(event) => {
+                  const seconds = event.currentTarget.duration;
+                  if (Number.isFinite(seconds) && seconds > 0) {
+                    setMediaDuration(seconds);
+                  }
+                }}
               />
               {/* 悬停操作工具条 */}
               <div className="pointer-events-none absolute top-1.5 left-1.5 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/node:opacity-100">
@@ -1077,19 +1137,19 @@ function OutputGraphNodeView({
         {node.status === "done" ? (
           <div className="flex shrink-0 items-center justify-between gap-2 text-[10px] text-muted-foreground/80">
             <span className="min-w-0 truncate" title={node.model}>
-              {node.model}
+              {node.model ? graphModelDisplayName(node.model) : null}
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
-              {isVideo && node.durationSeconds !== undefined && node.durationSeconds > 0 ? (
-                <span className="inline-flex items-center gap-0.5 tabular-nums">
+              {isVideo && displayDuration !== undefined && displayDuration > 0 ? (
+                <span className="inline-flex items-center gap-0.5 tabular-nums" title={t("nodeVideoDuration")}>
                   <Clock3 className="size-2.5" aria-hidden="true" />
-                  {node.durationSeconds}s
+                  {Math.round(displayDuration)}s
                 </span>
               ) : null}
               {node.durationMs !== undefined ? (
-                <span className="inline-flex items-center gap-0.5 tabular-nums">
+                <span className="inline-flex items-center gap-0.5 tabular-nums" title={t("nodeDuration")}>
                   <Clock3 className="size-2.5" aria-hidden="true" />
-                  {Math.round(node.durationMs / 1000)}s
+                  {formatElapsedDuration(node.durationMs)}
                 </span>
               ) : null}
               <span>{new Date(node.completedAt ?? node.createdAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>

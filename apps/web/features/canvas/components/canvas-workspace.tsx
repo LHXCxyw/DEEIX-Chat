@@ -1,26 +1,33 @@
 "use client";
 
-import { Sparkles, Trash2, X } from "lucide-react";
+import { Scan, Sparkles, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 
 import { toast } from "sonner";
 import { CanvasAssetSidebar } from "@/features/canvas/components/canvas-asset-sidebar";
-import { CanvasChatComposer, type ChatTaskInput } from "@/features/canvas/components/canvas-chat-composer";
+import {
+  CanvasChatComposer,
+  type ChatInheritedAsset,
+  type ChatInheritedContext,
+  type ChatTaskInput,
+} from "@/features/canvas/components/canvas-chat-composer";
 import { CanvasImageEditor } from "@/features/canvas/components/canvas-image-editor";
 import { CanvasImageLightbox } from "@/features/canvas/components/canvas-image-lightbox";
+import { CanvasMediaLightbox, type CanvasMediaPreview } from "@/features/canvas/components/canvas-media-lightbox";
 import { CanvasMinimap } from "@/features/canvas/components/canvas-minimap";
 import { CanvasToolbar } from "@/features/canvas/components/canvas-toolbar";
 import { CanvasViewport } from "@/features/canvas/components/canvas-viewport";
 import { useCanvasModels } from "@/features/canvas/hooks/use-canvas-models";
 import { useCanvasStore } from "@/features/canvas/hooks/use-canvas-store";
-import { buildCanvasContextSummary } from "@/features/canvas/model/canvas-context";
 import { editorSizeOptions, type CanvasModelOption } from "@/features/canvas/model/canvas-image-options";
+import { gatherGraphGenerateInputs } from "@/features/canvas/model/canvas-graph";
 import { clampViewportScale, parseCanvasState } from "@/features/canvas/model/canvas-persist";
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
   type CanvasNodeMediaHint,
+  type GraphNode,
   type GraphNodeKind,
   type ImageGraphNode,
   type OutputGraphNode,
@@ -40,8 +47,9 @@ export function CanvasWorkspace() {
   const [showStructureTip, setShowStructureTip] = React.useState(false);
   // 资产列表侧边栏折叠状态（展开时隐藏右下角小地图，避免重叠）
   const [assetsCollapsed, setAssetsCollapsed] = React.useState(false);
-  // 对话输入条是否附带画布上下文（默认关，开启时由 handleChatTask 注入提示词前缀）
-  const [attachCanvasContext, setAttachCanvasContext] = React.useState(false);
+  // 资产列表的视频/音频预览（按需拉取的 blob 地址在关闭时回收）
+  const [previewMedia, setPreviewMedia] = React.useState<CanvasMediaPreview | null>(null);
+  const previewMediaURLRef = React.useRef<string | null>(null);
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
   const [containerSize, setContainerSize] = React.useState({ width: 0, height: 0 });
   const canvasViewportRef = React.useRef<Viewport>({ x: 0, y: 0, scale: 1 });
@@ -264,26 +272,197 @@ export function CanvasWorkspace() {
     [canvas, t],
   );
 
-  // 移动端对话输入条发送任务：节点生成在当前视口中心附近（保持无限画布的可视上下文），
-  // 提示词在生成节点左侧，参考图节点纵向排在提示词下方，全部自动连线后立即开始生成。
-  // 节点媒体类型跟随所选模型（视频模型 -> 视频生成节点）
-  const handleChatTask = React.useCallback(async ({ prompt, referenceFiles, model, options, resultCount, includeCanvasContext }: ChatTaskInput) => {
+  // 继承状态与「当前选中」解耦：点击空白取消选择时继承仍然保留，
+  // 只有选中另一个生成节点才切换目标，或在继承条上点 × 主动解除。
+  const [inheritedGenerateID, setInheritedGenerateID] = React.useState<string | null>(null);
+  // 主动解除继承时记录当时的选中节点，避免同一选中在节点更新时被重新继承
+  const dismissedInheritSelectionRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (canvas.selectedNodeIDs.length !== 1) {
+      dismissedInheritSelectionRef.current = null;
+      return;
+    }
+    const selectedID = canvas.selectedNodeIDs[0];
+    if (dismissedInheritSelectionRef.current === selectedID) {
+      return;
+    }
+    // 选中已切换到其他节点：解除记录失效，允许重新继承
+    dismissedInheritSelectionRef.current = null;
+    const selected = canvas.nodes.find((node) => node.id === selectedID);
+    const sourceID = selected?.kind === "generate"
+      ? selected.id
+      : selected?.kind === "output" ? selected.sourceGenerateID ?? null : null;
+    const source = sourceID ? canvas.nodes.find((node) => node.id === sourceID) : null;
+    if (source?.kind === "generate") {
+      setInheritedGenerateID(source.id);
+    }
+  }, [canvas.nodes, canvas.selectedNodeIDs]);
+
+  const handleClearInheritance = React.useCallback(() => {
+    dismissedInheritSelectionRef.current = canvas.selectedNodeIDs[0] ?? null;
+    setInheritedGenerateID(null);
+  }, [canvas.selectedNodeIDs]);
+
+  // 被继承的生成节点被删除后自动解除继承
+  React.useEffect(() => {
+    if (!inheritedGenerateID) {
+      return;
+    }
+    if (!canvas.nodes.some((node) => node.id === inheritedGenerateID && node.kind === "generate")) {
+      setInheritedGenerateID(null);
+    }
+  }, [canvas.nodes, inheritedGenerateID]);
+
+  // 对话模式继承：被继承的生成节点把模型、参数与上游素材带入输入条，
+  // 发送时直接在该节点上发起任务，不再新建工作流
+  const inheritedContext = React.useMemo<ChatInheritedContext | null>(() => {
+    if (!inheritedGenerateID) {
+      return null;
+    }
+    const node = canvas.nodes.find((item) => item.id === inheritedGenerateID);
+    if (node?.kind !== "generate") {
+      return null;
+    }
+    const inputs = gatherGraphGenerateInputs(node.id, canvas.nodes, canvas.edges);
+    const assets: ChatInheritedAsset[] = [
+      ...inputs.references.map((item, index) => ({
+        fileID: item.fileID,
+        fileName: item.fileName,
+        kind: "image" as const,
+        sourceNodeID: inputs.referenceSourceIDs[index] ?? "",
+        port: "image" as const,
+      })),
+      ...inputs.videoReferences.map((item, index) => ({
+        fileID: item.fileID,
+        fileName: item.fileName,
+        kind: "video" as const,
+        sourceNodeID: inputs.videoReferenceSourceIDs[index] ?? "",
+        port: "video" as const,
+      })),
+      ...inputs.audioReferences.map((item, index) => ({
+        fileID: item.fileID,
+        fileName: item.fileName,
+        kind: "audio" as const,
+        sourceNodeID: inputs.audioReferenceSourceIDs[index] ?? "",
+        port: "audio" as const,
+      })),
+    ];
+    return { node, prompt: inputs.prompt, assets };
+  }, [canvas.edges, canvas.nodes, inheritedGenerateID]);
+
+  // 取消单个继承素材：断开该素材与生成节点的连线，素材节点本身保留在画布上
+  const handleRemoveInheritedAsset = React.useCallback((asset: ChatInheritedAsset) => {
+    if (!inheritedGenerateID) {
+      return;
+    }
+    const edge = canvas.edges.find((item) =>
+      item.toNodeID === inheritedGenerateID
+      && item.fromNodeID === asset.sourceNodeID
+      && item.toPort === asset.port);
+    if (edge) {
+      canvas.removeEdge(edge.id);
+    }
+  }, [canvas, inheritedGenerateID]);
+
+  const closeMediaPreview = React.useCallback(() => {
+    setPreviewMedia(null);
+    if (previewMediaURLRef.current) {
+      URL.revokeObjectURL(previewMediaURLRef.current);
+      previewMediaURLRef.current = null;
+    }
+  }, []);
+
+  // 资产列表的视频/音频预览：优先用节点已缓存的 blob，缺失时按 fileID 拉取
+  const handlePreviewMedia = React.useCallback(async (node: GraphNode) => {
+    const kind: "video" | "audio" | null = node.kind === "output"
+      ? (node.mediaType === "video" || node.mimeType?.startsWith("video/") ? "video" : "audio")
+      : node.kind === "media" ? node.mediaKind : null;
+    if (!kind) {
+      return;
+    }
+    const fileName = node.kind === "output"
+      ? node.fileName ?? ""
+      : node.kind === "media" ? node.reference?.fileName ?? "" : "";
+    const cachedSource = node.kind === "output" ? node.objectURL : node.kind === "media" ? node.previewURL : undefined;
+    if (cachedSource) {
+      setPreviewMedia({ source: cachedSource, fileName, kind });
+      return;
+    }
+    const fileID = node.kind === "output" ? node.fileID : node.kind === "media" ? node.reference?.fileID : undefined;
+    if (!fileID) {
+      return;
+    }
+    const token = await resolveAccessToken();
+    if (!token) {
+      toast.error(t("needLogin"));
+      return;
+    }
+    try {
+      const result = await fetchFileContent(token, fileID);
+      const objectURL = URL.createObjectURL(result.blob);
+      previewMediaURLRef.current = objectURL;
+      setPreviewMedia({ source: objectURL, fileName, kind });
+    } catch {
+      toast.error(t("downloadFailed"));
+    }
+  }, [t]);
+
+  // 对话输入条发送任务：
+  // - 继承生成节点：只更新该节点的模型/参数，新增参考图接到该节点，随后直接发起生成；
+  // - 未继承：在视口中心创建新的生成节点与提示词/参考图节点，组成一套新工作流。
+  const handleChatTask = React.useCallback(async ({ prompt, referenceFiles, model, options, resultCount, inheritedGenerateNodeID }: ChatTaskInput) => {
+    const mediaType = model.kinds.includes("video_gen") ? "video" : "image";
     const promptSize = { width: 288, height: 224 };
     const generateSize = { width: 336, height: 512 };
     const imageSize = { height: 264 };
     const base = getSpawnPoint();
+    const modelPatch = {
+      model: model.platformModelName,
+      modelScope: model.modelScope === "user" ? "user" as const : "platform" as const,
+      userModelID: model.modelScope === "user" ? model.userModelID : undefined,
+    };
+
+    const inheritedTarget = inheritedGenerateNodeID
+      ? canvas.nodes.find((node) => node.id === inheritedGenerateNodeID)
+      : null;
+    if (inheritedTarget && inheritedTarget.kind === "generate") {
+      canvas.updateGraphNode(inheritedTarget.id, { ...modelPatch, mediaType, options, resultCount });
+      // 新增参考图：作为参考图节点接到被继承的生成节点，不新建生成工作流
+      const leftX = Math.round(inheritedTarget.x - 288 - 64);
+      let top = inheritedTarget.y;
+      for (const file of referenceFiles) {
+        const imageID = canvas.addGraphNode("image", { x: leftX, y: top });
+        canvas.updateGraphNode(imageID, { uploading: true });
+        const uploaded = await canvas.uploadReferenceFile(file);
+        canvas.updateGraphNode(imageID, {
+          reference: uploaded
+            ? {
+              fileID: uploaded.fileID,
+              fileName: uploaded.fileName,
+              mimeType: uploaded.mimeType,
+              sizeBytes: uploaded.sizeBytes,
+            }
+            : null,
+          uploading: false,
+          previewURL: uploaded?.previewURL,
+        });
+        if (uploaded) {
+          canvas.connectGraphNodes({ fromNodeID: imageID, fromPort: "out", toNodeID: inheritedTarget.id, toPort: "image" });
+        }
+        top += imageSize.height + 32;
+      }
+      void canvas.runGenerateNode(inheritedTarget.id, { prompt: prompt || undefined });
+      return;
+    }
+
     const generateX = Math.round(base.x - generateSize.width / 2);
     const generateY = Math.round(base.y - generateSize.height / 2);
     const leftX = Math.round(generateX - promptSize.width - 64);
-    // 附带画布上下文时，把画布节点与连线摘要拼到提示词前缀（视频模型要求提示词必填，此时恒非空）
-    const effectivePrompt = includeCanvasContext
-      ? `【画布上下文】\n${buildCanvasContextSummary(canvas.nodes, canvas.edges)}\n\n${prompt}`
-      : prompt;
-    const generateID = canvas.addGraphNode("generate", { x: generateX, y: generateY }, model.kinds.includes("video_gen") ? "video" : "image");
-    canvas.updateGraphNode(generateID, { model: model.platformModelName, options, resultCount });
-    if (effectivePrompt) {
+    const generateID = canvas.addGraphNode("generate", { x: generateX, y: generateY }, mediaType);
+    canvas.updateGraphNode(generateID, { ...modelPatch, options, resultCount });
+    if (prompt) {
       const promptID = canvas.addGraphNode("prompt", { x: leftX, y: generateY });
-      canvas.updateGraphNode(promptID, { text: effectivePrompt });
+      canvas.updateGraphNode(promptID, { text: prompt });
       canvas.connectGraphNodes({ fromNodeID: promptID, fromPort: "out", toNodeID: generateID, toPort: "prompt" });
     }
     let bottom = generateY;
@@ -609,6 +788,7 @@ export function CanvasWorkspace() {
             onCollapsedChange={handleAssetsCollapsedChange}
             onSelectNode={(nodeID) => canvas.setSelectedNodeIDs([nodeID])}
             onLocate={handleMinimapNavigate}
+            onPreviewMedia={(node) => void handlePreviewMedia(node)}
           />
         </div>
 
@@ -619,9 +799,9 @@ export function CanvasWorkspace() {
             imageModels={mediaModels}
             restoredModelKey={canvas.restoredModelKey}
             generatingCount={canvas.generatingCount}
-            nodes={canvas.nodes}
-            canvasContextEnabled={attachCanvasContext}
-            onCanvasContextToggle={setAttachCanvasContext}
+            inherited={inheritedContext}
+            onClearInherited={handleClearInheritance}
+            onRemoveInheritedAsset={handleRemoveInheritedAsset}
             onAddTask={(input) => void handleChatTask(input)}
           />
         ) : (
@@ -630,13 +810,31 @@ export function CanvasWorkspace() {
               imageModels={mediaModels}
               restoredModelKey={canvas.restoredModelKey}
               generatingCount={canvas.generatingCount}
-              nodes={canvas.nodes}
-              canvasContextEnabled={attachCanvasContext}
-              onCanvasContextToggle={setAttachCanvasContext}
+              inherited={inheritedContext}
+              onClearInherited={handleClearInheritance}
+              onRemoveInheritedAsset={handleRemoveInheritedAsset}
               onAddTask={(input) => void handleChatTask(input)}
             />
           </div>
         )}
+
+        {/* 移动端定位按钮：小地图在窄屏过于遮挡，改为一键把全部节点缩放到最佳比例并居中 */}
+        {canvas.nodes.length > 0 || canvas.decorations.length > 0 ? (
+          <button
+            type="button"
+            data-canvas-ui="locate-all"
+            aria-label={t("locateAllNodes")}
+            title={t("locateAllNodes")}
+            className="pointer-events-auto absolute right-3 bottom-48 z-20 flex size-11 items-center justify-center rounded-2xl border border-border/70 bg-background/90 text-foreground shadow-lg shadow-black/5 backdrop-blur-xl transition-colors hover:bg-accent active:scale-95 lg:hidden"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleFit();
+            }}
+          >
+            <Scan className="size-5" strokeWidth={1.8} />
+          </button>
+        ) : null}
       </CanvasViewport>
 
       {/* 图片放大查看 */}
@@ -653,6 +851,8 @@ export function CanvasWorkspace() {
         }}
         onDownload={(node) => void handleDownloadNode(node)}
       />
+      {/* 资产列表视频/音频预览 */}
+      <CanvasMediaLightbox media={previewMedia} onClose={closeMediaPreview} />
       <CanvasImageEditor
         node={editingNode}
         sourceURL={editingSourceURL ?? undefined}

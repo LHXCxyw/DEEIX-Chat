@@ -249,6 +249,13 @@ export type GraphNodeInputSummary = {
   ports: GraphNodeInputPortSummary[];
 };
 
+// 用户自带密钥的模型编码为 personal:<providerID>/<model>；
+// 节点与清单展示只保留上游模型名，避免把内部渠道标识暴露到界面
+export function graphModelDisplayName(modelName: string): string {
+  const value = modelName.trim();
+  return /^personal:[a-z0-9]{8,32}\/(.+)$/.exec(value)?.[1] ?? value;
+}
+
 // 连接行的节点显示名：按节点类型取最有语义的文本（与资产侧栏 / 画布上下文一致）
 export function graphConnectionLabel(node: GraphNode, fallback: string): string {
   switch (node.kind) {
@@ -259,7 +266,7 @@ export function graphConnectionLabel(node: GraphNode, fallback: string): string 
     case "media":
       return node.reference?.fileName || fallback;
     case "generate":
-      return node.model || fallback;
+      return node.model ? graphModelDisplayName(node.model) : fallback;
     case "output":
       return (node.status === "done" ? node.fileName : null) || node.prompt?.trim() || fallback;
   }

@@ -286,7 +286,13 @@
   "mediaUploadVideo": "Upload reference video",
   "mediaUploadAudio": "Upload reference audio",
   "mediaReplace": "Replace",
-  "attachCanvasContext": "Attach canvas context",
-  "attachCanvasContextHint": "Inject the current canvas nodes and connections as context into the prompt",
-  "canvasContextEnabled": "Canvas context attached · {count} nodes"
+  "inheritedNodeChip": "Inheriting generate node",
+  "inheritedClear": "Stop inheriting this node",
+  "inheritedPromptPlaceholder": "Leave empty to reuse the inherited prompt",
+  "inheritedAssetRemove": "Remove this inherited asset",
+  "assetPreviewVideo": "Preview video",
+  "mediaPreviewTitle": "Media preview",
+  "mediaPreviewDescription": "Preview this media asset on the canvas",
+  "locateAllNodes": "Locate all nodes",
+  "nodeVideoDuration": "Video duration"
 }

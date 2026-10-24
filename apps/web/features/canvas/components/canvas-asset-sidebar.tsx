@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { graphModelDisplayName } from "@/features/canvas/model/canvas-graph";
 import {
   type GraphNode,
   type GraphNodeKind,
@@ -54,6 +55,8 @@ type CanvasAssetSidebarProps = {
   onCollapsedChange: (next: boolean) => void;
   onSelectNode: (nodeID: string) => void;
   onLocate: (point: { x: number; y: number }) => void;
+  // 视频/音频资产预览：直接播放产物，不跳转文件页
+  onPreviewMedia: (node: GraphNode) => void;
 };
 
 // 资产行主标题：按节点类型取最有语义的文本
@@ -64,7 +67,7 @@ function assetTitle(node: GraphNode, untitled: string): string {
     case "image":
       return node.reference?.fileName || untitled;
     case "generate":
-      return node.model || untitled;
+      return node.model ? graphModelDisplayName(node.model) : untitled;
     case "output":
       return (node.status === "done" && node.fileName) || node.prompt?.trim() || untitled;
     case "media":
@@ -89,7 +92,7 @@ function assetStatusLabel(node: GraphNode): keyof typeof STATUS_LABEL_KEYS | nul
 
 // 画布资产列表侧边栏：参考图片 / 生成结果 / 其他节点三组分组展示，
 // 组内按创建时间倒序，分组可折叠（折叠状态本地持久化），点击行选中并定位到画布
-export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollapsedChange, onSelectNode, onLocate }: CanvasAssetSidebarProps) {
+export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollapsedChange, onSelectNode, onLocate, onPreviewMedia }: CanvasAssetSidebarProps) {
   const t = useTranslations("canvas");
   const selectedSet = React.useMemo(() => new Set(selectedNodeIDs), [selectedNodeIDs]);
   // 分组折叠状态（SSR 安全：挂载后读取本地存储）
@@ -151,11 +154,24 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
     const label = assetTitle(node, untitled);
     const size = graphNodeSize(node);
     const statusKey = assetStatusLabel(node);
+    const outputVideo = node.kind === "output"
+      && node.status === "done"
+      && (node.mediaType === "video" || Boolean(node.mimeType?.startsWith("video/")));
+    const mediaVideo = node.kind === "media" && node.mediaKind === "video";
+    const isVideoAsset = outputVideo || mediaVideo;
+    // 视频资产用 <video> 渲染首帧，图片仍用 <img>；二者不能混用同一 src
+    const mediaSource = node.kind === "output"
+      ? node.objectURL
+      : node.kind === "media" ? node.previewURL : undefined;
     const thumbnail = node.kind === "image"
       ? node.previewURL
-      : node.kind === "output" && node.status === "done"
+      : node.kind === "output" && node.status === "done" && !outputVideo
         ? node.objectURL
         : null;
+    // 视频时长角标：读取真实元数据后由输出节点回写
+    const durationLabel = node.kind === "output" && outputVideo && node.durationSeconds && node.durationSeconds > 0
+      ? `${Math.round(node.durationSeconds)}s`
+      : null;
     const uploading = node.kind === "image" && (node.uploading || (node.reference !== null && !node.previewURL && !node.previewFailed));
     const running = node.kind === "generate" && (node.runStatus === "pending" || node.runStatus === "streaming");
     const errored = (node.kind === "generate" && Boolean(node.errorMessage))
@@ -171,7 +187,7 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
             ? node.mediaKind === "video" ? t("nodeKindMediaVideo") : t("nodeKindMediaAudio")
             : t("nodeKindOutput");
     return (
-      <li key={node.id}>
+      <li key={node.id} className="relative">
         <button
           type="button"
           title={t("assetLocateHint")}
@@ -185,7 +201,15 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
           }}
         >
           <span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-muted/40">
-            {thumbnail ? (
+            {isVideoAsset && mediaSource ? (
+              <video
+                src={mediaSource}
+                muted
+                playsInline
+                preload="metadata"
+                className="absolute inset-0 size-full object-cover"
+              />
+            ) : thumbnail ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={thumbnail} alt="" className="absolute inset-0 size-full object-cover" draggable={false} />
             ) : running || uploading ? (
@@ -205,6 +229,11 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
             ) : (
               <Clock3 className="size-4 text-muted-foreground/70" strokeWidth={1.8} />
             )}
+            {durationLabel ? (
+              <span className="absolute bottom-0.5 right-0.5 rounded bg-background/85 px-1 text-[8px] font-semibold tabular-nums text-foreground/80">
+                {durationLabel}
+              </span>
+            ) : null}
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-baseline gap-1.5">
@@ -220,9 +249,23 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
             </span>
           </span>
         </button>
+        {isVideoAsset ? (
+          <button
+            type="button"
+            aria-label={t("assetPreviewVideo")}
+            title={t("assetPreviewVideo")}
+            className="absolute left-2.5 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border/60 backdrop-blur transition-colors hover:bg-background active:scale-95"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPreviewMedia(node);
+            }}
+          >
+            <Play className="size-3 fill-current" strokeWidth={2} />
+          </button>
+        ) : null}
       </li>
     );
-  }, [onLocate, onSelectNode, selectedSet, t]);
+  }, [onLocate, onPreviewMedia, onSelectNode, selectedSet, t]);
 
   if (collapsed) {
     return (
