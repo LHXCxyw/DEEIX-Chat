@@ -375,12 +375,9 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 				)
 			}
 		},
-		// 轮询期间的进度上报：转成进度事件推送前端，驱动输出节点的实时进度显示
+		// 轮询期间的进度上报：转成带 progress 字段的 media_status 事件，驱动前端的实时进度条
 		OnProgress: func(percent int) {
-			if percent < 0 || percent > 100 {
-				return
-			}
-			emitMediaEvent(input.OnEvent, "progress", fmt.Sprintf("%d%%", percent), "video")
+			emitMediaProgress(input.OnEvent, percent, "video")
 		},
 	}
 	if len(videoInputParts) > 0 {
@@ -472,9 +469,9 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 			Reader:       bytes.NewReader(data),
 		})
 		if uploadErr != nil {
-			retErr = uploadErr
+			retErr = refineMediaArtifactSaveError(uploadErr)
 			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), textutil.TruncateTrimmed(messageErrorSummary(retErr), 255))
-			return buildFailureResult(uploadErr, output.Usage), uploadErr
+			return buildFailureResult(retErr, output.Usage), retErr
 		}
 		file := uploadResult.File
 		uploaded = append(uploaded, file)

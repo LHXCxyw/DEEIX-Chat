@@ -566,11 +566,20 @@ func normalizeToolType(raw string) string {
 	}
 }
 
+// inferAttachmentKind 由 MIME 推导附件类别；视频生成的参考音频/参考视频依赖这里把它们
+// 与普通文件区分开，否则会一律落进 file 而被视频输入校验拒绝。
 func inferAttachmentKind(mimeType string) string {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(mimeType)), "image/") {
+	normalized := strings.ToLower(strings.TrimSpace(mimeType))
+	switch {
+	case strings.HasPrefix(normalized, "image/"):
 		return "image"
+	case strings.HasPrefix(normalized, "video/"):
+		return "video"
+	case strings.HasPrefix(normalized, "audio/"):
+		return "audio"
+	default:
+		return "file"
 	}
-	return "file"
 }
 
 func normalizeBranchReason(raw string) string {

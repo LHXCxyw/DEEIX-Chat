@@ -29,6 +29,7 @@ export function useChatConversationActions({
   const renameByPublicID = useSidebarConversationField("renameByPublicID");
   const regenerateTitleByPublicID = useSidebarConversationField("regenerateTitleByPublicID");
   const updateLabelsByPublicID = useSidebarConversationField("updateLabelsByPublicID");
+  const updateSystemPromptByPublicID = useSidebarConversationField("updateSystemPromptByPublicID");
   const setStarByPublicID = useSidebarConversationField("setStarByPublicID");
   const setProjectByPublicID = useSidebarConversationField("setProjectByPublicID");
   const deleteByPublicID = useSidebarConversationField("deleteByPublicID");
@@ -63,6 +64,7 @@ export function useChatConversationActions({
   );
   const activeConversationShared =
     currentConversation?.shareStatus === "active" && Boolean(currentConversation.shareID?.trim());
+  const activeConversationSystemPrompt = currentConversation?.systemPrompt ?? "";
 
   const onToggleActiveConversationStar = React.useCallback(async () => {
     if (!canOperateConversation) {
@@ -112,6 +114,20 @@ export function useChatConversationActions({
       }
     },
     [actionConversationID, canOperateConversation, updateLabelsByPublicID],
+  );
+
+  // 保存会话级系统提示词；空串由后端写回，表示重新跟随全局默认。
+  const onSaveActiveConversationSystemPrompt = React.useCallback(
+    async (systemPrompt: string) => {
+      if (!canOperateConversation) {
+        return;
+      }
+      const updated = await updateSystemPromptByPublicID(actionConversationID, systemPrompt);
+      if (!updated) {
+        throw new Error("conversation system prompt was not updated");
+      }
+    },
+    [actionConversationID, canOperateConversation, updateSystemPromptByPublicID],
   );
 
   const onRequestDeleteActiveConversation = React.useCallback(() => {
@@ -170,6 +186,7 @@ export function useChatConversationActions({
     activeConversationStarred,
     activeConversationLabels,
     activeConversationShared,
+    activeConversationSystemPrompt,
     shareDialogOpen,
     setShareDialogOpen,
     deleteDialogOpen,
@@ -181,6 +198,7 @@ export function useChatConversationActions({
     onRenameActiveConversation,
     onAutoRenameActiveConversation,
     onUpdateActiveConversationLabels,
+    onSaveActiveConversationSystemPrompt,
     onRequestDeleteActiveConversation,
     onConfirmDeleteActiveConversation,
     onSetActiveConversationProject,

@@ -113,6 +113,7 @@ type ChatAreaProps = {
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onRewindMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onRequeryMediaMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   modelOptions: ChatModelOption[];
   selectedPlatformModelName: string;
   onModelChange: (platformModelName: string) => void;
@@ -130,6 +131,9 @@ type ChatAreaProps = {
   onAutoRename?: () => void | Promise<void>;
   labels?: string[];
   onUpdateLabels?: (labels: string[]) => void | Promise<void>;
+  // 当前会话的系统提示词快照；空串表示跟随全局默认。
+  systemPrompt?: string;
+  onSaveSystemPrompt?: (systemPrompt: string) => void | Promise<void>;
   projectMenu?: React.ComponentProps<typeof ChatLabel>["projectMenu"];
   onShare?: () => void;
   shareActive?: boolean;
@@ -291,6 +295,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onForkMessage,
   onRewindMessage,
   onDeleteMessage,
+  onRequeryMediaMessage,
   modelOptions,
   selectedPlatformModelName,
   onModelChange,
@@ -334,6 +339,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onRewindMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onRequeryMediaMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   modelOptions: ChatModelOption[];
   selectedPlatformModelName: string;
   onModelChange: (platformModelName: string) => void;
@@ -453,6 +459,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onForkMessage={onForkMessage}
         onRewindMessage={onRewindMessage}
         onDeleteMessage={onDeleteMessage}
+        onRequeryMediaMessage={onRequeryMediaMessage}
         onCycleMessageBranch={onCycleMessageBranch}
         onReactAssistantMessage={onReactAssistantMessage}
         onCopy={() => void onCopy()}
@@ -551,6 +558,7 @@ export function ChatArea({
   onForkMessage,
   onRewindMessage,
   onDeleteMessage,
+  onRequeryMediaMessage,
   modelOptions,
   selectedPlatformModelName,
   onModelChange,
@@ -567,6 +575,8 @@ export function ChatArea({
   onAutoRename,
   labels,
   onUpdateLabels,
+  systemPrompt,
+  onSaveSystemPrompt,
   projectMenu,
   onShare,
   shareActive = false,
@@ -602,6 +612,7 @@ export function ChatArea({
   const stableOnForkMessage = useStableEvent(onForkMessage ?? ((): undefined => undefined));
   const stableOnRewindMessage = useStableEvent(onRewindMessage ?? ((): undefined => undefined));
   const stableOnDeleteMessage = useStableEvent(onDeleteMessage ?? ((): undefined => undefined));
+  const stableOnRequeryMediaMessage = useStableEvent(onRequeryMediaMessage ?? ((): undefined => undefined));
   const stableOnModelChange = useStableEvent(onModelChange);
   const stableOnModelCatalogRefresh = useStableEvent(onModelCatalogRefresh ?? ((): undefined => undefined));
   const stableOnEditImageAttachment = useStableEvent((attachment: MessageAttachment, sourceModelName?: string) => {
@@ -665,6 +676,8 @@ export function ChatArea({
             onAutoRename={canOperateConversation ? onAutoRename : undefined}
             labels={labels}
             onUpdateLabels={canOperateConversation ? onUpdateLabels : undefined}
+            systemPrompt={systemPrompt}
+            onSaveSystemPrompt={canOperateConversation ? onSaveSystemPrompt : undefined}
             projectMenu={canOperateConversation ? projectMenu : undefined}
             onShare={canOperateConversation ? onShare : undefined}
             shareActive={shareActive}
@@ -756,6 +769,7 @@ export function ChatArea({
                       onForkMessage={onForkMessage ? stableOnForkMessage : undefined}
                       onRewindMessage={onRewindMessage ? stableOnRewindMessage : undefined}
                       onDeleteMessage={onDeleteMessage ? stableOnDeleteMessage : undefined}
+                      onRequeryMediaMessage={onRequeryMediaMessage ? stableOnRequeryMediaMessage : undefined}
                       modelOptions={modelOptions}
                       selectedPlatformModelName={selectedPlatformModelName}
                       onModelChange={stableOnModelChange}

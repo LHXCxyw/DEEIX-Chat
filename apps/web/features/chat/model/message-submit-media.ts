@@ -47,6 +47,15 @@ export function streamEventErrorToApiError(
   return new ApiError(event.message || fallback, event.status ?? 502, event.debug, event.errorCode, event.requestId);
 }
 
+// 视频任务的百分比进度以 media_status（status="progress"）承载：返回 0-100 的确定态进度，
+// 非进度事件或上游未上报时返回 undefined（进度条走不确定态）。
+export function resolveMediaStatusProgress(status: string, progress: number | undefined): number | undefined {
+  if (status.trim() !== "progress" || typeof progress !== "number" || !Number.isFinite(progress) || progress < 0) {
+    return undefined;
+  }
+  return Math.min(Math.round(progress), 100);
+}
+
 export function resolveMediaStatusLabel(
   status: string,
   fallbackMessage: string,

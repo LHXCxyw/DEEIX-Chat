@@ -196,7 +196,7 @@ func (s *Service) RequeryMediaVideoRun(ctx context.Context, userID uint, runID s
 		})
 		if uploadErr != nil {
 			s.logRequeryFailure(ctx, run, fmt.Sprintf("persist_artifact_%d", i+1), uploadErr)
-			return nil, uploadErr
+			return nil, refineMediaArtifactSaveError(uploadErr)
 		}
 		file := uploadResult.File
 		uploaded = append(uploaded, file)

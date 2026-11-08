@@ -23,6 +23,7 @@ import {
   setConversationStar,
   updateConversationLabels,
   updateConversationProject,
+  updateConversationSystemPrompt,
 } from "@/shared/api/conversation";
 import type {
   ConversationDTO,
@@ -533,6 +534,22 @@ export function useConversationSidebarList({
     [applyConversationUpdate],
   );
 
+  // 会话级系统提示词保存后直接回写本地会话，下一轮请求与刷新后都读取同一份快照。
+  const updateSystemPromptByPublicID = React.useCallback(
+    async (publicID: string, systemPrompt: string): Promise<ConversationDTO | null> => {
+      const token = await resolveAccessToken();
+      if (!token) {
+        return null;
+      }
+
+      return applyConversationUpdate(
+        publicID,
+        await updateConversationSystemPrompt(token, publicID, { systemPrompt }),
+      );
+    },
+    [applyConversationUpdate],
+  );
+
   const touchByPublicID = React.useCallback((publicID: string, patch: Partial<ConversationDTO>) => {
     setRecentItems((prev) => patchConversationList(prev, publicID, patch, sortByUpdatedAtDesc));
     setStarredItems((prev) => patchConversationList(prev, publicID, patch, sortByStarredAtDesc));
@@ -897,6 +914,7 @@ export function useConversationSidebarList({
       renameByPublicID,
       regenerateTitleByPublicID,
       updateLabelsByPublicID,
+      updateSystemPromptByPublicID,
       createProject,
       updateProject,
       deleteProject,
@@ -927,6 +945,7 @@ export function useConversationSidebarList({
       projectsLoading,
       regenerateTitleByPublicID,
       updateLabelsByPublicID,
+      updateSystemPromptByPublicID,
       upsertConversation,
       recentItems,
       reorderProjects,

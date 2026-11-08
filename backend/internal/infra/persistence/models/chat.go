@@ -9,6 +9,8 @@ type Conversation struct {
 	ProjectID             *uint      `gorm:"index:idx_chat_conversations_project_id;comment:项目分组ID"`
 	PublicID              string     `gorm:"size:32;not null;default:'';index:idx_chat_conversations_public_id;comment:公开会话ID"`
 	Title                 string     `gorm:"size:255;not null;default:'';comment:会话标题"`
+	// SystemPrompt 是会话级系统提示词快照，创建会话时继承全局默认值；空值回退到全局默认。
+	SystemPrompt          string     `gorm:"type:text;not null;default:'';comment:会话级系统提示词"`
 	LabelsJSON            string     `gorm:"type:text;not null;default:'[]';comment:会话标签JSON"`
 	LabelsManuallyManaged bool       `gorm:"not null;default:false;comment:会话标签是否已由用户手动管理"`
 	Model                 string     `gorm:"size:128;not null;default:'';comment:模型名称"`

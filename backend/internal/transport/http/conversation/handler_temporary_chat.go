@@ -47,6 +47,7 @@ func (h *Handler) StreamTemporaryChatMessage(c *gin.Context) {
 		SessionID:                strings.TrimSpace(req.SessionID),
 		ClientRunID:              strings.TrimSpace(req.ClientRunID),
 		Model:                    strings.TrimSpace(req.Model),
+		Stream:                   req.Stream,
 		Options:                  req.Options,
 		Controls:                 req.Controls,
 		AllowRawOptions:          requestAllowsRawOptions(c),

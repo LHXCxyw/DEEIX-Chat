@@ -13,6 +13,7 @@ import (
 type messageRoutePromptInput struct {
 	UserContent              string
 	ProjectSystemPrompt      string
+	ConversationSystemPrompt string
 	HTMLVisualPromptEnabled  bool
 	UIComponents             []domainuicomponent.Component
 	UIBlockVersion           int
@@ -99,7 +100,7 @@ func (s *Service) buildMessageRoutePrompt(ctx context.Context, route *channel.Re
 	// ContextAssembler 只负责稳定的槽位排序与去重；最终模型窗口由完整请求预算器
 	// 统一约束，避免旧的固定 32K 上限提前丢弃偏好等系统上下文。
 	assembler := NewContextAssembler(0)
-	systemPrompt := resolveMessageSystemPromptInjection(input.Config, route, input.ProjectSystemPrompt, requestPromptOptions{HTMLVisual: input.HTMLVisualPromptEnabled, UIComponents: input.UIComponents, UIBlockVersion: input.UIBlockVersion})
+	systemPrompt := resolveMessageSystemPromptInjectionWithConversation(input.Config, route, input.ProjectSystemPrompt, input.ConversationSystemPrompt, requestPromptOptions{HTMLVisual: input.HTMLVisualPromptEnabled, UIComponents: input.UIComponents, UIBlockVersion: input.UIBlockVersion})
 	capabilityPrompt := s.agentCapabilityPrompt(input.ToolRuntime)
 	if systemPrompt.Content == "" {
 		systemPrompt.Content = capabilityPrompt

@@ -11,7 +11,7 @@ body:
       description: Choose the main documentation area that needs attention.
       options:
         - README
-        - README.zh-CN
+        - README.en
         - CONTRIBUTING
         - SECURITY
         - Backend docs

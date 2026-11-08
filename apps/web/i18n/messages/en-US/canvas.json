@@ -30,6 +30,8 @@
   "pointerModeSelect": "Marquee mode (drag the background to select)",
   "minimapTitle": "Overview",
   "minimapHint": "Click or drag to jump to a region",
+  "streamRequest": "Streaming request",
+  "streamRequestDescription": "Turn off to request the upstream without streaming",
   "imageParams": "Image options",
   "imageParamsDefault": "Default",
   "imageParamsCustom": "Custom…",

@@ -127,6 +127,7 @@ export type PendingExchange = {
   assistantErrorMessage?: string;
   assistantFileProc?: boolean; // Active file_proc stage.
   assistantActivityLabel?: string;
+  assistantMediaProgress?: number;
   assistantImageAspectRatio?: ImageLoadingAspectRatio;
   assistantProcessTrace?: ChatMessageProcessTrace;
   assistantInlineAlert?: ChatInlineAlert;

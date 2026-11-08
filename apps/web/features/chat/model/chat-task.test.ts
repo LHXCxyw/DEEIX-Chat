@@ -93,6 +93,9 @@ test("视频参考限制来自协议而非输入模态声明", () => {
   const selected = model({ kinds: ["video_gen"], protocols: ["openai_video_generations"], inputModalities: [] });
   assert.equal(resolveChatSubmitDecision(selected, attachments).blockedReason, null);
   assert.equal(resolveChatSubmitDecision(selected, attachments).task, "video_generation");
-  assert.equal(resolveChatSubmitDecision({ ...selected, protocols: ["xai_video_generations"] }, attachments).blockedReason,
+  // xAI 视频协议只接受单张参考图：音频属于"协议不支持"，与数量超限区分开。
+  const xai = { ...selected, protocols: ["xai_video"] };
+  assert.equal(resolveChatSubmitDecision(xai, attachments).blockedReason, "video_generation_unsupported_audio");
+  assert.equal(resolveChatSubmitDecision(xai, [attachment("image/png"), attachment("image/png")]).blockedReason,
     "video_generation_too_many_references");
 });

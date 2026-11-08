@@ -34,8 +34,11 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup, gate middleware.F
 	authRequired.GET("/conversations/:id/workspace", m.Handler.GetConversationWorkspace)
 	authRequired.POST("/conversations/:id/workspace/files/from-attachment", m.Handler.ImportConversationFileFromAttachment)
 	authRequired.GET("/conversations/:id/workspace/files/:file_id/content", m.Handler.GetConversationWorkspaceFileContent)
+	authRequired.GET("/conversations/:id/workspace/download", m.Handler.GetConversationWorkspaceDownload)
+	authRequired.GET("/conversations/:id/workspace/archive", m.Handler.GetConversationWorkspaceArchive)
 	authRequired.GET("/conversations/:id/export", m.Handler.ExportConversation)
 	authRequired.PATCH("/conversations/:id/title", m.Handler.RenameConversation)
+	authRequired.PATCH("/conversations/:id/system-prompt", m.Handler.UpdateConversationSystemPrompt)
 	authRequired.POST("/conversations/:id/title/regenerate", m.Handler.RegenerateConversationTitle)
 	authRequired.PATCH("/conversations/:id/labels", m.Handler.UpdateConversationLabels)
 	authRequired.PATCH("/conversations/:id/star", m.Handler.SetConversationStar)
@@ -98,4 +101,6 @@ func (m *Module) RegisterPublicRoutes(public *gin.RouterGroup, gate middleware.F
 	// 签名 URL 自带用户与时效鉴权，供无登录态上游与浏览器媒体直连访问。
 	public.GET("/files/:file_id/signed-content", m.Handler.GetSignedFileContent)
 	public.GET("/files/:file_id/signed-thumbnail", m.Handler.GetSignedFileThumbnail)
+	// 会话工作区下载签名绑定用户、会话与目标路径，agent 回复文本可直接给出可复制的下载链接。
+	public.GET("/workspace-downloads/signed", m.Handler.GetSignedWorkspaceDownload)
 }

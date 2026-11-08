@@ -118,7 +118,7 @@ func (s *Service) RetryMediaImageArtifact(ctx context.Context, userID uint, runI
 	if uploadErr != nil {
 		s.pendingArtifacts.Register(runID, []pendingImageArtifact{artifact})
 		s.logArtifactRetryFailure(ctx, run, index, "persist_artifact", uploadErr)
-		return nil, uploadErr
+		return nil, refineMediaArtifactSaveError(uploadErr)
 	}
 	file := uploadResult.File
 

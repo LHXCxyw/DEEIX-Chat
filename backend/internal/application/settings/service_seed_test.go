@@ -203,13 +203,14 @@ func TestSeedKeepsExistingFullContextMaxBytes(t *testing.T) {
 
 // previousVideoModelOptionDefaults 返回"视频协议字段集替换之前"的默认放行键。
 // 本文件的用例都以当前默认为基础删键来构造历史默认，必须同时把 openai_video_generations
-// 换回旧键集合，否则构造出的值不对应任何真实历史版本，迁移不会被触发。
+// 换回旧键集合、并剥离后来新增的 GIF 参数，否则构造出的值不对应任何真实历史版本，迁移不会被触发。
 func previousVideoModelOptionDefaults(t *testing.T) map[string][]string {
 	t.Helper()
 	defaults := map[string][]string{}
 	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &defaults); err != nil {
 		t.Fatalf("decode current model option defaults: %v", err)
 	}
+	defaults = stripImageGIFOptionPaths(defaults)
 	defaults["openai_video_generations"] = append([]string(nil), legacyOpenAIVideoOptionPathSets[0]...)
 	return defaults
 }
@@ -236,6 +237,34 @@ func TestSeedMigratesLegacyDefaultModelOptionAllowedPaths(t *testing.T) {
 	got := repo.items["chat:model_option_allowed_paths"].Value
 	if got != config.DefaultModelOptionAllowedPathsJSON() {
 		t.Fatalf("expected legacy model option defaults to migrate, got %q", got)
+	}
+}
+
+// 上一版默认白名单只缺 GIF 动图参数，必须被识别并重置；
+// 否则 frame_count / frame_duration_ms 会在 allowlist 阶段被静默过滤。
+func TestSeedAddsImageGIFParamsToPreviousDefaultModelOptionAllowedPaths(t *testing.T) {
+	previousDefault := map[string][]string{}
+	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &previousDefault); err != nil {
+		t.Fatalf("decode current model option defaults: %v", err)
+	}
+	previousDefault = stripImageGIFOptionPaths(previousDefault)
+	previousJSON, err := json.Marshal(previousDefault)
+	if err != nil {
+		t.Fatalf("encode previous model option defaults: %v", err)
+	}
+	repo := newSettingsSeedRepo(domainsettings.SystemSetting{
+		Namespace: "chat",
+		Key:       "model_option_allowed_paths",
+		Value:     string(previousJSON),
+		ValueType: "json",
+	})
+	service := NewService(repo, nil)
+
+	if err := service.Seed(context.Background()); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+	if got := repo.items["chat:model_option_allowed_paths"].Value; got != config.DefaultModelOptionAllowedPathsJSON() {
+		t.Fatalf("expected GIF image params to be added to previous defaults, got %q", got)
 	}
 }
 

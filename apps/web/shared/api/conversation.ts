@@ -61,6 +61,7 @@ import type {
   TraceEventDTO,
   UpdateConversationLabelsRequest,
   UpdateConversationProjectRequest,
+  UpdateConversationSystemPromptRequest,
   UpdateMessageRequest,
 } from "@/shared/api/conversation-types";
 import { ApiError, apiRequest, pathParam } from "@/shared/api/http-client";
@@ -732,6 +733,22 @@ export async function renameConversation(
 ): Promise<ConversationDTO> {
   return authedRequest<ConversationDTO>(
     `/api/v1/conversations/${pathParam(conversationPublicID)}/title`,
+    {
+      method: "PATCH",
+      accessToken,
+      body: payload,
+    },
+    true,
+  );
+}
+
+export async function updateConversationSystemPrompt(
+  accessToken: string,
+  conversationPublicID: string,
+  payload: UpdateConversationSystemPromptRequest,
+): Promise<ConversationDTO> {
+  return authedRequest<ConversationDTO>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/system-prompt`,
     {
       method: "PATCH",
       accessToken,

@@ -18,6 +18,7 @@ import { ComposerOptionRow } from "@/features/chat/components/shared/composer-op
 import { useChatPopoverAlignOffset } from "@/features/chat/hooks/use-chat-popover-align-offset";
 import { cn } from "@/lib/utils";
 import { useFeaturePolicy } from "@/shared/hooks/use-feature-policy";
+import { useIsMobile } from "@/shared/hooks/use-mobile";
 
 // RAG or embedding switched off is a deliberate admin choice, not a fault: knowledge bases cannot be
 // used at all, so the entry is hidden, as when the knowledge-base feature itself is off. Incomplete
@@ -44,6 +45,7 @@ export function ChatKnowledgeBases({
   const { open, handleOpenChange, query, setQuery, items, loading, loadingMore, hasMore, loadMore } =
     useChatKnowledgeBaseCatalog({ selectedIDs, onChange });
   const popoverShift = useChatPopoverAlignOffset("start");
+  const isMobile = useIsMobile();
 
   React.useEffect(() => {
     if (available === false && selectedIDs.length > 0) {
@@ -122,6 +124,10 @@ export function ChatKnowledgeBases({
         collisionPadding={8}
         data-knowledge-bases-popover-content
         className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-1rem))] flex-col p-1.5"
+        // 触屏设备没有物理键盘：默认聚焦首个可聚焦元素（搜索框）会拉起输入法并压缩面板高度。
+        onOpenAutoFocus={(event) => {
+          if (isMobile) event.preventDefault();
+        }}
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}

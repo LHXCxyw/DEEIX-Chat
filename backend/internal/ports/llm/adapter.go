@@ -109,6 +109,16 @@ func openAIImageEditModelSupportsStream(model string) bool {
 	return strings.HasPrefix(normalized, "gpt-image-") || normalized == "chatgpt-image-latest"
 }
 
+// RequestsAnimatedGIFOutput 判断图像请求是否要求 GIF 动图输出。
+// GIF 动图不支持流式、预览图与自定义压缩，调用方据此关闭流式并剥离不兼容参数。
+func RequestsAnimatedGIFOutput(options map[string]any) bool {
+	value, ok := options["output_format"].(string)
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(value), "gif")
+}
+
 // IsImageGenerationAdapter 返回协议是否属于独立图片生成链路。
 func IsImageGenerationAdapter(raw string) bool {
 	switch NormalizeAdapter(raw) {

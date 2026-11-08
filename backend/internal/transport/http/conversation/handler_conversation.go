@@ -377,6 +377,62 @@ func (h *Handler) RenameConversation(c *gin.Context) {
 	response.Success(c, toConversationResponse(item))
 }
 
+// UpdateConversationSystemPrompt godoc
+// @Summary 更新会话系统提示词
+// @Description 更新指定会话的系统提示词；空串表示回退到全局默认
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "会话 public_id"
+// @Param body body UpdateConversationSystemPromptRequest true "系统提示词参数"
+// @Success 200 {object} ConversationUpdateResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /conversations/{id}/system-prompt [patch]
+func (h *Handler) UpdateConversationSystemPrompt(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, errInvalidConversationID)
+		return
+	}
+
+	var req UpdateConversationSystemPromptRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	if req.SystemPrompt == nil {
+		response.ErrorFrom(c, http.StatusBadRequest, appconversation.ErrInvalidConversationSystemPrompt)
+		return
+	}
+
+	item, err := h.service.UpdateConversationSystemPrompt(c.Request.Context(), userID, publicID, *req.SystemPrompt)
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrInvalidConversationSystemPrompt):
+			response.ErrorFrom(c, http.StatusBadRequest, err)
+			return
+		case errors.Is(err, appconversation.ErrConversationNotFound):
+			response.ErrorFrom(c, http.StatusNotFound, err)
+			return
+		default:
+			response.InternalError(c, err)
+			return
+		}
+	}
+
+	h.recordAudit(c, "update_conversation_system_prompt",
+		"conversation",
+		item.PublicID,
+		map[string]string{"length": strconv.Itoa(len([]rune(item.SystemPrompt)))},
+	)
+
+	response.Success(c, toConversationResponse(item))
+}
+
 // RegenerateConversationTitle godoc
 // @Summary 自动重新命名会话
 // @Description 根据指定会话已有内容重新生成标题

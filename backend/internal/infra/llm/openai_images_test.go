@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -97,6 +98,60 @@ func TestBuildOpenAIImageGenerationStreamRequestBodyOmitsZeroPartialImages(t *te
 	}
 }
 
+func TestBuildOpenAIImageGenerationRequestBodyGIFParams(t *testing.T) {
+	payload, err := buildOpenAIImageGenerationRequestBody("gpt-image-2.6-flare", portllm.GenerateInput{
+		Messages: []portllm.Message{{Role: "user", Content: "A looping lantern animation"}},
+		Options: map[string]any{
+			"size":               "auto",
+			"output_format":      "gif",
+			"output_compression": 80,
+			"frame_count":        9,
+			"frame_duration_ms":  200,
+		},
+	})
+	if err != nil {
+		t.Fatalf("build GIF image request body: %v", err)
+	}
+	if payload["output_format"] != "gif" {
+		t.Fatalf("expected gif output format, got %#v", payload)
+	}
+	if payload["frame_count"] != 9 || payload["frame_duration_ms"] != 200 {
+		t.Fatalf("expected GIF frame params, got %#v", payload)
+	}
+	if _, ok := payload["output_compression"]; ok {
+		t.Fatalf("GIF output must not send output_compression: %#v", payload)
+	}
+}
+
+func TestBuildOpenAIImageGenerationRequestBodyDropsGIFParamsForStaticOutput(t *testing.T) {
+	payload, err := buildOpenAIImageGenerationRequestBody("gpt-image-2.6-flare", portllm.GenerateInput{
+		Messages: []portllm.Message{{Role: "user", Content: "A clean product render"}},
+		Options: map[string]any{
+			"output_format":     "png",
+			"frame_count":       9,
+			"frame_duration_ms": 200,
+		},
+	})
+	if err != nil {
+		t.Fatalf("build image request body: %v", err)
+	}
+	for _, key := range []string{"frame_count", "frame_duration_ms"} {
+		if _, ok := payload[key]; ok {
+			t.Fatalf("expected GIF-only param %q to be omitted for static output, got %#v", key, payload)
+		}
+	}
+}
+
+func TestBuildOpenAIImageGenerationStreamRequestBodyRejectsGIFOutput(t *testing.T) {
+	_, err := buildOpenAIImageGenerationStreamRequestBody("gpt-image-2.6-flare", portllm.GenerateInput{
+		Messages: []portllm.Message{{Role: "user", Content: "A looping lantern animation"}},
+		Options:  map[string]any{"output_format": "gif"},
+	})
+	if !errors.Is(err, portllm.ErrUnsupportedStream) {
+		t.Fatalf("expected GIF streaming to be rejected, got %v", err)
+	}
+}
+
 func TestBuildOpenAIImageGenerationRequestBodyDallEParams(t *testing.T) {
 	payload, err := buildOpenAIImageGenerationRequestBody("dall-e-3", portllm.GenerateInput{
 		Messages: []portllm.Message{{Role: "user", Content: "A clean product render"}},
@@ -185,6 +240,39 @@ func TestBuildOpenAIImageEditMultipartRequest(t *testing.T) {
 	}
 	if debug["image_count"] != float64(1) || debug["mask"] != true {
 		t.Fatalf("expected sanitized debug body, got %#v", debug)
+	}
+}
+
+func TestBuildOpenAIImageEditMultipartRequestGIFParams(t *testing.T) {
+	body, contentType, _, err := buildOpenAIImageEditMultipartRequest("gpt-image-2.6-sunburst", portllm.GenerateInput{
+		Messages: []portllm.Message{{
+			Role: "user",
+			Parts: []portllm.ContentPart{
+				{Kind: portllm.ContentPartText, Text: "Animate this scene"},
+				{Kind: portllm.ContentPartImage, MimeType: "image/png", Data: []byte("source")},
+			},
+		}},
+		Options: map[string]any{
+			"output_format":      "gif",
+			"output_compression": 80,
+			"frame_count":        4,
+			"frame_duration_ms":  120,
+		},
+	}, false)
+	if err != nil {
+		t.Fatalf("build GIF image edit multipart request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	if err = req.ParseMultipartForm(10 << 20); err != nil {
+		t.Fatalf("parse multipart body: %v", err)
+	}
+	form := req.MultipartForm.Value
+	if form["output_format"][0] != "gif" || form["frame_count"][0] != "4" || form["frame_duration_ms"][0] != "120" {
+		t.Fatalf("expected GIF edit fields, got %#v", form)
+	}
+	if _, ok := form["output_compression"]; ok {
+		t.Fatalf("GIF output must not send output_compression: %#v", form)
 	}
 }
 
@@ -454,6 +542,40 @@ func TestImageAdaptersKeepInlineImageBytes(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+// 上游把 SSE 文本标成 application/json 时也必须按 SSE 解析，并在读取到 [DONE] 时立即结束。
+func TestOpenAIImageStreamAcceptsSSEBodyWithJSONContentType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`data: {"created":1,"data":[{"url":"https://images.example.test/result.png","b64_json":"aW1hZ2U="}],"usage":{"input_tokens":1,"output_tokens":2}}` + "\n\n"))
+		// 没有额外空行，模拟网关在 [DONE] 后不关闭分块连接。
+		_, _ = w.Write([]byte("data: [DONE]\n"))
+	}))
+	defer server.Close()
+
+	client := newTestClient()
+	defer client.CloseIdleConnections()
+	output, err := client.GenerateStream(context.Background(), portllm.RouteConfig{
+		Protocol:      portllm.AdapterOpenAIImageGenerations,
+		BaseURL:       server.URL,
+		UpstreamModel: "gpt-image-1",
+	}, portllm.GenerateInput{Messages: []portllm.Message{{Role: "user", Content: "draw"}}}, nil)
+	if err != nil {
+		t.Fatalf("generate stream: %v", err)
+	}
+	if len(output.GeneratedImages) != 1 {
+		t.Fatalf("expected one image, got %#v", output.GeneratedImages)
+	}
+	if image := output.GeneratedImages[0]; image.URL == "" || image.B64JSON == "" {
+		t.Fatalf("expected url and inline bytes, got %#v", image)
+	}
+}
+
+func TestOpenAIImageMIMETypeSupportsGIF(t *testing.T) {
+	if got := openAIImageMIMEType("gif"); got != "image/gif" {
+		t.Fatalf("openAIImageMIMEType(\"gif\") = %q, want image/gif", got)
 	}
 }
 

@@ -18,6 +18,8 @@ const (
 	conversationPreviewAncestorMaxDepth = 100
 	conversationExportVersion           = 1
 	conversationExportScopeFull         = "full"
+	// conversationSystemPromptMaxChars 与会话设置页 chat.default_system_prompt 的 20000 上限保持一致。
+	conversationSystemPromptMaxChars = 20000
 )
 
 // DeleteConversationOptions 定义会话删除选项。
@@ -89,6 +91,7 @@ func (s *Service) CreateConversation(ctx context.Context, userID uint, title str
 		ProjectID:       projectID,
 		PublicID:        normalizePublicID(uuid.NewString()),
 		Title:           normalizedTitle,
+		SystemPrompt:    strings.TrimSpace(s.cfg.Snapshot().DefaultSystemPrompt),
 		LabelsJSON:      "[]",
 		Model:           normalizedModel,
 		Provider:        inferProvider(normalizedModel),
@@ -463,6 +466,23 @@ func (s *Service) RenameConversation(ctx context.Context, userID uint, publicID 
 		return nil, ErrInvalidConversationTitle
 	}
 	item, err := s.repo.UpdateConversationTitleByPublicID(ctx, userID, publicID, normalizedTitle)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationNotFound
+		}
+		return nil, err
+	}
+	return item, nil
+}
+
+// UpdateConversationSystemPrompt 更新会话级系统提示词；空串表示回退到全局默认。
+// 只写入会话自身的 system_prompt 字段，绝不会把内容注入到其他角色的消息里。
+func (s *Service) UpdateConversationSystemPrompt(ctx context.Context, userID uint, publicID string, systemPrompt string) (*model.Conversation, error) {
+	normalizedPrompt := strings.TrimSpace(systemPrompt)
+	if exceedsRuneLimit(normalizedPrompt, conversationSystemPromptMaxChars) {
+		return nil, ErrInvalidConversationSystemPrompt
+	}
+	item, err := s.repo.UpdateConversationSystemPromptByPublicID(ctx, userID, publicID, normalizedPrompt)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, ErrConversationNotFound

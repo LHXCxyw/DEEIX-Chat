@@ -194,6 +194,7 @@ export function AppChatArea() {
     reload,
     replaceMessage,
     resumingActivityLabel,
+    resumingMediaProgress,
     resumingRunID,
   } = useChatData(conversationID, {
     activeGenerationRunsRef,
@@ -466,6 +467,7 @@ export function AppChatArea() {
     onContinueAssistantMessage,
     onForkMessage,
     onDeleteMessage,
+    onRequeryMediaMessage,
     onRetryAssistantMessage,
     onRetryUserMessage,
     onSendMessage,
@@ -515,6 +517,7 @@ export function AppChatArea() {
     onConversationRunFinished: finishConversationRun,
     onConversationRunStarted: registerConversationRun,
     resumingActivityLabel,
+    resumingMediaProgress,
     resumingRunID,
     collectUIStates: uiBlockState.collectTurnUIStates,
   });
@@ -605,6 +608,7 @@ export function AppChatArea() {
     activeConversationStarred,
     activeConversationLabels,
     activeConversationShared,
+    activeConversationSystemPrompt,
     shareDialogOpen,
     setShareDialogOpen,
     deleteDialogOpen,
@@ -616,6 +620,7 @@ export function AppChatArea() {
     onRenameActiveConversation,
     onAutoRenameActiveConversation,
     onUpdateActiveConversationLabels,
+    onSaveActiveConversationSystemPrompt,
     onRequestDeleteActiveConversation,
     onConfirmDeleteActiveConversation,
     onSetActiveConversationProject,
@@ -1234,6 +1239,7 @@ export function AppChatArea() {
                   onForkMessage={temporaryMode ? undefined : onForkMessage}
                   onRewindMessage={temporaryMode || !workspaceProjectID ? undefined : handleRewindMessage}
                   onDeleteMessage={temporaryMode ? undefined : onDeleteMessage}
+                  onRequeryMediaMessage={temporaryMode ? undefined : onRequeryMediaMessage}
                   modelOptions={modelOptions}
                   selectedPlatformModelName={selectedPlatformModelName}
                   onModelChange={setSelectedPlatformModelName}
@@ -1249,6 +1255,8 @@ export function AppChatArea() {
                   onAutoRename={temporaryMode ? undefined : onAutoRenameActiveConversation}
                   labels={temporaryMode ? EMPTY_LIST : activeConversationLabels}
                   onUpdateLabels={temporaryMode ? undefined : onUpdateActiveConversationLabels}
+                  systemPrompt={temporaryMode ? "" : activeConversationSystemPrompt}
+                  onSaveSystemPrompt={temporaryMode ? undefined : onSaveActiveConversationSystemPrompt}
                   projectMenu={temporaryMode ? undefined : {
                     label: t("labelMenu.moveToProject"),
                     unassignedLabel: t("labelMenu.unassignedProject"),

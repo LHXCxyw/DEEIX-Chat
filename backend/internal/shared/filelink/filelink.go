@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,6 +21,14 @@ const SignatureTTL = time.Hour
 const (
 	signaturePurpose          = "file-content"
 	thumbnailSignaturePurpose = "file-thumbnail"
+	workspaceSignaturePurpose = "workspace-download"
+)
+
+const (
+	// WorkspaceDownloadModeFile 表示单文件下载。
+	WorkspaceDownloadModeFile = "file"
+	// WorkspaceDownloadModeArchive 表示目录/多文件 ZIP 下载。
+	WorkspaceDownloadModeArchive = "archive"
 )
 
 var ErrInvalidSignature = errors.New("filelink: invalid signature")
@@ -132,6 +142,115 @@ func VerifyThumbnail(secret, userIDStr, fileID, variant, expiresStr, signature s
 		return 0, ErrInvalidSignature
 	}
 	expected := SignThumbnail(secret, uint(userID), fileID, variant, expiresAt)
+	if !hmac.Equal([]byte(expected), []byte(signature)) {
+		return 0, ErrInvalidSignature
+	}
+	return uint(userID), nil
+}
+
+// canonicalWorkspaceTargets 归一化并排序下载目标：反斜杠转正斜杠、去重、去空。
+// 排序保证同一组目标拼出的签名材料与查询参数顺序稳定；空目标表示整个工作区目录。
+func canonicalWorkspaceTargets(targets []string) []string {
+	if len(targets) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(targets))
+	normalized := make([]string, 0, len(targets))
+	for _, target := range targets {
+		value := strings.TrimSpace(strings.ReplaceAll(target, "\\", "/"))
+		if value == "" || value == "." {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
+func workspaceTargetsMaterial(targets []string) string {
+	return strings.Join(canonicalWorkspaceTargets(targets), "\n")
+}
+
+// NormalizeWorkspaceMode 归一化下载模式：显式 file/archive 原样返回，
+// 其余按目标数量推断——单个目标走单文件，其余（含空目标=整个工作区）走 ZIP 打包。
+func NormalizeWorkspaceMode(mode string, targets []string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case WorkspaceDownloadModeFile:
+		return WorkspaceDownloadModeFile
+	case WorkspaceDownloadModeArchive:
+		return WorkspaceDownloadModeArchive
+	default:
+		if len(canonicalWorkspaceTargets(targets)) == 1 {
+			return WorkspaceDownloadModeFile
+		}
+		return WorkspaceDownloadModeArchive
+	}
+}
+
+// SignWorkspace 计算会话工作区下载签名（HMAC-SHA256 hex）。
+// 签名材料绑定用户、会话公开 ID、下载模式、排序后的目标路径与过期时间，
+// 换会话、换模式或换路径都无法复用。
+func SignWorkspace(secret string, userID uint, conversationPublicID string, mode string, targets []string, expiresAt int64) string {
+	canonical := canonicalWorkspaceTargets(targets)
+	normalizedMode := NormalizeWorkspaceMode(mode, canonical)
+	mac := hmac.New(sha256.New, []byte(secret))
+	fmt.Fprintf(mac, "%s:%d:%s:%s:%s:%d", workspaceSignaturePurpose, userID, strings.TrimSpace(conversationPublicID), normalizedMode, workspaceTargetsMaterial(canonical), expiresAt)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// BuildSignedWorkspaceDownloadPath 构建会话工作区下载的相对签名路径（无 origin）。
+// targets 为空表示整个工作区目录；secret 未配置时返回空串。
+func BuildSignedWorkspaceDownloadPath(secret string, userID uint, conversationPublicID string, mode string, targets []string, now time.Time) string {
+	if secret == "" || strings.TrimSpace(conversationPublicID) == "" {
+		return ""
+	}
+	canonical := canonicalWorkspaceTargets(targets)
+	normalizedMode := NormalizeWorkspaceMode(mode, canonical)
+	expiresAt := alignedExpiry(now)
+	query := url.Values{}
+	query.Set("mode", normalizedMode)
+	query.Set("user_id", strconv.FormatUint(uint64(userID), 10))
+	query.Set("conversation_id", strings.TrimSpace(conversationPublicID))
+	for _, target := range canonical {
+		query.Add("path", target)
+	}
+	query.Set("expires", strconv.FormatInt(expiresAt, 10))
+	query.Set("signature", SignWorkspace(secret, userID, conversationPublicID, normalizedMode, canonical, expiresAt))
+	return "/api/v1/workspace-downloads/signed?" + query.Encode()
+}
+
+// BuildWorkspaceDownloadURL 构建带 origin 的会话工作区下载链接，供 agent 回复文本直接复制；
+// publicAPIBaseURL 未配置时返回空串，调用方应回退到相对路径。
+func BuildWorkspaceDownloadURL(publicAPIBaseURL, secret string, userID uint, conversationPublicID string, mode string, targets []string, now time.Time) string {
+	base := trimTrailingSlash(publicAPIBaseURL)
+	if base == "" {
+		return ""
+	}
+	path := BuildSignedWorkspaceDownloadPath(secret, userID, conversationPublicID, mode, targets, now)
+	if path == "" {
+		return ""
+	}
+	return base + path
+}
+
+// VerifyWorkspace 校验会话工作区下载签名并返回其授权的用户 ID。
+func VerifyWorkspace(secret, userIDStr, conversationPublicID, mode string, targets []string, expiresStr, signature string, now time.Time) (uint, error) {
+	if secret == "" || userIDStr == "" || strings.TrimSpace(conversationPublicID) == "" || expiresStr == "" || signature == "" {
+		return 0, ErrInvalidSignature
+	}
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		return 0, ErrInvalidSignature
+	}
+	expiresAt, err := strconv.ParseInt(expiresStr, 10, 64)
+	if err != nil || expiresAt < now.Unix() {
+		return 0, ErrInvalidSignature
+	}
+	expected := SignWorkspace(secret, uint(userID), conversationPublicID, mode, targets, expiresAt)
 	if !hmac.Equal([]byte(expected), []byte(signature)) {
 		return 0, ErrInvalidSignature
 	}

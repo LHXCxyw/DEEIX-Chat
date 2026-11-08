@@ -7,6 +7,7 @@ import * as React from "react";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   type ChatModelControlSelections,
@@ -75,6 +76,8 @@ export type ChatModelControlsProps = {
   onPlacementsChange: (placements: ModelControlPlacements) => void;
   // Entry at the bottom of the popover that opens the parameter dialog (raw JSON).
   advancedOptions?: { label: string; onOpen: () => void };
+  // 本次请求的流式开关；缺省时不展示该行（例如视频媒体任务）。
+  stream?: { enabled: boolean; onChange: (enabled: boolean) => void; label: string; description?: string };
   // Popover title and trigger tooltip; chat wording by default, media tasks name their own.
   labels?: { title: string; more: string };
 };
@@ -139,6 +142,7 @@ export function ChatModelControls({
   onNativeToolChange,
   onPlacementsChange,
   advancedOptions,
+  stream,
   labels,
 }: ChatModelControlsProps) {
   const t = useTranslations("chat.modelControls");
@@ -413,9 +417,12 @@ export function ChatModelControls({
 
   return (
     <>
-      {toolbar.map((item, index) => (
-        // Keep the composer compact on phones: only the first two pinned items stay visible there.
-        <span key={item.id} className={cn("contents", index >= 2 && "max-sm:hidden")}>
+      {toolbar.map((item) => (
+        // 窄屏不展示内联参数按钮：参数统一收进「…」菜单（含「高级参数配置」），
+        // 否则参数按钮会占满工具栏，把模型名挤出输入框。用 !important 是必需的：
+        // 外层 span 必须是 display:contents 才能让按钮保持为工具栏的直接 flex 项，
+        // 而 display:contents 与 display:none 同为 display 属性，优先级相同。
+        <span key={item.id} className="contents max-sm:hidden!">
           {renderToolbarItem(item)}
         </span>
       ))}
@@ -489,6 +496,23 @@ export function ChatModelControls({
                   </button>
                 ) : null}
               </div>
+              {stream ? (
+                <div className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs text-foreground/80">{stream.label}</p>
+                    {stream.description ? (
+                      <p className="truncate text-[10px] leading-3 text-muted-foreground">{stream.description}</p>
+                    ) : null}
+                  </div>
+                  <Switch
+                    size="sm"
+                    checked={stream.enabled}
+                    disabled={disabled}
+                    onCheckedChange={stream.onChange}
+                    aria-label={stream.label}
+                  />
+                </div>
+              ) : null}
               {items.length > 0 ? (
                 <div className="min-h-0 max-h-80 space-y-0.5 overflow-y-auto px-0.5">
                   {unpinnedItems.map(renderMenuItem)}

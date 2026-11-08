@@ -298,6 +298,7 @@
     "imageEditTooManyInputs": "图片编辑输入图片过多。",
     "imageEditInputInvalid": "图片编辑只支持有效的图片文件。",
     "artifactUnavailable": "生成结果暂时无法获取，请稍后重试；若问题持续，请联系管理员。",
+    "storageQuotaExceeded": "生成结果已产出，但保存失败：文件库存储空间不足。请清理文件库或联系管理员调整存储配额后重试。",
     "imageStreamUnsupported": "Tips：当前上游可能不支持流式响应，请管理员在模型能力中关闭“图像流式调用”（设置 image.stream=false）后重试。",
     "routeProtocolMismatch": "当前模型的路由协议与任务类型不匹配，请检查该模型的路由绑定。",
     "requeryUnavailable": "该任务缺少回查上游结果所需的信息（上游任务编号或渠道），无法回收结果，请重新生成。",
@@ -348,7 +349,7 @@
     "webhookNotConfigured": "支付回调尚未配置。"
   },
   "quota": {
-    "exceeded": "额度已用尽。"
+    "exceeded": "存储空间不足：文件库存储配额已用尽。请在文件库清理文件，或联系管理员调整存储配额。"
   },
   "rateLimit": {
     "authenticationExceeded": "认证尝试次数过多，请稍后再试。",

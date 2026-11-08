@@ -1,9 +1,10 @@
 "use client";
 
-import { Check, ChevronDown, CircleAlert, FileCode2, FileDiff, Film, FolderArchive, GalleryHorizontalEnd, Hash, Trash2 } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, Download, FileCode2, FileDiff, Film, FolderArchive, GalleryHorizontalEnd, Hash, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { toast } from "sonner";
 import {
   Alert,
   AlertDescription,
@@ -13,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageAttachmentRow } from "@/features/chat/components/message/message-attachment";
+import { MessageDeliveredFiles } from "@/features/chat/components/message/message-delivered-files";
 import { MessageKnowledgeSources } from "@/features/chat/components/message/message-knowledge-sources";
 import type { AssistantReaction } from "@/features/chat/components/message/message-meta";
 import { AssistantMessageMeta } from "@/features/chat/components/message/message-meta";
@@ -22,6 +24,7 @@ import { UpstreamExchangeDetails } from "@/features/chat/components/message/mess
 import { useChatInlineVideoSource } from "@/features/chat/hooks/use-chat-inline-video-source";
 import { canLoadMessageTrace, hasWorkspaceChangeSummary, useChatMessageTraceDetail } from "@/features/chat/hooks/use-chat-message-trace-detail";
 import type { SendShortcut } from "@/features/settings";
+import { deliveredFilesFromMessage, hasDeliveredFilesSummary } from "@/features/chat/model/delivered-files";
 import { resolveLeadingImagePreview } from "@/features/chat/model/media-image-preview";
 import {
   clearLiveUpstreamThinkTrace,
@@ -35,6 +38,9 @@ import type {
 } from "@/features/chat/types/messages";
 import { extractUpstreamStreamError, isUpstreamStreamingDebugBody, summarizeUpstreamError } from "@/features/chat/utils/chat-runtime";
 import { cn } from "@/lib/utils";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { fetchFileContent } from "@/shared/api/file";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { type FileContentLoader, PreviewMedia } from "@/entities/file";
 import { type MarkdownArtifactActions, MarkdownImage } from "@/shared/components/markdown/streamdown-components";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
@@ -147,6 +153,8 @@ type ChatMessageBotProps = {
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onRewindMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onDeleteMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  // 视频生成失败后按运行 ID 回查上游结果；缺省（如临时会话）时不提供该入口。
+  onRequeryMediaMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
   onCopy: () => void;
@@ -187,6 +195,7 @@ export function ChatMessageBot({
   onForkMessage,
   onRewindMessage,
   onDeleteMessage,
+  onRequeryMediaMessage,
   onCycleMessageBranch,
   onReactAssistantMessage,
   onCopy,
@@ -216,6 +225,7 @@ export function ChatMessageBot({
 }: ChatMessageBotProps) {
   const tCommon = useTranslations("common.actions");
   const submitT = useTranslations("chat.submit");
+  const tMessages = useTranslations("chat.messages");
   const workspaceT = useTranslations("chat.workspace");
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingValue, setEditingValue] = React.useState(item.content);
@@ -239,6 +249,26 @@ export function ChatMessageBot({
     () => onDeleteMessage?.(item),
     [item, onDeleteMessage],
   );
+  // 视频生成失败后的「重新查询」：只对可回查的失败视频消息开放，点击期间按钮自锁。
+  const [requeryPending, setRequeryPending] = React.useState(false);
+  const canRequeryMedia = Boolean(
+    !readOnly
+    && onRequeryMediaMessage
+    && item.contentType === "video"
+    && (item.status === "error" || item.status === "interrupted")
+    && item.runID?.trim(),
+  );
+  const onRequeryMedia = React.useCallback(async () => {
+    if (!onRequeryMediaMessage || requeryPending) {
+      return;
+    }
+    setRequeryPending(true);
+    try {
+      await onRequeryMediaMessage(item);
+    } finally {
+      setRequeryPending(false);
+    }
+  }, [item, onRequeryMediaMessage, requeryPending]);
   const onEditSave = React.useCallback(async () => {
     const nextContent = editingValue.trim();
     if (!nextContent || nextContent === item.content.trim()) {
@@ -267,11 +297,12 @@ export function ChatMessageBot({
       ? mergeLiveUpstreamThinkTrace(traceDetail.trace, liveProcessTrace)
       : traceDetail.trace;
   const needsWorkspaceDetail = Boolean(onOpenProjectChange && hasWorkspaceChangeSummary(item.processTrace));
+  const needsDeliveredFilesDetail = Boolean(hasDeliveredFilesSummary(item.processTrace));
   React.useEffect(() => {
-    if (needsWorkspaceDetail && traceDetail.detailPending && !traceDetail.detailFailed) {
+    if ((needsWorkspaceDetail || needsDeliveredFilesDetail) && traceDetail.detailPending && !traceDetail.detailFailed) {
       traceDetail.loadDetail();
     }
-  }, [needsWorkspaceDetail, traceDetail.detailPending, traceDetail.detailFailed, traceDetail.loadDetail]);
+  }, [needsWorkspaceDetail, needsDeliveredFilesDetail, traceDetail.detailPending, traceDetail.detailFailed, traceDetail.loadDetail]);
   React.useEffect(() => {
     if (!item.isStreaming && item.processTrace?.upstreamThink) {
       clearLiveUpstreamThinkTrace(item.runID);
@@ -368,6 +399,11 @@ export function ChatMessageBot({
     () => processTrace?.detailOmitted ? [] : projectChanges([{ ...item, processTrace }]),
     [item, processTrace],
   );
+  // 本条回复返还的文件下载引用，渲染为带限时链接的下载卡片。
+  const deliveredFiles = React.useMemo(
+    () => (processTrace?.detailOmitted ? null : deliveredFilesFromMessage({ ...item, processTrace })),
+    [item, processTrace],
+  );
 
   if (!readOnly && isEditing) {
     const nextContent = editingValue.trim();
@@ -450,7 +486,7 @@ export function ChatMessageBot({
         {isImageGenerationLoading && !item.inlineAlert ? (
           <AssistantImageGenerationSkeleton label={item.activityLabel} aspectRatio={item.imageAspectRatio} />
         ) : isVideoGenerationLoading && !item.inlineAlert ? (
-          <AssistantVideoGenerationSkeleton label={item.activityLabel} />
+          <AssistantVideoGenerationSkeleton label={item.activityLabel} progress={item.mediaProgress} />
         ) : item.isStreaming && !hasStreamdownContent && !item.inlineAlert ? (
           <AssistantMessageSkeleton fileProc={item.isFileProc} label={item.activityLabel} />
         ) : leadingImagePending ? (
@@ -520,6 +556,8 @@ export function ChatMessageBot({
         </div>
       ) : null}
 
+      {deliveredFiles ? <MessageDeliveredFiles payload={deliveredFiles} /> : null}
+
       {inlineVideoAttachment ? (
         <MessageInlineVideoPreview
           attachment={inlineVideoAttachment}
@@ -534,6 +572,24 @@ export function ChatMessageBot({
 
       {item.inlineAlert ? (
         <ChatInlineAlertCard alert={item.inlineAlert} className={hasStreamdownContent ? "my-4" : "mb-4"} />
+      ) : null}
+
+      {canRequeryMedia ? (
+        <div className="mb-4 flex">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 rounded-md px-2.5 text-xs shadow-none"
+            disabled={requeryPending}
+            onClick={() => void onRequeryMedia()}
+          >
+            {requeryPending
+              ? <LoaderCircle className="size-3.5 animate-spin" />
+              : <RefreshCw className="size-3.5" />}
+            {requeryPending ? tMessages("requeryVideoPending") : tMessages("requeryVideo")}
+          </Button>
+        </div>
       ) : null}
 
       {visibleAttachments.length > 0 ? (
@@ -750,14 +806,34 @@ export function AssistantImageGenerationSkeleton({
   );
 }
 
-export function AssistantVideoGenerationSkeleton({ label }: { label?: string }) {
+export function AssistantVideoGenerationSkeleton({ label, progress }: { label?: string; progress?: number }) {
   const t = useTranslations("chat.messages");
   const branding = useBranding();
+  // 上游上报了百分比就是确定态，否则用不确定态动画；两者都不影响状态文案。
+  const percent = typeof progress === "number" && Number.isFinite(progress) && progress >= 0
+    ? Math.min(Math.round(progress), 100)
+    : null;
   return (
     <div className="my-4 w-full max-w-[32rem] space-y-2.5">
       <div className="flex items-center gap-2 pt-1 text-[13px] text-muted-foreground">
         <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-muted border-t-foreground/50" />
-        {label?.trim() || t("processing")}
+        <span className="min-w-0 truncate">{label?.trim() || t("processing")}</span>
+        {percent !== null ? <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/80">{percent}%</span> : null}
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent ?? undefined}
+        className="h-1 w-full overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className={cn(
+            "h-full rounded-full bg-foreground/35 transition-[width] duration-700 ease-out",
+            percent === null && "w-1/3 animate-pulse",
+          )}
+          style={percent === null ? undefined : { width: `${percent}%` }}
+        />
       </div>
       <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-[linear-gradient(135deg,#FDE68A_0%,#FDA4AF_52%,#FB7185_100%)] text-primary">
         <GrainientBackground
@@ -802,7 +878,53 @@ function MessageInlineVideoPreview({
   onExtend?: () => void;
 }) {
   const tMessages = useTranslations("chat.messages");
+  const tFiles = useTranslations("files.previewDialog");
+  const resolveErrorMessage = useLocalizedErrorMessage();
   const state = useChatInlineVideoSource(attachment, loadContent);
+  const [downloading, setDownloading] = React.useState(false);
+
+  // 与内联播放同一条取数链路：拿到原始字节再触发浏览器下载，避免直接打开受保护 URL 401。
+  const handleDownload = React.useCallback(async () => {
+    if (!attachment.fileID || downloading) {
+      return;
+    }
+    setDownloading(true);
+    try {
+      const controller = new AbortController();
+      const file = {
+        fileID: attachment.fileID,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      };
+      const result = loadContent
+        ? await loadContent(file, controller.signal)
+        : await (async () => {
+            const token = await resolveAccessToken();
+            if (!token) {
+              throw new Error(tFiles("sessionExpired"));
+            }
+            return fetchFileContent(token, attachment.fileID, controller.signal);
+          })();
+      const blobURL = URL.createObjectURL(result.blob);
+      const link = document.createElement("a");
+      link.href = blobURL;
+      link.download = attachment.fileName || `video-${attachment.fileID}.mp4`;
+      try {
+        document.body.appendChild(link);
+        link.click();
+      } finally {
+        link.remove();
+        URL.revokeObjectURL(blobURL);
+      }
+    } catch (error) {
+      toast.error(tMessages("downloadVideoFailed"), {
+        description: resolveErrorMessage(error, tFiles("loadFailed")),
+      });
+    } finally {
+      setDownloading(false);
+    }
+  }, [attachment, downloading, loadContent, resolveErrorMessage, tFiles, tMessages]);
 
   if (state.status === "loading") {
     return <InlineVideoLoadingPlaceholder />;
@@ -826,13 +948,22 @@ function MessageInlineVideoPreview({
         contentType={state.contentType}
         inline
       />
-      {onExtend ? (
-        <MediaActionBar className="absolute right-2 top-2">
+      <MediaActionBar className="absolute right-2 top-2">
+        <MediaActionButton
+          label={downloading ? tMessages("downloadingVideo") : tMessages("downloadVideo")}
+          disabled={downloading}
+          onClick={() => void handleDownload()}
+        >
+          {downloading
+            ? <LoaderCircle className="size-3.5 animate-spin" />
+            : <Download className="size-3.5" />}
+        </MediaActionButton>
+        {onExtend ? (
           <MediaActionButton label={tMessages("extendVideo")} onClick={onExtend}>
             <GalleryHorizontalEnd className="size-3.5" />
           </MediaActionButton>
-        </MediaActionBar>
-      ) : null}
+        ) : null}
+      </MediaActionBar>
     </div>
   );
 }

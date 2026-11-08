@@ -25,11 +25,13 @@ type TemporaryChatMessage struct {
 
 // TemporaryChatInput 描述不创建会话、消息和运行记录的临时推理请求。
 type TemporaryChatInput struct {
-	UserID                  uint
-	RequestID               string
-	SessionID               string
-	ClientRunID             string
-	Model                   string
+	UserID      uint
+	RequestID   string
+	SessionID   string
+	ClientRunID string
+	Model       string
+	// Stream 是本次请求的流式偏好；nil 表示默认流式，false 强制非流式请求上游。
+	Stream                  *bool
 	Options                 map[string]any
 	Controls                map[string]any
 	AllowRawOptions         bool

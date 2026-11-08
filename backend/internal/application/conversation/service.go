@@ -248,7 +248,9 @@ type SendMessageInput struct {
 	ContentType       string
 	Content           string
 	PlatformModelName string
-	Options           map[string]any
+	// Stream 是本次请求的流式偏好；nil 表示沿用调用入口的默认值，false 强制非流式请求上游。
+	Stream  *bool
+	Options map[string]any
 	// Controls 是用户在模型控件上的选择 {控件 id: 取值}；参数片段由管理员在模型能力中声明。
 	Controls map[string]any
 	// AllowRawOptions 为 true（管理员）时 Options 可携带高级 JSON；否则只保留原生工具选择。

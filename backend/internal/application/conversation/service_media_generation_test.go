@@ -158,6 +158,16 @@ func TestMediaImageStreamEnabledUsesModelCapabilitiesOverride(t *testing.T) {
 	}
 }
 
+func TestMediaImageStreamEnabledForRequestDisablesGIFOutput(t *testing.T) {
+	enabled := true
+	if mediaImageStreamEnabledForRequest(llm.AdapterOpenAIImageGenerations, "gpt-image-2.6-flare", "", &enabled, map[string]any{"output_format": "gif"}) {
+		t.Fatalf("GIF output must not use streaming")
+	}
+	if !mediaImageStreamEnabledForRequest(llm.AdapterOpenAIImageGenerations, "gpt-image-2.6-flare", "", &enabled, map[string]any{"output_format": "png"}) {
+		t.Fatalf("static output should keep streaming enabled")
+	}
+}
+
 type mediaImageResultRepository struct {
 	*conversationRunClaimRepositoryStub
 	source      model.FileObject

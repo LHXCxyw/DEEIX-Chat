@@ -51,14 +51,20 @@ export const PROTOCOL_IMAGE_CONTROLS: Record<string, ProtocolMediaOptionControl[
     { path: "size", type: "select", options: OPENAI_SIZE_VALUES },
     { path: "quality", type: "select", options: ["auto", "low", "medium", "high", "standard", "hd"] },
     { path: "background", type: "select", options: ["auto", "opaque", "transparent"] },
-    { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
+    { path: "output_format", type: "select", options: ["png", "jpeg", "webp", "gif"] },
+    // GIF 动图专属参数：仅 output_format=gif 时发送，帧数 2-16，帧间隔 20-2000 毫秒。
+    { path: "frame_count", type: "number", placeholder: "9" },
+    { path: "frame_duration_ms", type: "number", placeholder: "200" },
   ],
   openai_image_edits: [
     { path: "size", type: "select", options: OPENAI_SIZE_VALUES },
     { path: "quality", type: "select", options: ["auto", "low", "medium", "high", "standard", "hd"] },
     { path: "background", type: "select", options: ["auto", "opaque", "transparent"] },
     { path: "input_fidelity", type: "select", options: ["low", "high"] },
-    { path: "output_format", type: "select", options: ["png", "jpeg", "webp"] },
+    { path: "output_format", type: "select", options: ["png", "jpeg", "webp", "gif"] },
+    // GIF 动图专属参数：仅 output_format=gif 时发送，帧数 2-16，帧间隔 20-2000 毫秒。
+    { path: "frame_count", type: "number", placeholder: "9" },
+    { path: "frame_duration_ms", type: "number", placeholder: "200" },
   ],
   google_image_generation: [
     { path: "generationConfig.responseModalities", type: "select", options: ["TEXT", "IMAGE"] },
@@ -148,6 +154,8 @@ export const IMAGE_OPTION_PATHS = new Set([
   "aspect_ratio",
   "aspectRatio",
   "background",
+  "frame_count",
+  "frame_duration_ms",
   "generationConfig.imageConfig.aspectRatio",
   "generationConfig.imageConfig.imageSize",
   "generationConfig.mediaResolution",

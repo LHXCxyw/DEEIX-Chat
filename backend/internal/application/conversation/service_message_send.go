@@ -163,6 +163,11 @@ func (s *Service) sendMessageInternal(
 	onDelta func(string) error,
 	preferStream bool,
 ) (result *SendMessageResult, retErr error) {
+	// 请求级流式偏好只能收窄调用入口的默认值：显式 false 改为非流式请求上游，
+	// 显式 true 也不会让没有增量回调的非流式入口变成流式。
+	if input.Stream != nil && !*input.Stream {
+		preferStream = false
+	}
 	ctx, sendSpan := platformtracing.Start(ctx, "conversation.send",
 		trace.WithAttributes(
 			attribute.Int64("conversation.id", int64(input.ConversationID)),
@@ -699,20 +704,21 @@ func (s *Service) sendMessageInternal(
 	}
 	recordSkillPromptTrace(traceRecorder, skillPrompts)
 	routePromptInput := messageRoutePromptInput{
-		UserContent:             input.Content,
-		ProjectSystemPrompt:     conversation.ProjectSystemPrompt,
-		HTMLVisualPromptEnabled: input.HTMLVisualPromptEnabled,
-		UIComponents:            uiComponents,
-		UIBlockVersion:          input.UIBlockVersion,
-		DomainMessages:          promptScope.activeMessages(),
-		ConversationFiles:       fileContextPlan.Attachments,
-		NativeInputs:            nativeInputCache,
-		DynamicContext:          userCtx,
-		PreferencePrompt:        preferencePrompt,
-		SkillPrompts:            skillPrompts,
-		ToolRuntime:             toolRuntime,
-		SkipImageAttachments:    imageAttachmentRoutingActive,
-		Config:                  cfg,
+		UserContent:              input.Content,
+		ProjectSystemPrompt:      conversation.ProjectSystemPrompt,
+		ConversationSystemPrompt: conversation.SystemPrompt,
+		HTMLVisualPromptEnabled:  input.HTMLVisualPromptEnabled,
+		UIComponents:             uiComponents,
+		UIBlockVersion:           input.UIBlockVersion,
+		DomainMessages:           promptScope.activeMessages(),
+		ConversationFiles:        fileContextPlan.Attachments,
+		NativeInputs:             nativeInputCache,
+		DynamicContext:           userCtx,
+		PreferencePrompt:         preferencePrompt,
+		SkillPrompts:             skillPrompts,
+		ToolRuntime:              toolRuntime,
+		SkipImageAttachments:     imageAttachmentRoutingActive,
+		Config:                   cfg,
 	}
 	promptPlan, reasoningContentPassback, err := s.planRoutePrompt(ctx, input.UserID, routePromptInput, route)
 	if err != nil {

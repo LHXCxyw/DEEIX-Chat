@@ -64,35 +64,46 @@ func (s *Service) runTemporaryGeneration(ctx context.Context, input temporaryGen
 		var callText strings.Builder
 		var observedUsage llm.Usage
 		llmCallCount++
-		output, err := s.llmClient.GenerateStream(ctx, routeConfig, currentInput, func(event llm.GenerateStreamEvent) error {
-			if event.Usage != (llm.Usage{}) {
-				observedUsage = event.Usage
-				if emitErr := emitLLMUsageEvent(request.OnEvent, addLLMUsage(totalUsage, observedUsage)); emitErr != nil {
-					return emitErr
-				}
-			}
-			if traceRecorder != nil && event.Reasoning != nil && event.Reasoning.Text != "" {
-				traceRecorder.appendUpstreamReasoning(event.Reasoning.Kind, event.Reasoning.Text, reasoningPayload(event.Reasoning))
-				if strings.EqualFold(strings.TrimSpace(event.Reasoning.Status), "completed") {
-					traceRecorder.completeUpstreamThink()
-				}
-			}
-			if event.Delta == "" {
-				return nil
-			}
-			if firstTokenLatency == 0 {
-				firstTokenLatency = time.Since(startedAt).Milliseconds()
-			}
-			if traceRecorder != nil {
-				traceRecorder.completeProcess()
+		var output *llm.GenerateOutput
+		var err error
+		if request.Stream != nil && !*request.Stream {
+			// 请求级关闭流式时改用非流式上游请求；完整正文随结果返回，不推送增量。
+			output, err = s.llmClient.Generate(ctx, routeConfig, currentInput)
+			if output != nil && traceRecorder != nil && output.Reasoning != nil && strings.TrimSpace(output.Reasoning.Text) != "" {
+				traceRecorder.appendUpstreamReasoning("reasoning", output.Reasoning.Text, nil)
 				traceRecorder.completeUpstreamThink()
 			}
-			callText.WriteString(event.Delta)
-			if onDelta != nil {
-				return onDelta(event.Delta)
-			}
-			return nil
-		})
+		} else {
+			output, err = s.llmClient.GenerateStream(ctx, routeConfig, currentInput, func(event llm.GenerateStreamEvent) error {
+				if event.Usage != (llm.Usage{}) {
+					observedUsage = event.Usage
+					if emitErr := emitLLMUsageEvent(request.OnEvent, addLLMUsage(totalUsage, observedUsage)); emitErr != nil {
+						return emitErr
+					}
+				}
+				if traceRecorder != nil && event.Reasoning != nil && event.Reasoning.Text != "" {
+					traceRecorder.appendUpstreamReasoning(event.Reasoning.Kind, event.Reasoning.Text, reasoningPayload(event.Reasoning))
+					if strings.EqualFold(strings.TrimSpace(event.Reasoning.Status), "completed") {
+						traceRecorder.completeUpstreamThink()
+					}
+				}
+				if event.Delta == "" {
+					return nil
+				}
+				if firstTokenLatency == 0 {
+					firstTokenLatency = time.Since(startedAt).Milliseconds()
+				}
+				if traceRecorder != nil {
+					traceRecorder.completeProcess()
+					traceRecorder.completeUpstreamThink()
+				}
+				callText.WriteString(event.Delta)
+				if onDelta != nil {
+					return onDelta(event.Delta)
+				}
+				return nil
+			})
+		}
 		if output == nil {
 			output = &llm.GenerateOutput{}
 		}

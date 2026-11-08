@@ -295,7 +295,9 @@ function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, 
       {/* A fixed height, not a max: the dialog must not resize and re-centre while the search narrows the list. */}
       <div className="min-h-0 overflow-hidden px-5 py-2">
         <Table
-          className="min-w-full table-fixed"
+          // 窄屏下给模型列留出可读宽度：表格因此比视口宽，靠横向滚动查看协议列，
+          // 而不是把模型列压成 0 宽后让协议内容盖在模型名上。
+          className="min-w-[34rem] table-fixed"
           shellClassName="w-full"
           viewportClassName="overscroll-contain [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20"
           viewportStyle={{ height: compact ? COMPACT_LIST_HEIGHT : LIST_HEIGHT }}
@@ -313,7 +315,7 @@ function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, 
                 </div>
               </TableHead>
               <TableHead>{t("column")}</TableHead>
-              {showProtocols ? <TableHead className="w-[19rem]">{t("protocolColumn")}</TableHead> : null}
+              {showProtocols ? <TableHead className="w-[15rem] sm:w-[19rem]">{t("protocolColumn")}</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -350,7 +352,7 @@ function ModelsSelectBody({ onOpenChange, models: options, selected, protocols, 
                     </TableCell>
                     {/* The select lives in a clickable row: keep its clicks from toggling the row. */}
                     {showProtocols ? (
-                      <TableCell className="w-[19rem] py-1" onClick={(event) => event.stopPropagation()}>
+                      <TableCell className="w-[15rem] py-1 sm:w-[19rem]" onClick={(event) => event.stopPropagation()}>
                         <ModelProtocolSelect
                           model={model}
                           protocols={protocolsByModel.get(model) ?? []}
@@ -422,8 +424,9 @@ function ModelProtocolSelect({
     <Select value={current.value} onValueChange={onChange}>
       <SelectTrigger
         aria-label={t("protocolFor", { model })}
+        title={current.vendor ? `${current.name} ${current.vendor}` : current.name}
         className={cn(
-          "-ml-2 h-7 w-[calc(100%+0.5rem)] border-transparent bg-transparent px-2 hover:bg-muted/70 data-[state=open]:bg-muted/70 dark:bg-transparent dark:hover:bg-muted/70",
+          "h-7 w-full border-transparent bg-transparent px-2 hover:bg-muted/70 data-[state=open]:bg-muted/70 dark:bg-transparent dark:hover:bg-muted/70",
           !active && "opacity-60",
         )}
       >

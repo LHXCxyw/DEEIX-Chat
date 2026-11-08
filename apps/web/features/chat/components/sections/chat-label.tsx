@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, PencilLine, Star, StarOff, Trash } from "lucide-react";
+import { ChevronDown, PencilLine, ScrollText, Star, StarOff, Trash } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Sparkles } from "@/components/animate-ui/icons/sparkles";
@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Spinner, SpinnerLabel } from "@/components/ui/spinner";
 import { AnimatedText } from "@/components/ui/animated-text";
@@ -42,6 +43,9 @@ type ChatLabelProps = {
   onAutoRename?: () => void | Promise<void>;
   labels?: string[];
   onUpdateLabels?: (labels: string[]) => void | Promise<void>;
+  // 当前会话的系统提示词快照；空串表示跟随全局默认。
+  systemPrompt?: string;
+  onSaveSystemPrompt?: (systemPrompt: string) => void | Promise<void>;
   projectMenu?: {
     label: string;
     unassignedLabel: string;
@@ -71,6 +75,8 @@ export function ChatLabel({
   onAutoRename,
   labels = [],
   onUpdateLabels,
+  systemPrompt = "",
+  onSaveSystemPrompt,
   projectMenu,
   onShare,
   shareActive = false,
@@ -86,6 +92,9 @@ export function ChatLabel({
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [renameDialogOpen, setRenameDialogOpen] = React.useState(false);
   const [labelsDialogOpen, setLabelsDialogOpen] = React.useState(false);
+  const [systemPromptDialogOpen, setSystemPromptDialogOpen] = React.useState(false);
+  const [systemPromptValue, setSystemPromptValue] = React.useState(systemPrompt);
+  const [savingSystemPrompt, setSavingSystemPrompt] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState(title);
   const [renaming, setRenaming] = React.useState(false);
   const [autoRenaming, setAutoRenaming] = React.useState(false);
@@ -95,6 +104,12 @@ export function ChatLabel({
       setRenameValue(title);
     }
   }, [renameDialogOpen, title]);
+
+  React.useEffect(() => {
+    if (systemPromptDialogOpen) {
+      setSystemPromptValue(systemPrompt);
+    }
+  }, [systemPrompt, systemPromptDialogOpen]);
 
   const commitRename = React.useCallback(async () => {
     const nextTitle = renameValue.trim();
@@ -125,6 +140,19 @@ export function ChatLabel({
       setAutoRenaming(false);
     }
   }, [autoRenaming, onAutoRename, renaming]);
+
+  const commitSystemPrompt = React.useCallback(async () => {
+    if (!onSaveSystemPrompt || savingSystemPrompt) {
+      return;
+    }
+    setSavingSystemPrompt(true);
+    try {
+      await onSaveSystemPrompt(systemPromptValue);
+      setSystemPromptDialogOpen(false);
+    } finally {
+      setSavingSystemPrompt(false);
+    }
+  }, [onSaveSystemPrompt, savingSystemPrompt, systemPromptValue]);
 
   return (
     <div className={cn("inline-flex max-w-full items-center", className)}>
@@ -188,6 +216,22 @@ export function ChatLabel({
           >
             <DropdownMenuItemIcon icon={PencilLine} />
             {t("rename")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!onSaveSystemPrompt}
+            onSelect={(event) => {
+              event.preventDefault();
+              if (!onSaveSystemPrompt) {
+                return;
+              }
+              setMenuOpen(false);
+              requestAnimationFrame(() => {
+                setSystemPromptDialogOpen(true);
+              });
+            }}
+          >
+            <DropdownMenuItemIcon icon={ScrollText} />
+            {t("systemPrompt")}
           </DropdownMenuItem>
           <ConversationLabelsMenuItem
             labels={labels}
@@ -303,6 +347,49 @@ export function ChatLabel({
           onOpenChange={setLabelsDialogOpen}
           onSave={onUpdateLabels}
         />
+      ) : null}
+      {onSaveSystemPrompt ? (
+        <Dialog open={systemPromptDialogOpen} onOpenChange={setSystemPromptDialogOpen}>
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>{t("systemPrompt")}</DialogTitle>
+              <DialogDescription>{t("systemPromptDescription")}</DialogDescription>
+            </DialogHeader>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void commitSystemPrompt();
+              }}
+              className="space-y-3"
+            >
+              <Textarea
+                autoFocus
+                value={systemPromptValue}
+                onChange={(event) => setSystemPromptValue(event.target.value)}
+                placeholder={t("systemPromptPlaceholder")}
+                maxLength={20000}
+                rows={8}
+                className="min-h-48 resize-y"
+              />
+              <div className="flex justify-end text-xs tabular-nums text-muted-foreground">
+                <span>{t("systemPromptCount", { count: systemPromptValue.length })}</span>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setSystemPromptDialogOpen(false)}
+                  disabled={savingSystemPrompt}
+                >
+                  {common("cancel")}
+                </Button>
+                <Button type="submit" disabled={savingSystemPrompt}>
+                  {savingSystemPrompt ? <SpinnerLabel>{common("saving")}</SpinnerLabel> : common("save")}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );

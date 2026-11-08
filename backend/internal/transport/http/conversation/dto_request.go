@@ -84,6 +84,11 @@ type RenameConversationRequest struct {
 	Title string `json:"title" binding:"required,max=255"`
 }
 
+// UpdateConversationSystemPromptRequest 更新会话级系统提示词请求；空串表示回退到全局默认。
+type UpdateConversationSystemPromptRequest struct {
+	SystemPrompt *string `json:"systemPrompt" binding:"required" maxLength:"20000"`
+}
+
 // UpdateConversationLabelsRequest 更新会话标签请求。
 type UpdateConversationLabelsRequest struct {
 	Labels *[]string `json:"labels" binding:"required,max=6,dive,max=24" maxLength:"24"`
@@ -141,6 +146,8 @@ type SendMessageRequest struct {
 	ContentType      string                           `json:"contentType" binding:"required,oneof=text markdown image file mixed"`
 	Content          string                           `json:"content" binding:"required"`
 	Model            string                           `json:"model,omitempty" binding:"omitempty,max=128"`
+	// Stream 决定本次上游调用是否使用流式请求；缺省为 true，显式 false 时改用非流式请求上游。
+	Stream *bool `json:"stream,omitempty"`
 	// Options 为高级参数 JSON：仅管理员生效；普通用户只保留原生工具选择（tools）。
 	Options map[string]any `json:"options,omitempty"`
 	// Controls 为模型控件选择 {控件 id: 取值}，取值为字符串、布尔或数值；未知控件与无效取值被忽略。
@@ -180,9 +187,11 @@ type MessageUIStateInputRequest struct {
 // TemporaryChatMessageRequest 是仅在当前页面内维护的临时对话请求。
 // 历史正文和请求级附件由浏览器逐轮提交，服务端不创建会话、消息或文件记录。
 type TemporaryChatMessageRequest struct {
-	SessionID        string                        `json:"sessionID" binding:"required,max=64"`
-	ClientRunID      string                        `json:"clientRunID" binding:"required,max=64"`
-	Model            string                        `json:"model" binding:"required,max=128"`
+	SessionID   string `json:"sessionID" binding:"required,max=64"`
+	ClientRunID string `json:"clientRunID" binding:"required,max=64"`
+	Model       string `json:"model" binding:"required,max=128"`
+	// Stream 决定本次上游调用是否使用流式请求；缺省为 true，显式 false 时改用非流式请求上游。
+	Stream           *bool                         `json:"stream,omitempty"`
 	Options          map[string]any                `json:"options,omitempty"`
 	Controls         map[string]any                `json:"controls,omitempty"`
 	SelectedToolIDs  []uint                        `json:"selectedToolIDs,omitempty" binding:"max=128"`
@@ -218,15 +227,17 @@ type TemporaryChatHistoryMessage struct {
 
 // MediaImageRequest 图片生成/编辑请求。
 type MediaImageRequest struct {
-	Prompt                string         `json:"prompt" binding:"required"`
-	Model                 string         `json:"model,omitempty" binding:"omitempty,max=128"`
-	Options               map[string]any `json:"options,omitempty"`
-	ClientRunID           string         `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
-	FileIDs               []string       `json:"fileIDs,omitempty" binding:"max=20"`
-	MaskFileID            string         `json:"maskFileID,omitempty" binding:"omitempty,max=128"`
-	ParentMessagePublicID string         `json:"parentMessagePublicID,omitempty" binding:"omitempty,max=32"`
-	SourceMessagePublicID string         `json:"sourceMessagePublicID,omitempty" binding:"omitempty,max=32"`
-	BranchReason          string         `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit"`
+	Prompt  string         `json:"prompt" binding:"required"`
+	Model   string         `json:"model,omitempty" binding:"omitempty,max=128"`
+	Options map[string]any `json:"options,omitempty"`
+	// Stream 决定本次上游调用是否使用流式请求；缺省按其协议能力，显式 false 时改用非流式请求上游。
+	Stream                *bool    `json:"stream,omitempty"`
+	ClientRunID           string   `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
+	FileIDs               []string `json:"fileIDs,omitempty" binding:"max=20"`
+	MaskFileID            string   `json:"maskFileID,omitempty" binding:"omitempty,max=128"`
+	ParentMessagePublicID string   `json:"parentMessagePublicID,omitempty" binding:"omitempty,max=32"`
+	SourceMessagePublicID string   `json:"sourceMessagePublicID,omitempty" binding:"omitempty,max=32"`
+	BranchReason          string   `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit"`
 }
 
 // MediaVideoRequest 视频生成请求。

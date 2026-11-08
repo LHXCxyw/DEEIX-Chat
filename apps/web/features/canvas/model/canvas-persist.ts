@@ -41,6 +41,7 @@ export function toPersistedGraphNodes(nodes: ReadonlyArray<GraphNode>): Persiste
         return {
           ...meta, kind: "generate", mediaType: node.mediaType ?? "image", model: node.model, options: node.options,
           resultCount: node.resultCount, operation: node.operation, maskReference: node.maskReference ?? null,
+          stream: node.stream,
           modelScope: node.modelScope === "user" ? "user" : "platform", userModelID: node.userModelID,
           errorMessage: node.errorMessage, errorDetail: node.errorDetail,
           conversationID: node.conversationID, runID: node.runID,
@@ -289,6 +290,7 @@ export function restoreGraphNodes(items: ReadonlyArray<PersistedGraphNode>): Gra
         return {
           ...meta, kind: "generate", mediaType: item.mediaType ?? "image", model: item.model, options: item.options ?? {},
           resultCount: item.resultCount, operation: item.operation, maskReference: item.maskReference ?? null,
+          stream: item.stream,
           modelScope: item.modelScope === "user" ? "user" : "platform", userModelID: item.userModelID,
           // 运行中任务（持久化了会话与运行 ID 且无错误）恢复为待恢复态，由恢复引擎接管；
           // 错误节点保留运行 ID 供「重新查询」手动回查，其余节点回到空闲态

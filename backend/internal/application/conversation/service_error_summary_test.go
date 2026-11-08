@@ -37,7 +37,7 @@ func TestMessageErrorSummaryMapsKnownPlainSentinels(t *testing.T) {
 		want string
 	}{
 		{name: "upstream", err: ErrUpstreamRequestFailed, want: "upstream service unavailable"},
-		{name: "quota", err: ErrStorageQuotaExceeded, want: "quota exceeded"},
+		{name: "quota", err: ErrStorageQuotaExceeded, want: "storage quota exceeded"},
 		{name: "tool answer", err: ErrToolRunFinalAnswerMissing, want: "tool run ended without a final answer"},
 	}
 

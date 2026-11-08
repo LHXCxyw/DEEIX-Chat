@@ -52,13 +52,15 @@ type mediaImageCapabilities struct {
 
 // MediaImageInput 定义媒体图片任务的应用层入参。
 type MediaImageInput struct {
-	UserID                uint
-	ConversationID        uint
-	RequestID             string
-	TaskType              MediaImageTaskType
-	Prompt                string
-	PlatformModelName     string
-	Options               map[string]any
+	UserID            uint
+	ConversationID    uint
+	RequestID         string
+	TaskType          MediaImageTaskType
+	Prompt            string
+	PlatformModelName string
+	Options           map[string]any
+	// Stream 是本次请求的流式偏好；nil 表示按协议能力默认，false 强制非流式请求上游。
+	Stream                *bool
 	ClientRunID           string
 	FileIDs               []string
 	MaskFileID            string
@@ -396,7 +398,7 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		generateInput.ImageEditMask = maskPart
 	}
 	var output *llm.GenerateOutput
-	if mediaImageStreamEnabled(routeConfig.Protocol, routeConfig.UpstreamModel, route.ModelCapabilitiesJSON) {
+	if mediaImageStreamEnabledForRequest(routeConfig.Protocol, routeConfig.UpstreamModel, route.ModelCapabilitiesJSON, input.Stream, filteredOptions) {
 		output, err = s.llmClient.GenerateStream(ctx, routeConfig, generateInput, func(event llm.GenerateStreamEvent) error {
 			if event.Usage != (llm.Usage{}) && input.OnEvent != nil {
 				if streamErr := input.OnEvent("usage", map[string]any{
@@ -488,9 +490,9 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 			MaxBytes:     maxGeneratedImageBytes,
 		})
 		if uploadErr != nil {
-			retErr = uploadErr
+			retErr = refineMediaArtifactSaveError(uploadErr)
 			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), textutil.TruncateTrimmed(messageErrorSummary(retErr), 255))
-			return buildBillableFailure(uploadErr, output.Usage), uploadErr
+			return buildBillableFailure(retErr, output.Usage), retErr
 		}
 		file := uploadResult.File
 		uploaded = append(uploaded, file)
@@ -760,6 +762,23 @@ func emitMediaEvent(onEvent func(string, map[string]any) error, status string, m
 	_ = onEvent("media_status", payload)
 }
 
+// emitMediaProgress 输出异步媒体任务的百分比进度：沿用 media_status 通道，
+// 额外携带 progress 字段，客户端据此绘制确定态进度条，无需解析 message 文本。
+func emitMediaProgress(onEvent func(string, map[string]any) error, percent int, contentType string) {
+	if onEvent == nil || percent < 0 || percent > 100 {
+		return
+	}
+	payload := map[string]any{
+		"status":   "progress",
+		"message":  fmt.Sprintf("%d%%", percent),
+		"progress": percent,
+	}
+	if strings.TrimSpace(contentType) != "" {
+		payload["content_type"] = strings.TrimSpace(contentType)
+	}
+	_ = onEvent("media_status", payload)
+}
+
 func emitMediaImageDelta(onEvent func(string, map[string]any) error, event llm.GenerateStreamEvent) error {
 	if onEvent == nil || event.GeneratedImage == nil {
 		return nil
@@ -778,6 +797,25 @@ func emitMediaImageDelta(onEvent func(string, map[string]any) error, event llm.G
 
 func mediaImageStreamEnabled(protocol string, upstreamModel string, capabilitiesJSON string) bool {
 	return llm.SupportsImageGenerationStream(protocol, upstreamModel) && !mediaImageStreamExplicitlyDisabled(capabilitiesJSON)
+}
+
+// mediaImageStreamEnabledForRequest 在协议与能力判定之上叠加请求级流式偏好。
+// 显式 false 强制非流式；显式 true 也不能突破协议是否支持流式的限制；
+// GIF 动图输出不支持流式，固定走非流式请求。
+func mediaImageStreamEnabledForRequest(
+	protocol string,
+	upstreamModel string,
+	capabilitiesJSON string,
+	override *bool,
+	options map[string]any,
+) bool {
+	if llm.RequestsAnimatedGIFOutput(options) {
+		return false
+	}
+	if override == nil {
+		return mediaImageStreamEnabled(protocol, upstreamModel, capabilitiesJSON)
+	}
+	return *override && llm.SupportsImageGenerationStream(protocol, upstreamModel)
 }
 
 func withGeminiInteractionResponseType(options map[string]any, responseType string) map[string]any {

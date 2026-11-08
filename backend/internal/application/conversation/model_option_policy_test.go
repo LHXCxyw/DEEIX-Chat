@@ -985,6 +985,58 @@ func TestFilterModelOptionsOpenAIImageEditsAllowsEditParams(t *testing.T) {
 	}
 }
 
+func TestFilterModelOptionsOpenAIImageGIFParams(t *testing.T) {
+	filtered := filterModelOptions(map[string]any{
+		"output_format":      "gif",
+		"output_compression": 80,
+		"frame_count":        9,
+		"frame_duration_ms":  200,
+	}, llm.AdapterOpenAIImageGenerations, modelOptionPolicyConfig{
+		Mode:             modelOptionPolicyAllowlist,
+		AllowedPathsJSON: config.DefaultModelOptionAllowedPathsJSON(),
+		DeniedPathsJSON:  config.DefaultModelOptionDeniedPathsJSON(),
+	})
+
+	if filtered["frame_count"] != 9 || filtered["frame_duration_ms"] != 200 {
+		t.Fatalf("expected GIF frame params to pass, got %#v", filtered)
+	}
+	if _, ok := filtered["output_compression"]; ok {
+		t.Fatalf("expected GIF output to drop output_compression, got %#v", filtered)
+	}
+
+	// 非 GIF 输出时 GIF 专属参数不应透传给上游。
+	staticOptions := filterModelOptions(map[string]any{
+		"output_format":     "png",
+		"frame_count":       9,
+		"frame_duration_ms": 200,
+	}, llm.AdapterOpenAIImageGenerations, modelOptionPolicyConfig{
+		Mode:             modelOptionPolicyAllowlist,
+		AllowedPathsJSON: config.DefaultModelOptionAllowedPathsJSON(),
+		DeniedPathsJSON:  config.DefaultModelOptionDeniedPathsJSON(),
+	})
+	for _, key := range []string{"frame_count", "frame_duration_ms"} {
+		if _, ok := staticOptions[key]; ok {
+			t.Fatalf("expected %q to be dropped for static output, got %#v", key, staticOptions)
+		}
+	}
+
+	// 越界取值应被清洗掉。
+	invalidOptions := filterModelOptions(map[string]any{
+		"output_format":     "gif",
+		"frame_count":       1,
+		"frame_duration_ms": 5000,
+	}, llm.AdapterOpenAIImageEdits, modelOptionPolicyConfig{
+		Mode:             modelOptionPolicyAllowlist,
+		AllowedPathsJSON: config.DefaultModelOptionAllowedPathsJSON(),
+		DeniedPathsJSON:  config.DefaultModelOptionDeniedPathsJSON(),
+	})
+	for _, key := range []string{"frame_count", "frame_duration_ms"} {
+		if _, ok := invalidOptions[key]; ok {
+			t.Fatalf("expected invalid %q to be dropped, got %#v", key, invalidOptions)
+		}
+	}
+}
+
 func TestFilterModelOptionsGeminiInteractionsAllowsVideoParams(t *testing.T) {
 	filtered := filterModelOptions(map[string]any{
 		"response_format": map[string]any{

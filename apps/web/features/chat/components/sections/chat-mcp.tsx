@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { MCPToolDTO } from "@/shared/api/mcp-types";
+import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useChatPopoverAlignOffset } from "@/features/chat/hooks/use-chat-popover-align-offset";
 
 const DEFAULT_MCP_TOOL_SELECTION_LIMIT = 32;
@@ -164,6 +165,7 @@ export function ChatMCP({
   const [focusedRowKey, setFocusedRowKey] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
   const popoverShift = useChatPopoverAlignOffset("start");
+  const isMobile = useIsMobile();
   const [search, setSearch] = React.useState("");
   const [expandedServerKeys, setExpandedServerKeys] = React.useState<Set<string>>(() => new Set());
   const selectedToolIDSet = React.useMemo(() => new Set(selectedToolIDs), [selectedToolIDs]);
@@ -329,6 +331,10 @@ export function ChatMCP({
         collisionPadding={8}
         data-mcp-tools-popover-content
         className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-1rem))] flex-col p-1.5"
+        // 触屏设备没有物理键盘：默认聚焦首个可聚焦元素（搜索框）会拉起输入法并压缩面板高度。
+        onOpenAutoFocus={(event) => {
+          if (isMobile) event.preventDefault();
+        }}
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}

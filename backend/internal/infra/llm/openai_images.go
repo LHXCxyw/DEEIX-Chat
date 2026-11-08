@@ -208,23 +208,8 @@ func (c *Client) postOpenAIImageJSONStream(
 		return nil, parseUpstreamError(resp.StatusCode, body, upstreamDebugSnapshot(req, debugPayload, resp, body))
 	}
 
-	if !isEventStreamContentType(resp.Header.Get("Content-Type")) {
-		body, readErr := readUpstreamBody(resp.Body)
-		if readErr != nil {
-			return nil, readErr
-		}
-		output, parseErr := parseOpenAIImageOutput(body, outputFormat)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		if output.Usage != (portllm.Usage{}) && onEvent != nil {
-			if err := onEvent(portllm.GenerateStreamEvent{Usage: output.Usage}); err != nil {
-				return nil, err
-			}
-		}
-		return output, nil
-	}
-
+	// 上游可能把 SSE 文本标成 application/json，或者忽略 stream 直接返回缓冲 JSON；
+	// 统一交给 SSE 解析器：它同时兼容 data: 行、事件名和整段 JSON，并在读取到 [DONE] 时立即结束。
 	result := &portllm.GenerateOutput{
 		ResponseID:      "",
 		Usage:           portllm.Usage{},
@@ -238,10 +223,6 @@ func (c *Client) postOpenAIImageJSONStream(
 		return nil, attachStreamUpstreamDebug(err, upstreamDebugSnapshot(req, debugPayload, resp, streamErrorBody(streamBody, err)))
 	}
 	return result, nil
-}
-
-func isEventStreamContentType(contentType string) bool {
-	return strings.Contains(strings.ToLower(strings.TrimSpace(contentType)), "text/event-stream")
 }
 
 // generateOpenAIImageEdits 构造并执行 OpenAI 图片编辑请求。
@@ -344,23 +325,8 @@ func (c *Client) generateOpenAIImageEditsStream(
 	}
 
 	outputFormat := modelParamString(input.Options, "output_format")
-	if !isEventStreamContentType(resp.Header.Get("Content-Type")) {
-		body, readErr := readUpstreamBody(resp.Body)
-		if readErr != nil {
-			return nil, readErr
-		}
-		output, parseErr := parseOpenAIImageOutput(body, outputFormat)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		if output.Usage != (portllm.Usage{}) && onEvent != nil {
-			if err := onEvent(portllm.GenerateStreamEvent{Usage: output.Usage}); err != nil {
-				return nil, err
-			}
-		}
-		return output, nil
-	}
-
+	// 与生成端点一致：SSE 文本、缓冲 JSON 或标错 Content-Type 的 SSE 都交给同一解析器，
+	// 读取到 [DONE] 立即结束，不等待上游关闭连接。
 	result := &portllm.GenerateOutput{
 		ResponseID:      "",
 		Usage:           portllm.Usage{},
@@ -399,6 +365,10 @@ func buildOpenAIImageGenerationStreamRequestBody(model string, input portllm.Gen
 	if !portllm.SupportsImageGenerationStream(portllm.AdapterOpenAIImageGenerations, model) {
 		return nil, fmt.Errorf("%w: %s", portllm.ErrUnsupportedStream, portllm.AdapterOpenAIImageGenerations)
 	}
+	// GIF 动图不支持流式输出，必须走非流式请求。
+	if portllm.RequestsAnimatedGIFOutput(input.Options) {
+		return nil, fmt.Errorf("%w: GIF output does not support streaming", portllm.ErrUnsupportedStream)
+	}
 	payload["stream"] = true
 	applyOpenAIImageGenerationStreamParams(payload, input.Options)
 	return payload, nil
@@ -416,6 +386,10 @@ func buildOpenAIImageEditMultipartRequest(model string, input portllm.GenerateIn
 	}
 	if stream && !portllm.SupportsImageGenerationStream(portllm.AdapterOpenAIImageEdits, model) {
 		return nil, "", nil, fmt.Errorf("%w: %s", portllm.ErrUnsupportedStream, portllm.AdapterOpenAIImageEdits)
+	}
+	// GIF 动图不支持流式输出，必须走非流式请求。
+	if stream && portllm.RequestsAnimatedGIFOutput(input.Options) {
+		return nil, "", nil, fmt.Errorf("%w: GIF output does not support streaming", portllm.ErrUnsupportedStream)
 	}
 
 	formFields := map[string]string{
@@ -482,8 +456,14 @@ func applyOpenAIImageEditParams(fields map[string]string, model string, options 
 				fields[key] = value
 			}
 		}
-		if value := modelParamInt(options, "output_compression"); value > 0 {
-			fields["output_compression"] = fmt.Sprintf("%d", value)
+		// GIF 输出不支持自定义压缩。
+		if !portllm.RequestsAnimatedGIFOutput(options) {
+			if value := modelParamInt(options, "output_compression"); value > 0 {
+				fields["output_compression"] = fmt.Sprintf("%d", value)
+			}
+		}
+		for key, value := range openAIImageGIFParams(options) {
+			fields[key] = fmt.Sprintf("%d", value)
 		}
 	}
 }
@@ -554,8 +534,14 @@ func applyOpenAIImageGenerationParams(payload map[string]any, model string, opti
 				payload[key] = value
 			}
 		}
-		if value := modelParamInt(options, "output_compression"); value > 0 {
-			payload["output_compression"] = value
+		// GIF 输出不支持自定义压缩。
+		if !portllm.RequestsAnimatedGIFOutput(options) {
+			if value := modelParamInt(options, "output_compression"); value > 0 {
+				payload["output_compression"] = value
+			}
+		}
+		for key, value := range openAIImageGIFParams(options) {
+			payload[key] = value
 		}
 	}
 	if openAIImageGenerationModelSupportsStyle(model) {
@@ -570,6 +556,22 @@ func defaultImageResponseFormat(options map[string]any) string {
 		return value
 	}
 	return "b64_json"
+}
+
+// openAIImageGIFParams 返回经过官方范围校验的 GIF 专属参数：
+// frame_count 取值范围 2-16，frame_duration_ms 取值范围 20-2000 毫秒。
+func openAIImageGIFParams(options map[string]any) map[string]int {
+	params := make(map[string]int, 2)
+	if !portllm.RequestsAnimatedGIFOutput(options) {
+		return params
+	}
+	if value := modelParamInt(options, "frame_count"); value >= 2 && value <= 16 {
+		params["frame_count"] = value
+	}
+	if value := modelParamInt(options, "frame_duration_ms"); value >= 20 && value <= 2000 {
+		params["frame_duration_ms"] = value
+	}
+	return params
 }
 
 // applyOpenAIImageGenerationStreamParams 只处理流式图片端点支持的增量参数。
@@ -825,6 +827,14 @@ func consumeOpenAIImageStream(
 		if strings.HasPrefix(line, "data:") {
 			data := line[len("data:"):]
 			data = strings.TrimPrefix(data, " ")
+			// [DONE] 是流结束标记：先派发尚未处理的事件，再立即结束，不依赖后续空行或
+			// 上游主动关闭连接。部分网关在发送 [DONE] 后仍保持分块连接，等到 EOF 会一直挂起。
+			if strings.TrimSpace(data) == "[DONE]" {
+				if err := dispatch(); err != nil && !errors.Is(err, errStreamDone) {
+					return err
+				}
+				return nil
+			}
 			dataLines = append(dataLines, data)
 			continue
 		}
@@ -896,6 +906,8 @@ func openAIImageMIMEType(outputFormat string) string {
 		return "image/jpeg"
 	case "webp":
 		return "image/webp"
+	case "gif":
+		return "image/gif"
 	default:
 		return "image/png"
 	}

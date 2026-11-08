@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -43,6 +44,8 @@ export function CanvasImageParams({
   onOptionsChange,
   resultCount,
   onResultCountChange,
+  streamEnabled,
+  onStreamEnabledChange,
   onOpenChange,
   disabled,
   iconOnly,
@@ -54,6 +57,9 @@ export function CanvasImageParams({
   onOptionsChange: (options: ConversationOptions) => void;
   resultCount: number;
   onResultCountChange: (count: number) => void;
+  // 本次生成是否使用流式上游请求；视频为任务式请求，不展示该开关
+  streamEnabled?: boolean;
+  onStreamEnabledChange?: (enabled: boolean) => void;
   onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   // 紧凑模式：只显示图标（已设参数时带角标），用于对话输入条等横向空间受限的位置
@@ -184,6 +190,21 @@ export function CanvasImageParams({
           </div>
         </div>
         <div className="max-h-72 space-y-2 overflow-y-auto overscroll-contain pr-0.5">
+          {!isVideo && streamEnabled !== undefined && onStreamEnabledChange ? (
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div className="min-w-0">
+                <p className="truncate text-xs text-foreground/80">{t("streamRequest")}</p>
+                <p className="truncate text-[10px] leading-3 text-muted-foreground">{t("streamRequestDescription")}</p>
+              </div>
+              <Switch
+                size="sm"
+                checked={streamEnabled}
+                disabled={disabled}
+                onCheckedChange={onStreamEnabledChange}
+                aria-label={t("streamRequest")}
+              />
+            </div>
+          ) : null}
           {!isVideo ? (
             <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-2">
               <p className="truncate text-xs text-foreground/80">{t("resultCount")}</p>

@@ -108,6 +108,7 @@ function appendPendingExchangeMessages({
       isStreaming: pendingExchange.assistantStreaming,
       isFileProc: Boolean(pendingExchange.assistantFileProc && !pendingExchange.assistantText),
       activityLabel: pendingExchange.assistantActivityLabel,
+      mediaProgress: pendingExchange.assistantMediaProgress,
       imageAspectRatio: pendingExchange.assistantImageAspectRatio,
       processTrace: pendingExchange.assistantProcessTrace,
       inlineAlert: pendingExchange.assistantInlineAlert,
@@ -183,6 +184,7 @@ function mergePendingAssistantState(messages: ChatAreaMessage[], pendingExchange
       isStreaming: pendingExchange.assistantStreaming,
       isFileProc: Boolean(pendingExchange.assistantFileProc && !pendingText),
       activityLabel: pendingExchange.assistantActivityLabel ?? item.activityLabel,
+      mediaProgress: pendingExchange.assistantMediaProgress ?? item.mediaProgress,
       imageAspectRatio: pendingExchange.assistantImageAspectRatio ?? item.imageAspectRatio,
       processTrace: pendingExchange.assistantProcessTrace ?? item.processTrace,
       inlineAlert: nextAlert,
@@ -216,6 +218,7 @@ export function useChatBranchState({
   pendingExchanges,
   liveRunIDs,
   liveActivityLabels,
+  liveMediaProgress,
   activeTipMessagePublicID = null,
 }: {
   conversationID: string | null;
@@ -225,6 +228,7 @@ export function useChatBranchState({
   pendingExchanges: PendingExchangeMap;
   liveRunIDs?: ReadonlySet<string>;
   liveActivityLabels?: ReadonlyMap<string, string>;
+  liveMediaProgress?: ReadonlyMap<string, number>;
   activeTipMessagePublicID?: string | null;
 }) {
   const t = useTranslations("chat.messages");
@@ -254,10 +258,10 @@ export function useChatBranchState({
             resolveErrorMessage: (errorCode: string, fallback: string, details?: UpstreamDebugInfo) =>
               resolveErrorMessage(new ApiError(fallback, 502, details, errorCode), fallback),
           },
-          { liveActivityLabels, liveRunIDs },
+          { liveActivityLabels, liveMediaProgress, liveRunIDs },
         ),
       ),
-    [liveActivityLabels, liveRunIDs, messages, resolveErrorMessage, submitT, t],
+    [liveActivityLabels, liveMediaProgress, liveRunIDs, messages, resolveErrorMessage, submitT, t],
   );
   const serverMessagePublicIDs = React.useMemo(
     () => new Set(serverTreeMessages.map((item) => item.publicID).filter(Boolean)),

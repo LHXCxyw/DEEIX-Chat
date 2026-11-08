@@ -198,7 +198,19 @@ const OPENAI_IMAGE_OPTION_CONTROLS = [
     path: "output_format",
     type: "select",
     label: "Output Format",
-    options: ["png", "jpeg", "webp"],
+    options: ["png", "jpeg", "webp", "gif"],
+  },
+  {
+    path: "frame_count",
+    type: "number",
+    label: "GIF Frames",
+    description: "Frames per animated GIF, from 2 to 16. Only used with gif output.",
+  },
+  {
+    path: "frame_duration_ms",
+    type: "number",
+    label: "GIF Frame Duration (ms)",
+    description: "Duration of each GIF frame in milliseconds, from 20 to 2000. Only used with gif output.",
   },
   {
     path: "n",

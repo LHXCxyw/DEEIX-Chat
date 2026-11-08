@@ -139,13 +139,29 @@ type requestPromptOptions struct {
 
 // resolveMessageSystemPromptInjection 合并平台、模型、项目和本次请求级系统提示词，并按路由能力决定注入方式。
 func resolveMessageSystemPromptInjection(cfg config.Config, route *channel.ResolvedRoute, projectPrompt string, options requestPromptOptions) systemPromptInjection {
+	return resolveMessageSystemPromptInjectionWithConversation(cfg, route, projectPrompt, "", options)
+}
+
+// resolveMessageSystemPromptInjectionWithConversation 在会话级系统提示词非空时用它替换平台全局层，
+// 避免同一段指令在 platform 与 conversation 两层重复注入；空值时回退到全局默认。
+func resolveMessageSystemPromptInjectionWithConversation(
+	cfg config.Config,
+	route *channel.ResolvedRoute,
+	projectPrompt string,
+	conversationPrompt string,
+	options requestPromptOptions,
+) systemPromptInjection {
 	if route == nil {
 		return systemPromptInjection{}
 	}
 	if !cfg.UIComponentsEnabled {
 		options.UIComponents = nil
 	}
-	content := buildResolvedMessageSystemPrompt(cfg.DefaultSystemPrompt, route.ModelSystemPrompt, projectPrompt, options)
+	platformPrompt := strings.TrimSpace(conversationPrompt)
+	if platformPrompt == "" {
+		platformPrompt = cfg.DefaultSystemPrompt
+	}
+	content := buildResolvedMessageSystemPrompt(platformPrompt, route.ModelSystemPrompt, projectPrompt, options)
 	if content == "" {
 		return systemPromptInjection{}
 	}

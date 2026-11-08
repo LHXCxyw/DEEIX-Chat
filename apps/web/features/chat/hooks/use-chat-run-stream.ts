@@ -12,6 +12,7 @@ import { mergeProcessTraceSnapshot, toPendingProcessTrace } from "@/features/cha
 import { settleCompletedExchange } from "@/features/chat/model/message-submit-exchange";
 import {
   resolveMediaStatusLabel,
+  resolveMediaStatusProgress,
   resolveVideoExtensionOptions,
 } from "@/features/chat/model/message-submit-media";
 import type { PendingAttachment, PendingExchange } from "@/features/chat/types/chat-runtime";
@@ -86,6 +87,7 @@ export function useChatRunStream({
       branchReason,
       assistantOnlyBranch,
       signal,
+      stream,
     }: {
       token: string;
       conversationID: string;
@@ -108,6 +110,8 @@ export function useChatRunStream({
       branchReason: "default" | "retry" | "edit";
       assistantOnlyBranch: boolean;
       signal: AbortSignal;
+      // 本次请求是否使用流式上游调用；false 时后端改用非流式请求。
+      stream: boolean;
     }): Promise<SendMessageResult> => {
       let terminalStreamError: Extract<StreamMessageEvent, { type: "error" }> | null = null;
       const streamOptions: ConversationStreamOptions = {
@@ -133,11 +137,17 @@ export function useChatRunStream({
           }));
         },
         onMediaStatus: (event) => {
-          const activityLabel = resolveMediaStatusLabel(event.status, event.message, event.content_type, t);
+          const isProgress = event.status.trim() === "progress";
+          const progress = resolveMediaStatusProgress(event.status, event.progress);
+          const activityLabel = isProgress
+            ? undefined
+            : resolveMediaStatusLabel(event.status, event.message, event.content_type, t);
           updatePendingExchange(exchangeKey, (current) => ({
             ...current,
             assistantFileProc: true,
-            assistantActivityLabel: activityLabel,
+            // 进度事件只更新百分比，状态文案保持（如「正在生成视频」）。
+            assistantActivityLabel: activityLabel ?? current.assistantActivityLabel,
+            assistantMediaProgress: isProgress ? progress : undefined,
           }));
         },
         onMediaImageDelta: (event) => {
@@ -260,6 +270,7 @@ export function useChatRunStream({
         const selectedMode = settings["chat.agent_permission_mode"];
         const chatPayload: SendMessageRequest = {
           ...commonStreamPayload,
+          stream,
           agent_permissions: { mode: selectedMode === "auto" || selectedMode === "full" ? selectedMode : "manual" },
           contentType: effectiveAttachments.length > 0 ? "mixed" : "text",
           content,
@@ -298,6 +309,7 @@ export function useChatRunStream({
       } else {
         const mediaPayload: MediaImageRequest = {
           ...commonStreamPayload,
+          stream,
           prompt: content,
         };
         completed =

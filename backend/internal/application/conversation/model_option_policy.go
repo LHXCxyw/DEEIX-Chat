@@ -500,15 +500,29 @@ func sanitizeModelOptionValues(options map[string]any, protocolKey string) {
 	case "openai_video_generations":
 		llm.SanitizeOpenAIVideoOptions(options)
 	case "openai_image_generations", "openai_image_edits":
-		value, ok := modelParamIntFromOption(options["partial_images"])
-		if !ok {
-			delete(options, "partial_images")
-			return
-		}
-		if value < 0 || value > 3 {
-			delete(options, "partial_images")
-		}
+		sanitizeOpenAIImageOptions(options)
 	}
+}
+
+// sanitizeOpenAIImageOptions 校验 OpenAI Images 参数取值：
+// 预览图数量限制在 0-3；GIF 专属参数仅在 output_format=gif 时保留，
+// 且 GIF 输出不支持自定义压缩，需要丢弃 output_compression。
+func sanitizeOpenAIImageOptions(options map[string]any) {
+	if value, ok := modelParamIntFromOption(options["partial_images"]); !ok || value < 0 || value > 3 {
+		delete(options, "partial_images")
+	}
+	if !llm.RequestsAnimatedGIFOutput(options) {
+		delete(options, "frame_count")
+		delete(options, "frame_duration_ms")
+		return
+	}
+	if value, ok := modelParamIntFromOption(options["frame_count"]); !ok || value < 2 || value > 16 {
+		delete(options, "frame_count")
+	}
+	if value, ok := modelParamIntFromOption(options["frame_duration_ms"]); !ok || value < 20 || value > 2000 {
+		delete(options, "frame_duration_ms")
+	}
+	delete(options, "output_compression")
 }
 
 func sanitizeOpenAIServiceTier(options map[string]any) {

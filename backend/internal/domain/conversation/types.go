@@ -17,6 +17,8 @@ type Conversation struct {
 	ProjectSystemPrompt   string
 	PublicID              string
 	Title                 string
+	// SystemPrompt 是会话级系统提示词快照；空值表示跟随全局默认。
+	SystemPrompt          string
 	LabelsJSON            string
 	LabelsManuallyManaged bool
 	Model                 string

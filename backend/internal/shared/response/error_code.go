@@ -63,7 +63,7 @@ var codeMessages = map[string]string{
 	CodeBillingInsufficientFunds: "insufficient balance",
 	CodeBillingPricingRequired:   "model pricing is required",
 	CodeRateLimitExceeded:        "rate limit exceeded",
-	CodeQuotaExceeded:            "quota exceeded",
+	CodeQuotaExceeded:            "storage quota exceeded",
 	CodeFileInUse:                "file is in use",
 	CodeFileTooLarge:             "file too large",
 	CodeFileNotReady:             "file is not ready",

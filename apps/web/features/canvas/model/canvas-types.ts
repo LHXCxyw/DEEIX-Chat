@@ -70,6 +70,8 @@ export type GenerateGraphNode = GraphNodeBase & {
   userModelID?: number;
   options: ConversationOptions;
   resultCount: number;
+  // 本次生成是否使用流式上游请求；undefined 视为开启，false 时后端改用非流式请求。
+  stream?: boolean;
   operation: CanvasOperation;
   // 局部重绘等场景由图像编辑器注入，不经端口连线
   maskReference?: CanvasNodeReference | null;
@@ -205,6 +207,8 @@ export type PersistedImageGraphNode = PersistedGraphNodeBase & {
 };
 export type PersistedGenerateGraphNode = PersistedGraphNodeBase & {
   kind: "generate"; mediaType?: CanvasMediaType; model: string | null; options?: ConversationOptions; resultCount: number;
+  // 流式请求偏好：缺省视为开启
+  stream?: boolean;
   operation: CanvasOperation; maskReference?: CanvasNodeReference | null; errorMessage?: string; errorDetail?: string;
   // 模型作用域与用户模型 ID（区分不同接口下的同名模型）
   modelScope?: "platform" | "user"; userModelID?: number;

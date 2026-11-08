@@ -286,6 +286,7 @@ func (h *Handler) streamMediaImage(c *gin.Context, taskType appconversation.Medi
 				Prompt:                req.Prompt,
 				PlatformModelName:     req.Model,
 				Options:               req.Options,
+				Stream:                req.Stream,
 				ClientRunID:           req.ClientRunID,
 				FileIDs:               req.FileIDs,
 				MaskFileID:            req.MaskFileID,

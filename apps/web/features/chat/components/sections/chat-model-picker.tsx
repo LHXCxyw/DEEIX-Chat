@@ -1292,7 +1292,9 @@ export function ChatModelPicker({
   }, [activeDesktopGroupKey]);
 
   return (
-      <div className="min-w-0 max-w-[min(320px,100%)] shrink">
+      // 窄屏上让模型选择器吃掉剩余宽度：其余按钮按内容占位，模型名不再参与按比例收缩，
+      // 否则它会先被压到只剩几个字符。
+      <div className="min-w-0 max-w-[min(320px,100%)] shrink max-sm:flex-1">
         <Popover open={open} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <InputGroupButton

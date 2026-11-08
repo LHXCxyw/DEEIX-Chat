@@ -135,6 +135,7 @@ func (h *Handler) parseSendMessageInput(c *gin.Context) (appconversation.SendMes
 		ContentType:             req.ContentType,
 		Content:                 req.Content,
 		PlatformModelName:       req.Model,
+		Stream:                  req.Stream,
 		Options:                 req.Options,
 		Controls:                req.Controls,
 		AllowRawOptions:         requestAllowsRawOptions(c),

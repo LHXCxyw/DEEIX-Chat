@@ -45,6 +45,7 @@ import { ChatModelConfig } from "@/features/chat/components/sections/chat-model-
 import { ChatModelPicker } from "@/features/chat/components/sections/chat-model-picker";
 import { ChatModelControls } from "@/features/chat/components/sections/chat-model-controls";
 import { useChatModelControlPlacements } from "@/features/chat/hooks/use-chat-model-control-placements";
+import { readChatStreamEnabled, writeChatStreamEnabled } from "@/features/chat/model/chat-stream-preference";
 import type { ChatModelControlSelections } from "@/features/chat/model/chat-model-controls";
 import {
   applyOptionControlValue,
@@ -284,6 +285,15 @@ function ChatInputComponent({
 }: ChatInputProps) {
   const tChat = useTranslations("chat");
   const tComposer = useTranslations("chat.composer");
+  // 流式请求偏好：默认开启，切换后记住选择；视频任务为任务式请求，不提供该开关。
+  const [streamEnabled, setStreamEnabled] = React.useState(true);
+  React.useEffect(() => {
+    setStreamEnabled(readChatStreamEnabled());
+  }, []);
+  const handleStreamChange = React.useCallback((enabled: boolean) => {
+    setStreamEnabled(enabled);
+    writeChatStreamEnabled(enabled);
+  }, []);
   const { knowledgeBaseEnabled } = useFeaturePolicy();
   const tFileStatus = useTranslations("files.status");
   const locale = useLocale();
@@ -439,6 +449,7 @@ function ChatInputComponent({
   const submitDecision = resolveChatSubmitDecision(selectedModel, attachments, options);
   const submitTask = submitDecision.task;
   const isMediaMode = isMediaSubmitTask(submitTask);
+  const showStreamControl = !isMediaMode || submitTask === "image_generation" || submitTask === "image_edit";
   const tPermissions = useTranslations("chat.agentPermissions");
   const { mode: permissionMode, setMode: setPermissionMode, saving: permissionSaving, loaded: permissionsLoaded } = useChatAgentPermissionMode();
   const sendCurrentTurn = () => onSendMessage({ mode: permissionMode });
@@ -659,6 +670,8 @@ function ChatInputComponent({
   );
 
   const onSelectUploadTool = React.useCallback(() => {
+    // 移动端先收起软键盘：键盘占着视口时，系统文件选择器或后续浮层会被压得很矮。
+    textareaRef.current?.blur();
     fileInputRef.current?.click();
   }, []);
 
@@ -1138,7 +1151,12 @@ function ChatInputComponent({
             }}
           />
 
-          <InputGroupAddon align="block-end" className="items-center justify-between pt-2">
+          {/* 工具栏上的按钮不该把焦点交回输入框：移动端会弹出输入法，浮层的可用高度只剩键盘上方一小条。 */}
+          <InputGroupAddon
+            align="block-end"
+            className="items-center justify-between pt-2"
+            onPointerDownCapture={() => textareaRef.current?.blur()}
+          >
             <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
               <DropdownMenu
                   modal={false}
@@ -1304,6 +1322,12 @@ function ChatInputComponent({
                   onNativeToolChange={handleNativeToolChange}
                   onPlacementsChange={(next) => void setControlPlacements(next)}
                   advancedOptions={showAdvancedOptions ? { label: tComposer("advancedOptions"), onOpen: () => setAdvancedOptionsOpen(true) } : undefined}
+                  stream={showStreamControl ? {
+                    enabled: streamEnabled,
+                    onChange: handleStreamChange,
+                    label: tComposer("streamRequest"),
+                    description: tComposer("streamRequestDescription"),
+                  } : undefined}
                   labels={isMediaMode ? { title: mediaParametersLabel, more: mediaParametersLabel } : undefined}
                 />
               ) : null}

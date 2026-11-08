@@ -630,6 +630,8 @@ function GenerateGraphNodeView({
             onOptionsChange={(options) => handlers.onUpdateNode(node.id, { options })}
             resultCount={node.resultCount}
             onResultCountChange={(resultCount) => handlers.onUpdateNode(node.id, { resultCount })}
+            streamEnabled={node.stream !== false}
+            onStreamEnabledChange={(enabled) => handlers.onUpdateNode(node.id, { stream: enabled })}
             className="w-full justify-between"
           />
         </div>

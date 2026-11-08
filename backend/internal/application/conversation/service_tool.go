@@ -38,7 +38,7 @@ type ExecuteToolInput struct {
 
 func isProjectTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "project_browser_run", "project_render_screenshot", "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive", "project_show_diff", "project_preview":
+	case "project_browser_run", "project_render_screenshot", "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive", "project_show_diff", "project_preview", "project_deliver_files":
 		return true
 	default:
 		return false
@@ -218,6 +218,8 @@ func (s *Service) executeProjectTool(ctx context.Context, input ExecuteToolInput
 		return "", ErrAgentDeleteDenied
 	case "project_create_archive":
 		return s.createProjectArchiveDelivery(ctx, input)
+	case "project_deliver_files":
+		return s.deliverWorkspaceFiles(ctx, input, args)
 	case "project_show_diff":
 		// 纯展示工具：不改动文件，直接回传结构化内容供前端渲染 diff 卡片。
 		return marshalProjectToolResult(map[string]interface{}{

@@ -213,7 +213,15 @@ func isLegacyDefaultModelOptionAllowedPaths(value string) bool {
 	if err := json.Unmarshal([]byte(config.DefaultModelOptionAllowedPathsJSON()), &latestDefault); err != nil {
 		return false
 	}
-	previousGenerateContentDefault := cloneStringSliceMap(latestDefault)
+	// 加入 GIF 动图参数之前的默认白名单：存量装机保存的正是这一版，
+	// 必须直接命中并重置，否则 frame_count / frame_duration_ms 会被 allowlist 静默过滤。
+	previousWithoutGIFParams := stripImageGIFOptionPaths(latestDefault)
+	if sameStringSliceMap(current, previousWithoutGIFParams) {
+		return true
+	}
+	// 其余历史默认同样不含 GIF 参数，构造候选时需要一并剥离，避免漏判跨版本升级。
+	legacyBase := previousWithoutGIFParams
+	previousGenerateContentDefault := cloneStringSliceMap(legacyBase)
 	previousGenerateContentDefault["gemini_generate_content"] = removeStringValue(
 		removeStringValue(
 			previousGenerateContentDefault["gemini_generate_content"],
@@ -221,7 +229,7 @@ func isLegacyDefaultModelOptionAllowedPaths(value string) bool {
 		),
 		"generationConfig.thinkingConfig.thinkingLevel",
 	)
-	previousInteractionsDefault := cloneStringSliceMap(latestDefault)
+	previousInteractionsDefault := cloneStringSliceMap(legacyBase)
 	previousInteractionsDefault["gemini_interactions"] = removeStringValue(
 		previousInteractionsDefault["gemini_interactions"],
 		"generation_config.thinking_summaries",
@@ -231,7 +239,7 @@ func isLegacyDefaultModelOptionAllowedPaths(value string) bool {
 		previousCombinedDefault["gemini_interactions"],
 		"generation_config.thinking_summaries",
 	)
-	legacyInteractionsDefault := cloneStringSliceMap(latestDefault)
+	legacyInteractionsDefault := cloneStringSliceMap(legacyBase)
 	legacyInteractionsDefault["gemini_interactions"] = append(
 		removeStringValue(legacyInteractionsDefault["gemini_interactions"], "response_format.schema"),
 		"responseFormat.type",
@@ -247,11 +255,13 @@ func isLegacyDefaultModelOptionAllowedPaths(value string) bool {
 	)
 	legacyCombinedDefault := cloneStringSliceMap(legacyInteractionsWithoutSummaries)
 	legacyCombinedDefault["gemini_generate_content"] = previousGenerateContentDefault["gemini_generate_content"]
-	previousWithoutXAIVideoExtensions := cloneStringSliceMap(latestDefault)
+	previousWithoutXAIVideoExtensions := cloneStringSliceMap(legacyBase)
 	delete(previousWithoutXAIVideoExtensions, "xai_video_extensions")
 	previousDefaults := []map[string][]string{
 		// 视频协议字段集替换的上一版默认：除视频键集合外与当前默认一致。
 		cloneStringSliceMap(latestDefault),
+		// 加入 GIF 动图参数之前的默认。
+		cloneStringSliceMap(legacyBase),
 		previousWithoutXAIVideoExtensions,
 		previousGenerateContentDefault,
 		previousInteractionsDefault,
@@ -303,6 +313,19 @@ func matchesLegacyOpenAIVideoDefault(current map[string][]string, previousDefaul
 		}
 	}
 	return false
+}
+
+// stripImageGIFOptionPaths 还原加入 GIF 动图参数之前的默认白名单。
+// 存量设置命中该形态时应重置为当前默认，避免新参数被 allowlist 静默丢弃。
+func stripImageGIFOptionPaths(values map[string][]string) map[string][]string {
+	result := cloneStringSliceMap(values)
+	for _, protocol := range []string{"openai_image_generations", "openai_image_edits"} {
+		result[protocol] = removeStringValue(
+			removeStringValue(result[protocol], "frame_count"),
+			"frame_duration_ms",
+		)
+	}
+	return result
 }
 
 func cloneStringSliceMap(value map[string][]string) map[string][]string {

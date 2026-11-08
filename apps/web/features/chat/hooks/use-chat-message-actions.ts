@@ -12,7 +12,7 @@ import type { QueuedChatSubmission } from "@/features/chat/model/message-submit-
 import type { PendingAttachment } from "@/features/chat/types/chat-runtime";
 import type { ChatAreaMessage, UserMessageEditMode } from "@/features/chat/types/messages";
 import { resolveErrorMessage } from "@/features/chat/utils/chat-runtime";
-import { deleteConversationMessage, forkConversationFromMessage, updateMessage } from "@/shared/api/conversation";
+import { deleteConversationMessage, forkConversationFromMessage, requeryMediaVideoRun, updateMessage } from "@/shared/api/conversation";
 import type { ConversationDTO, MessageDTO } from "@/shared/api/conversation-types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
@@ -222,6 +222,44 @@ export function useChatMessageActions({
     [conversationIDRef, reload, t],
   );
 
+  // 视频生成失败后回查上游任务：completed 时后端已把产物补写进该条消息，重新拉取即可看到成片。
+  const onRequeryMediaMessage = React.useCallback(
+    async (message: ChatAreaMessage) => {
+      const runID = message.runID?.trim() || "";
+      if (!runID) {
+        toast.error(t("requeryFailed"), { description: t("requeryUnavailable") });
+        return;
+      }
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("requeryFailed"), { description: t("signInRequired") });
+        return;
+      }
+      toast.info(t("requeryStarted"));
+      try {
+        const result = await requeryMediaVideoRun(token, runID);
+        if (result.status === "completed") {
+          toast.success(t("requeryRecovered"));
+          reload();
+          return;
+        }
+        if (result.status === "pending") {
+          const percent = typeof result.progress === "number" && result.progress >= 0
+            ? ` · ${Math.min(Math.round(result.progress), 100)}%`
+            : "";
+          toast.info(`${t("requeryPending")}${percent}`);
+          return;
+        }
+        toast.error(result.message?.trim() || t("requeryFailed"));
+      } catch (error) {
+        toast.error(t("requeryFailed"), {
+          description: resolveErrorMessage(error, t("retryLater")),
+        });
+      }
+    },
+    [reload, t],
+  );
+
   const onCycleMessageBranch = React.useCallback(
     (parentPublicID: string | null, direction: "previous" | "next") => {
       const siblings = buildChildrenIndex(combinedMessages).get(toBranchKey(parentPublicID)) ?? [];
@@ -256,6 +294,7 @@ export function useChatMessageActions({
     onEditAssistantMessage,
     onForkMessage,
     onDeleteMessage,
+    onRequeryMediaMessage,
     onCycleMessageBranch,
   };
 }

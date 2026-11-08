@@ -162,6 +162,8 @@ export type ChatAreaMessage = {
   isStreaming?: boolean;
   isFileProc?: boolean; // Active file_proc stream stage.
   activityLabel?: string;
+  // 异步视频任务的百分比进度（0-100）；缺省表示上游未上报，进度条显示不确定态。
+  mediaProgress?: number;
   imageAspectRatio?: ImageLoadingAspectRatio;
   myFeedback?: "up" | "down" | null;
   // Persisted per-block state of the interactive components in this message,

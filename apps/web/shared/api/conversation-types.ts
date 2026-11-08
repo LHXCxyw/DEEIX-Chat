@@ -55,6 +55,13 @@ import type { UserStorageQuotaDTO } from "@/shared/api/file-types";
 // 回退（rewind）后的续聊锚点消息公开ID；后端响应已返回该字段，契约包暂未收录，此处本地补充。
 export type ConversationDTO = ConversationResponse & {
   activeTipMessagePublicID?: string;
+  // 会话级系统提示词快照；空串表示跟随全局默认。契约包暂未收录，此处本地补充。
+  systemPrompt?: string;
+};
+
+// 会话级系统提示词更新请求；空串表示回退到全局默认。
+export type UpdateConversationSystemPromptRequest = {
+  systemPrompt: string;
 };
 
 export type MessageDeleteDTO = MessageDeleteResponse;
@@ -266,12 +273,16 @@ export type SendMessageRequest = Omit<ContractSendMessageRequest, "options" | "u
   agent_permissions?: AgentPermissions;
   options?: ConversationOptions;
   uiStates?: MessageUIStateInput[];
+  // 本次请求是否使用流式上游调用；缺省 true，false 时后端改用非流式请求上游。
+  stream?: boolean;
 };
 
 export type MediaImageRequest = {
   prompt: string;
   model?: string;
   options?: ConversationOptions;
+  // 本次请求是否使用流式上游调用；缺省按协议能力，false 时改用非流式请求上游。
+  stream?: boolean;
   clientRunID?: string;
   fileIDs?: string[];
   maskFileID?: string;
@@ -310,6 +321,8 @@ export type TemporaryChatMessageRequest = Omit<ContractTemporaryChatMessageReque
   options?: ConversationOptions;
   messages: TemporaryChatHistoryMessage[];
   uiStates?: TemporaryChatUIStateInput[];
+  // 本次请求是否使用流式上游调用；缺省 true，false 时后端改用非流式请求上游。
+  stream?: boolean;
 };
 
 export type StreamMessageEvent =
@@ -369,6 +382,8 @@ export type StreamMessageEvent =
       status: string;
       message: string;
       content_type?: string;
+      // 异步视频任务的百分比进度（0-100）；仅 status="progress" 时携带。
+      progress?: number;
     }
   | {
       type: "media_image_delta";

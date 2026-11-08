@@ -60,6 +60,7 @@ func addProjectToolDefinitions(runtime *selectedToolRuntime) {
 		{Name: "project_create_archive", Description: "创建当前项目的固定版本 ZIP，默认排除秘密文件及依赖缓存。成功后归档保存为当前助手消息附件，可通过消息附件下载；后续项目编辑不会改变该附件。严禁输出下载 URL、链接或路径。", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
 		{Name: "project_show_diff", Description: "在界面中以 diff 卡片内联展示某个项目文件的变更对比。需要向用户直观呈现某文件的修改前后差异、或需要把补丁效果可视化时调用；只做展示，不写入文件，真正的修改仍必须用 project_write_file 或 project_patch_file。", InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"项目内相对路径，用于标识该 diff 对应的文件"},"before":{"type":"string","description":"修改前的内容"},"after":{"type":"string","description":"修改后的内容"},"title":{"type":"string","description":"可选的展示标题"}},"required":["path"]}`)},
 		{Name: "project_preview", Description: "在界面沙箱中运行当前项目的 HTML/SVG 页面以验证渲染效果。需要确认页面能否正常显示、检查运行时报错或调试 Web 效果时调用。调用只校验入口文件是否存在并返回结构化信息，真正的运行、console 与错误捕获由前端沙箱完成；捕获到的运行信息会在下一轮以工具结果形式回传，可据此迭代修复。", InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"可选的入口文件相对路径（HTML/SVG），缺省时自动回退到 index.html 等常见入口"}}}`)},
+		{Name: "project_deliver_files", Description: "把工作区中已创建或修改的文件交付给用户下载。用户要求查看、保存或下载生成的文件时必须调用；files 传文件或目录的相对路径，留空表示整个工作区（目录会递归打包为 ZIP）。工具只返回文件元数据与限时下载链接，不读取文件内容。最终回复必须逐条原样输出返回的 download_url，不要改写或省略链接。", InputSchema: json.RawMessage(`{"type":"object","properties":{"files":{"type":"array","description":"要交付的文件或目录相对路径；留空表示整个工作区","items":{"type":"string"}}}}`)},
 	}
 	for _, definition := range definitions {
 		runtime.definitions = append(runtime.definitions, definition)
@@ -72,7 +73,7 @@ func (r selectedToolRuntime) withoutProjectTools() selectedToolRuntime {
 	projectNames := map[string]struct{}{
 		"project_list_files": {}, "project_read_file": {}, "project_search_files": {},
 		"project_write_file": {}, "project_patch_file": {}, "project_delete_file": {}, "project_create_archive": {},
-		"project_show_diff": {}, "project_preview": {},
+		"project_show_diff": {}, "project_preview": {}, "project_deliver_files": {},
 	}
 	definitions := make([]llm.ToolDefinition, 0, len(r.definitions))
 	for _, definition := range r.definitions {
@@ -92,7 +93,7 @@ func (r selectedToolRuntime) withoutProjectTools() selectedToolRuntime {
 func hasProjectToolDefinitions(runtime selectedToolRuntime) bool {
 	for _, definition := range runtime.definitions {
 		switch definition.Name {
-		case "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive", "project_show_diff", "project_preview":
+		case "project_list_files", "project_read_file", "project_search_files", "project_write_file", "project_patch_file", "project_delete_file", "project_create_archive", "project_show_diff", "project_preview", "project_deliver_files":
 			return true
 		}
 	}
@@ -133,6 +134,7 @@ func defaultMCPToolGuidancePrompt(runtime selectedToolRuntime) string {
 		builder.WriteString("- Project file operations are real side effects: listing, reading, searching, creating, overwriting, patching, deleting, or archiving project files MUST use the corresponding project_* tool when available.\n")
 		builder.WriteString("- Never substitute a code block, diff, explanation, memory, or claim of completion for a required project file tool call. Read an existing file before modifying it, and report success only after the tool succeeds.\n")
 		builder.WriteString("- Prefer project_patch_file with focused old/new snippets (or the patches array for multiple edits) when modifying existing files; reserve project_write_file for creating files or explicit full rewrites.\n")
+		builder.WriteString("- After creating or modifying files that the user needs, call project_deliver_files and print each returned download_url verbatim in the final reply; never invent or rewrite links.\n")
 	}
 	return strings.TrimSpace(builder.String())
 }
@@ -168,7 +170,7 @@ func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint
 		"project_render_screenshot": 1,
 		"project_list_files":        1, "project_read_file": 1, "project_search_files": 1,
 		"project_write_file": 1, "project_patch_file": 1, "project_delete_file": 1, "project_create_archive": 1,
-		"project_show_diff": 1, "project_preview": 1,
+		"project_show_diff": 1, "project_preview": 1, "project_deliver_files": 1,
 	}
 	serverCache := map[uint]*domainmcp.Server{}
 	for _, tool := range tools {

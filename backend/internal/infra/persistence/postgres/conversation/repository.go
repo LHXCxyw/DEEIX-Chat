@@ -523,6 +523,26 @@ func (r *Repo) UpdateConversationTitleByPublicID(
 	return r.GetConversationByPublicID(ctx, publicID, userID)
 }
 
+// UpdateConversationSystemPromptByPublicID 按用户归属更新会话级系统提示词。
+func (r *Repo) UpdateConversationSystemPromptByPublicID(
+	ctx context.Context,
+	userID uint,
+	publicID string,
+	systemPrompt string,
+) (*domainconversation.Conversation, error) {
+	result := r.db.WithContext(ctx).
+		Model(&models.Conversation{}).
+		Where("user_id = ? AND public_id = ?", userID, publicID).
+		Update("system_prompt", strings.TrimSpace(systemPrompt))
+	if result.Error != nil {
+		return nil, dberror.Translate(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, repository.ErrNotFound
+	}
+	return r.GetConversationByPublicID(ctx, publicID, userID)
+}
+
 // UpdateConversationMetadata 更新自动生成的会话元数据。
 func (r *Repo) UpdateConversationMetadata(ctx context.Context, conversationID uint, patch repository.ConversationMetadataPatch) (*domainconversation.Conversation, error) {
 	updates := map[string]any{}
@@ -3952,6 +3972,7 @@ func toConversationDomain(item models.Conversation) domainconversation.Conversat
 		ProjectID:                item.ProjectID,
 		PublicID:                 item.PublicID,
 		Title:                    item.Title,
+		SystemPrompt:             item.SystemPrompt,
 		LabelsJSON:               labelsJSON,
 		LabelsManuallyManaged:    item.LabelsManuallyManaged,
 		Model:                    item.Model,
@@ -4013,6 +4034,7 @@ func toConversationModel(item *domainconversation.Conversation) models.Conversat
 		ProjectID:                item.ProjectID,
 		PublicID:                 item.PublicID,
 		Title:                    item.Title,
+		SystemPrompt:             item.SystemPrompt,
 		LabelsJSON:               labelsJSON,
 		LabelsManuallyManaged:    item.LabelsManuallyManaged,
 		Model:                    item.Model,

@@ -100,6 +100,8 @@ type ConversationMetadataRepository interface {
 	RevokeActiveConversationShares(ctx context.Context, userID uint, conversationIDs []uint) error
 	TouchConversationShareAccess(ctx context.Context, shareID string, accessedAt time.Time) error
 	UpdateConversationTitleByPublicID(ctx context.Context, userID uint, publicID string, title string) (*domainconversation.Conversation, error)
+	// UpdateConversationSystemPromptByPublicID 更新会话级系统提示词；空串表示回退到全局默认。
+	UpdateConversationSystemPromptByPublicID(ctx context.Context, userID uint, publicID string, systemPrompt string) (*domainconversation.Conversation, error)
 	UpdateConversationMetadata(ctx context.Context, conversationID uint, patch ConversationMetadataPatch) (*domainconversation.Conversation, error)
 	UpdateConversationLabelsByPublicID(ctx context.Context, userID uint, publicID string, labelsJSON string) (*domainconversation.Conversation, error)
 	SetGeneratedConversationLabelsIfEligible(ctx context.Context, conversationID uint, labelsJSON string) (*domainconversation.Conversation, bool, error)

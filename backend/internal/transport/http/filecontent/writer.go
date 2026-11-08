@@ -38,6 +38,18 @@ func Write(c *gin.Context, result *appupload.FileContentResult, public bool) err
 	return nil
 }
 
+// WriteArchiveHeaders 为流式 ZIP 下载写入附件响应头；文件名按 RFC 5987 编码，中文名可直接落地。
+func WriteArchiveHeaders(c *gin.Context, fileName string, public bool) {
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", buildContentDisposition(fileName, false))
+	if public {
+		c.Header("Cache-Control", "private, max-age=60, no-transform")
+	} else {
+		c.Header("Cache-Control", "private, no-store")
+	}
+	applySecurityHeaders(c, public)
+}
+
 func buildContentDisposition(fileName string, inline bool) string {
 	normalizedName := strings.TrimSpace(fileName)
 	if normalizedName == "" {

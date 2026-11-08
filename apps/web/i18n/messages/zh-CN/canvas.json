@@ -30,6 +30,8 @@
   "pointerModeSelect": "框选模式（拖拽背景框选节点）",
   "minimapTitle": "区域预览",
   "minimapHint": "点击或拖拽定位到对应区域",
+  "streamRequest": "流式请求",
+  "streamRequestDescription": "关闭后改用非流式请求上游",
   "imageParams": "图像参数",
   "imageParamsDefault": "默认",
   "imageParamsCustom": "自定义…",

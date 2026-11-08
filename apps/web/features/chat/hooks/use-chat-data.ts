@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { buildMediaImagePreviewMarkdown } from "@/features/chat/model/media-image-preview";
 import { mergeProcessTraceSnapshot } from "@/features/chat/model/message-submit";
+import { resolveMediaStatusProgress } from "@/features/chat/model/message-submit-media";
 import { upsertLiveUpstreamThinkTrace } from "@/features/chat/model/upstream-think-store";
 import { cancelMessageGeneration, listMessagesPage, resumeMessageGenerationStream } from "@/shared/api/conversation";
 import type { MessageDTO } from "@/shared/api/conversation-types";
@@ -53,6 +54,8 @@ export function useChatData(
   const [reloadToken, setReloadToken] = React.useState(0);
   const [resumingRunID, setResumingRunID] = React.useState("");
   const [resumingActivityLabel, setResumingActivityLabel] = React.useState("");
+  // 续传中的视频任务进度（0-100）；未上报时保持 null，进度条走不确定态。
+  const [resumingMediaProgress, setResumingMediaProgress] = React.useState<number | null>(null);
   const stateRef = React.useRef(state);
   stateRef.current = state;
   const previousConversationIDRef = React.useRef<string | null>(conversationID);
@@ -361,6 +364,12 @@ export function useChatData(
             }
             const status = event.status.trim();
             const contentType = event.content_type === "video" ? "video" : "image";
+            if (status === "progress") {
+              // 进度事件只更新百分比：文案保持「正在生成视频」，不把 "45%" 当成状态文案。
+              setResumingMediaProgress(resolveMediaStatusProgress(event.status, event.progress) ?? null);
+              return;
+            }
+            setResumingMediaProgress(null);
             const activityLabel =
               status === "queued"
                 ? tSubmit(contentType === "video" ? "mediaStatus.videoQueued" : "mediaStatus.queued")
@@ -569,6 +578,7 @@ export function useChatData(
     reload,
     replaceMessage,
     resumingActivityLabel,
+    resumingMediaProgress,
     resumingRunID,
   };
 }

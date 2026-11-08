@@ -8,6 +8,7 @@ import { useChatHiddenRuns } from "@/features/chat/hooks/use-chat-hidden-runs";
 import { useChatMessageActions } from "@/features/chat/hooks/use-chat-message-actions";
 import { useChatQueueDispatch } from "@/features/chat/hooks/use-chat-queue-dispatch";
 import { useChatRunStream } from "@/features/chat/hooks/use-chat-run-stream";
+import { readChatStreamEnabled } from "@/features/chat/model/chat-stream-preference";
 import { useChatStopMessage } from "@/features/chat/hooks/use-chat-stop-message";
 import { useChatSubmissionQueue } from "@/features/chat/hooks/use-chat-submission-queue";
 import { toBranchKey } from "@/features/chat/model/chat-thread";
@@ -596,6 +597,7 @@ export function useChatMessageSubmit({
           branchReason: plan.branchReason,
           assistantOnlyBranch,
           signal: streamAbortController.signal,
+          stream: readChatStreamEnabled(),
         });
 
         terminalResultReceived = true;
@@ -1044,6 +1046,7 @@ export function useChatMessageSubmit({
     onEditAssistantMessage,
     onForkMessage,
     onDeleteMessage,
+    onRequeryMediaMessage,
     onCycleMessageBranch,
   } = useChatMessageActions({
     submitMessage,
@@ -1062,6 +1065,7 @@ export function useChatMessageSubmit({
     onContinueAssistantMessage,
     onForkMessage,
     onDeleteMessage,
+    onRequeryMediaMessage,
     onRetryAssistantMessage,
     onRetryUserMessage,
     onSendMessage,

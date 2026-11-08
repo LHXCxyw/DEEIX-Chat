@@ -8,6 +8,7 @@ export type ChatSubmitBlockReason =
   | "image_edit_unsupported"
   | "image_generation_rejects_attachments"
   | "image_task_rejects_non_image_attachments"
+  | "video_generation_unsupported_audio"
   | "video_generation_too_many_references"
   | "video_task_rejects_non_image_attachments"
   | "video_extension_requires_single_mp4"
@@ -145,6 +146,10 @@ export function resolveChatSubmitDecision(
       return buildDecision("video_generation", "video_task_rejects_non_image_attachments", baseDecision);
     }
     const limits = videoReferenceLimits(model);
+    // 参考音频并非所有视频协议都接受：上限为 0 时直接说明"不支持"，避免用数量超限的文案误导。
+    if (audioAttachmentCount > 0 && limits.audios === 0) {
+      return buildDecision("video_generation", "video_generation_unsupported_audio", baseDecision);
+    }
     if (
       imageAttachmentCount > limits.images ||
       videoAttachmentCount > limits.videos ||

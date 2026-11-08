@@ -200,6 +200,7 @@ export function mapServerMessage(
   options: {
     liveRunIDs?: ReadonlySet<string>;
     liveActivityLabels?: ReadonlyMap<string, string>;
+    liveMediaProgress?: ReadonlyMap<string, number>;
   } = {},
 ): ChatAreaMessage {
   const publicID = item.publicID.trim();
@@ -299,6 +300,7 @@ export function mapServerMessage(
         ? options.liveActivityLabels?.get(liveRunID) ||
           (item.contentType === "image" ? labels.imageRunning : undefined)
         : undefined;
+      msg.mediaProgress = live ? options.liveMediaProgress?.get(liveRunID) : undefined;
     }
   }
   return msg;

@@ -123,6 +123,7 @@ export function useChatRuntime({
   onConversationRunStarted,
   resumingRunID = "",
   resumingActivityLabel = "",
+  resumingMediaProgress = null,
   collectUIStates,
 }: {
   conversationID: string | null;
@@ -161,6 +162,7 @@ export function useChatRuntime({
   onConversationRunStarted?: (runID: string, conversationPublicID: string) => void;
   resumingRunID?: string;
   resumingActivityLabel?: string;
+  resumingMediaProgress?: number | null;
   // Interactive component state on the branch being continued, attached to chat turns.
   collectUIStates?: (messages: readonly ChatAreaMessage[]) => MessageUIStateInput[];
 }) {
@@ -181,6 +183,12 @@ export function useChatRuntime({
     const label = resumingActivityLabel.trim();
     return runID && label ? new Map([[runID, label]]) : undefined;
   }, [resumingActivityLabel, resumingRunID]);
+  const liveMediaProgress = React.useMemo(() => {
+    const runID = resumingRunID.trim();
+    return runID && typeof resumingMediaProgress === "number"
+      ? new Map([[runID, resumingMediaProgress]])
+      : undefined;
+  }, [resumingMediaProgress, resumingRunID]);
 
   const branchState = useChatBranchState({
     conversationID,
@@ -189,6 +197,7 @@ export function useChatRuntime({
     messages,
     pendingExchanges,
     liveActivityLabels,
+    liveMediaProgress,
     liveRunIDs: liveServerRunIDs,
     activeTipMessagePublicID: activeConversation?.activeTipMessagePublicID ?? null,
   });
@@ -283,6 +292,7 @@ export function useChatRuntime({
     onDeleteMessage: submitState.onDeleteMessage,
     onContinueAssistantMessage: submitState.onContinueAssistantMessage,
     onRetryAssistantMessage: submitState.onRetryAssistantMessage,
+    onRequeryMediaMessage: submitState.onRequeryMediaMessage,
     onRetryUserMessage: submitState.onRetryUserMessage,
     onSendMessage: submitState.onSendMessage,
     onSendText: submitState.onSendText,

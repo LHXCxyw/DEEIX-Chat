@@ -6,6 +6,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { splitControlSelections } from "@/features/chat/model/chat-model-controls";
+import { readChatStreamEnabled } from "@/features/chat/model/chat-stream-preference";
 import { mapServerMessage } from "@/features/chat/model/chat-thread";
 import { mergeProcessTraceSnapshot, toPendingProcessTrace } from "@/features/chat/model/message-submit";
 import {
@@ -487,6 +488,7 @@ export function useChatTemporaryRuntime({
           uiBlockVersion: uiComponentIDs.length > 0 ? UI_BLOCK_FORMAT_VERSION : undefined,
           uiStates: turnUIStates.length > 0 ? turnUIStates : undefined,
           messages: preparedRequest.messages,
+          stream: readChatStreamEnabled(),
         },
         {
           signal: controller.signal,

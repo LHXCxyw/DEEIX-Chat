@@ -69,7 +69,14 @@ function InputGroupAddon({
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
       onClick={(e) => {
-        if (e.target instanceof Element && e.target.closest("button")) {
+        // 点在按钮、链接、表单控件上时由控件自己处理焦点；否则移动端会把输入法拉起来，
+        // 并把刚打开的浮层挤到只剩键盘上方的一小条高度。
+        if (
+          e.target instanceof Element
+          && e.target.closest(
+            "button, a[href], input, textarea, select, label, [role='button'], [role='switch'], [role='combobox'], [role='menuitem'], [contenteditable='true']",
+          )
+        ) {
           return
         }
         const parent = e.currentTarget.parentElement

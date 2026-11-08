@@ -11,6 +11,7 @@ import (
 	appprocessing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/processing"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/textutil"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/background"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/tokenestimate"
 	"go.uber.org/zap"
@@ -141,7 +142,7 @@ func (s *Service) resolveAttachments(
 			resolved = append(resolved, AttachmentInput{
 				FileObjID:              fileItem.ID,
 				FileID:                 fileItem.FileID,
-				Kind:                   inferAttachmentKind(fileItem.DetectedMIME),
+				Kind:                   inferAttachmentKind(textutil.FirstNonEmpty(fileItem.DetectedMIME, fileItem.MimeType)),
 				FileName:               fileItem.FileName,
 				MimeType:               fileItem.MimeType,
 				DetectedMIME:           fileItem.DetectedMIME,
@@ -220,7 +221,7 @@ func (s *Service) resolveConversationFileContext(
 		resolved = append(resolved, AttachmentInput{
 			FileObjID:              fileItem.ID,
 			FileID:                 fileItem.FileID,
-			Kind:                   inferAttachmentKind(fileItem.DetectedMIME),
+			Kind:                   inferAttachmentKind(textutil.FirstNonEmpty(fileItem.DetectedMIME, fileItem.MimeType)),
 			FileName:               fileItem.FileName,
 			MimeType:               fileItem.MimeType,
 			DetectedMIME:           fileItem.DetectedMIME,

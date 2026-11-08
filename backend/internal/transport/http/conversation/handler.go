@@ -121,6 +121,7 @@ var sendMessageErrorStatuses = []sendMessageErrorStatus{
 	{err: appconversation.ErrModelAccessDenied, status: http.StatusForbidden},
 	{err: apppersonalprovider.ErrModelUnavailable, status: http.StatusServiceUnavailable},
 	{err: appconversation.ErrStorageQuotaExceeded, status: http.StatusConflict},
+	{err: appconversation.ErrMediaArtifactStorageQuotaExceeded, status: http.StatusConflict},
 	{err: appconversation.ErrGeneratedMediaArtifactUnavailable, status: http.StatusBadGateway},
 	{err: appconversation.ErrUpstreamEmptyResponse, status: http.StatusBadGateway},
 	{err: appconversation.ErrToolRunFinalAnswerMissing, status: http.StatusBadGateway},

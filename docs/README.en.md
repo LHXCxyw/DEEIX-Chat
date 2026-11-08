@@ -1,0 +1,546 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../apps/web/public/logo-white.svg" />
+    <img src="../apps/web/public/logo-black.svg" alt="DEEIX Chat" width="160" />
+  </picture>
+</p>
+
+<p align="center">
+  An integrated AI platform for enterprise model routing, chat, files, tools, billing, identity, and operations.
+</p>
+
+<p align="center">
+  English | <a href="../README.md">简体中文</a>
+</p>
+
+<p align="center">
+  <a href="https://deeix.com"><img alt="Website" src="https://img.shields.io/badge/Website-deeix.com-black" /></a>
+  <a href="https://deeix.com/docs/deeix-chat/quickstart"><img alt="Guide" src="https://img.shields.io/badge/Guide-Quickstart-0f766e" /></a>
+  <a href="https://t.me/deeix_chat"><img alt="Telegram" src="https://img.shields.io/badge/Telegram-deeix_chat-26A5E4?logo=telegram&logoColor=white" /></a>
+  <a href="https://x.com/DEEIX_AI"><img alt="X" src="https://img.shields.io/badge/X-%40DEEIX_AI-black?logo=x&logoColor=white" /></a>
+  <a href="https://www.apache.org/licenses/LICENSE-2.0"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue" /></a>
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black" />
+  <img alt="React" src="https://img.shields.io/badge/React-19-149eca" />
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.26-00add8" />
+</p>
+
+## Overview
+
+DEEIX Chat is an open-source, deployable AI platform for individuals, teams, and enterprises that need long-term, stable, and unified access to multiple model providers. It provides one clear entry point for multiple upstream models and providers, integrating multimodal chat, model routing, files and RAG, MCP tools, usage billing, identity, audit logs, and operational controls into one product.
+
+The system is designed around simple deployment, efficient static delivery, and a low runtime resource footprint: lightweight without feeling limited, restrained without losing capability, and open without becoming disorderly.
+
+## Personal Fork and Secondary Development
+
+This repository is a personal fork and secondary development project based on [DEEIX Chat](https://github.com/DEEIX-AI/DEEIX-Chat), maintained independently and not an official DEEIX Chat release. Its web app and backend are synchronised with upstream v0.4.6. The desktop app is not maintained in this fork: it stays at its v0.4.4 code baseline, with only its version fields kept consistent by the release tooling. The upstream layout and upgrade path are kept while re-applying and extending the customisations listed below. For the exact set of changes, refer to this repository's commit history.
+
+Personal upstream channels (BYOK), user model management, and user model routing are natively covered by the upstream personal provider system, so this fork no longer maintains its own implementations of those parts.
+
+### Customisation Highlights
+
+- **Visual creation canvas**: a zoomable and pannable infinite canvas that organises image and video generation, editing, and result flow as a node graph, with prompt / reference / generation / output node connections, generation tasks handing off to output nodes so runs can overlap, and cross-device persistence.
+- **Canvas node type registry**: node sizes, ports, connection rules, accent colours, and toolbar entries are all derived from a single registry, so a new node type only needs one registry entry.
+- **Canvas HTML preview node**: write HTML/CSS/JS directly inside the canvas with a live preview that runs in a restricted iframe with no access to application data.
+- **Canvas context injection**: attach a summary of the current canvas nodes and connections to the chat composer with one toggle, submitted alongside the prompt.
+- **AI project workspace**: a project conversation is a file workspace where the AI creates, reads, searches, patches, deletes, and archives files through dedicated project tools instead of printing code into the conversation, with archives delivered as one-click download cards.
+- **IDE-style resource manager**: a persistent sidebar with a collapsible file tree, multi-select actions, localised context menus, manual file editing, ZIP import and download, and path-aware drag-and-drop import that drops files into the hovered folder.
+- **In-conversation code editing**: opened files appear as tabs next to chat threads, powered by CodeMirror with syntax highlighting, language-service completion, word wrapping, and localised context menus, alongside per-round change cards that show a cumulative merged diff for repeated edits to the same file.
+- **Sandboxed HTML preview in the workspace**: HTML/SVG files preview live in an isolated iframe, workspace-relative assets are inlined automatically, and preview scripts cannot reach application data.
+- **Message rewind**: rewind a conversation to any earlier point and restore the project workspace file state from that point's snapshot.
+- **Media requery and artifact retry**: requery unsettled media artifacts and retry them, reducing cases where a generation succeeds but its output is lost.
+- **Channel and model protocol presets**: the admin console and personal upstream channels share one list of compatible-protocol and model-protocol presets, which constrains the selectable capability kinds per protocol.
+- **Sandboxed agent execution**: one-shot, network-disabled Docker tasks for workspace commands and a Playwright Chromium project browser, with typed actions, screenshots delivered as attachments, strict resource limits and a fail-closed readiness check.
+- **Three-level agent permissions**: manual approval, automatic approval and full access. The client sends only the mode; the server normalises `manual`, `auto` and `full` to the same file-edit and code-execution capability set, so the modes differ only in approval behaviour.
+- **Generated vs uploaded files**: the file library can filter AI-generated assets and bulk-delete them without touching user-uploaded reference files.
+- **Multi-provider import links**: one import link can carry several personal upstream services, with per-entry validation and a batch confirmation screen.
+- **Ultra reasoning level and owned-parameter hiding**: the OpenAI reasoning format can declare `ultra`, and native parameters controlled by reasoning-effort translation are no longer offered as separate controls.
+- **Edit with the send shortcut**: message editing saves with the configured send shortcut, with IME composition guarded.
+- **Per-conversation system prompt**: each conversation can view, edit, and save its own system prompt from the chat header menu, inherited from the global default at creation; saving applies to the next request and survives reloads.
+- **Workspace file delivery for non-project chats**: files the agent creates in a plain conversation stay in that conversation's workspace and are downloadable through session-bound signed links, with per-file download cards, one-click ZIP for directories, and copyable links in the reply text.
+
+![DEEIX Chat workspace](../docs/assets/screenshots/DEEIX-Chat.jpg)
+
+## Features
+
+| Area | Capabilities |
+| --- | --- |
+| Conversations | A multimodal chat interface for daily use, with streaming, branches, retries, edits, feedback, sharing, rich rendering, and traceable model execution metadata. |
+| Models and routing | A platform-model layer for upstream channels, real models, route bindings, priority, weights, circuit breaking, vendor mapping, and capability configuration, reducing the cost of multi-provider operations. |
+| Protocols and adaptation | Unified support for OpenAI, Anthropic, Google/Gemini, xAI, OpenRouter, and OpenAI-compatible protocols across text, image, tools, and provider-native capability differences. |
+| Files and retrieval | File upload, preview, extraction, OCR, storage quota, full-context injection, chunking, embeddings, and semantic retrieval so file content can naturally enter the conversation context. |
+| Tool ecosystem | MCP servers and provider-native official tools with discovery, enablement, user selection, execution limits, result rendering, and tool-call traceability. |
+| Context and memory | Message windows, token budgets, summary compression, conversation memory, long-term memory, and RAG evidence records for controlled-cost continuity. |
+| Billing and payments | Model pricing, per-call tool pricing, subscriptions, top-ups, balances, usage ledgers, billing snapshots, Stripe Checkout, EPay, and webhook validation. |
+| Identity and security | Local accounts, session management, HttpOnly refresh cookies, 2FA/TOTP, trusted devices, SSO/OIDC/OAuth, contact verification, and encrypted sensitive data. |
+| Administration and audit | Centralized management for users, roles, upstreams, models, routes, pricing, subscriptions, balances, usage logs, audit logs, auth events, and system events. |
+| Deployment and operations | Single-runtime frontend/API serving, Docker deployment, SQLite or PostgreSQL, in-memory cache or Redis, S3-compatible storage, Swagger, structured logs, version endpoint, GeoIP, and OpenTelemetry. |
+
+<p align="center">
+  <img src="./docs/assets/screenshots/DEEIX-Chat-Image.png" alt="DEEIX Chat image generation" width="49.45%" />
+  <img src="./docs/assets/screenshots/DEEIX-Chat-Dark.png" alt="DEEIX Chat dark mode" width="49.45%" />
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/DEEIX-Chat-Usage.png" alt="DEEIX Chat usage and billing" width="32.3%" />
+  <img src="./docs/assets/screenshots/DEEIX-Chat-Artifacts.png" alt="DEEIX Chat artifacts" width="32.3%" />
+  <img src="./docs/assets/screenshots/DEEIX-Chat-Html.png" alt="DEEIX Chat HTML rendering" width="32.3%" />
+</p>
+
+## Architecture and Tech Stack
+
+DEEIX Chat uses a split frontend/backend development model with a single-runtime deployment path. The frontend is built into static assets and served by the Go service, while APIs, authorization, model routing, files, billing, and audit capabilities run in the same backend runtime. Heavy document extraction and OCR capabilities are optional services, keeping the base deployment lightweight.
+
+```mermaid
+flowchart TB
+  Browser["User / Admin Browser"]
+
+  subgraph Frontend["Frontend Build"]
+    Web["Next.js 16 / React 19<br/>Chat UI / Admin Console"]
+  end
+
+  subgraph Backend["Go Single Runtime"]
+    Static["Static Asset Serving"]
+    HTTP["Gin HTTP API"]
+    App["Application<br/>Auth / Routing / Files / Billing / Audit"]
+    Infra["Infra Adapters<br/>Protocols / Data / Cache / Storage"]
+  end
+
+  subgraph External["External Capabilities"]
+    Providers["Model Providers<br/>OpenAI / Anthropic / Google / xAI / OpenRouter"]
+    Tools["Tool Services<br/>MCP / Provider Native Tools"]
+    Extractors["Optional File Processing<br/>Tika / Docling / OCR"]
+  end
+
+  subgraph Data["Data and Storage"]
+    DB["PostgreSQL + pgvector<br/>or SQLite + sqlite-vec"]
+    Cache["Redis<br/>or In-Memory Cache"]
+    Storage["Local Filesystem<br/>or S3-Compatible Storage"]
+  end
+
+  Web --> Static
+  Browser --> Static
+  Browser --> HTTP
+  HTTP --> App
+  App --> Infra
+  Infra --> Providers
+  Infra --> Tools
+  Infra --> Extractors
+  Infra --> DB
+  Infra --> Cache
+  Infra --> Storage
+```
+
+| Layer | Responsibility | Technologies |
+| --- | --- | --- |
+| Frontend | Chat UI, admin console, and static builds | Next.js 16, React 19, TypeScript, Tailwind CSS, Shadcn/UI, Streamdown, KaTeX, Mermaid, Recharts, Motion |
+| Backend runtime | APIs, authentication, authorization, orchestration, protocol adaptation, and static serving | Go 1.27, Gin, Gorm, Swagger, OpenTelemetry, Zap |
+| Data and cache | Domain data, vector retrieval, session state, and runtime cache | PostgreSQL, pgvector, SQLite, sqlite-vec, Redis, in-memory cache |
+| Files and storage | Uploaded files, generated files, object storage, and local persistence | Local filesystem, S3-compatible object storage |
+| File processing | Text extraction, OCR, document parsing, and LLM OCR fallback | Built-in extractors, Apache Tika, Docling, RapidOCR, Tesseract OCR, Paddle OCR, cloud OCR adapters, MinerU |
+| Tool protocol | MCP tool integration and provider-native official tools | MCP Streamable HTTP JSON-RPC, provider-native tools |
+| Deployment runtime | Lightweight single-node deployment or multi-node production deployment | Docker, Docker Compose, SQLite/in-memory cache, PostgreSQL/Redis |
+
+The backend keeps clear internal boundaries: `backend/cmd/server` is the executable entrypoint, `backend/internal/cli` owns process startup, `backend/internal/app` assembles and wires the application, and `backend/internal/transport/http` owns the HTTP boundary. Requests then flow through `application` use cases to consumer-owned `repository` or `ports` interfaces and their `infra` implementations. The data layer uses domain-prefixed tables, while financial records, audit trails, system events, and high-growth vector data remain separate sources of truth.
+
+## Repository Layout
+
+```text
+.
+├── backend/                  # Go API and single-runtime server
+│   ├── cmd/server/            # executable entrypoint
+│   ├── internal/
+│   │   ├── cli/               # process startup
+│   │   ├── app/               # dependency wiring and lifecycle
+│   │   ├── application/       # use cases and orchestration
+│   │   ├── domain/            # business concepts and rules
+│   │   ├── ports/              # outbound integration contracts
+│   │   ├── repository/         # persistence contracts
+│   │   ├── infra/              # persistence, cache, storage, providers
+│   │   ├── transport/http/     # handlers, DTOs, middleware, routes
+│   │   └── shared/             # cross-cutting response and security code
+│   └── docs/                  # generated Swagger artifacts
+├── apps/                     # client applications (one directory per platform)
+│   ├── web/                  # Next.js App Router and static export
+│   └── desktop/              # Tauri 2 shell: tray, deep links, auto-update, OS keychain
+│       ├── app/              # route entries and layouts
+│       ├── features/         # feature-owned UI and client workflows
+│       ├── entities/         # reusable business entities
+│       ├── shared/           # API, auth, UI, hooks, models, utilities
+│       ├── components/       # UI primitives and visual components
+│       └── public/           # static assets
+├── packages/
+│   ├── api-contract/         # generated TypeScript API contract (single source for all clients)
+│   └── core/                 # platform-agnostic client logic shared by web / desktop / mobile
+├── deploy/                    # Docker assets: config template and optional document services
+├── data/                      # Docker deployment data (storage, app, postgres, redis)
+├── docs/                      # project guides and screenshots
+├── Dockerfile                 # frontend + backend production image
+└── docker-compose.yml         # single deployment entry point (local image build)
+```
+
+`apps/web/` and `backend/` are independent workspaces managed by pnpm and Turborepo. `packages/api-contract/` connects them through generated Swagger types; update the Go transport contract first, then regenerate the shared package. `packages/core/` holds client logic that must stay identical across platforms and is forbidden from importing any UI or platform framework. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for platform boundaries and rules.
+
+## Prerequisites
+
+- Node.js 26.12.1 or newer — the patched release line this fork builds and deploys with; `.nvmrc`, CI and the Docker image all pin it.
+- pnpm 10.17.0 (`npm install -g pnpm@10.17.0`; Node 26 no longer bundles Corepack).
+- Go 1.27.3 for backend development.
+- Docker Engine with Docker Compose v2 for container deployments or local PostgreSQL/Redis services.
+
+The Docker deployment starts PostgreSQL and Redis in containers for you. Outside Docker, the default development configuration expects PostgreSQL and Redis reachable from the host.
+
+## Quick Start
+
+> Quick installation guide: [Quick Start](https://deeix.com/docs/deeix-chat/quickstart).
+
+### Local Development
+
+Local development is intended for editing source code and running the frontend and backend separately. The default config connects to local PostgreSQL and Redis. If you only want a trial without local PostgreSQL and Redis, use the Docker deployment below, which starts them in containers.
+
+1. Prepare backend configuration:
+
+```bash
+cp deploy/config.example.yaml config.yaml
+```
+
+Adjust `database.postgres.dsn`, `database.redis.*`, and public URLs in `config.yaml` for your local environment.
+
+2. Install workspace dependencies and prepare the frontend environment:
+
+```bash
+pnpm install
+cp apps/web/.env.example apps/web/.env.local
+```
+
+3. Start the frontend and backend together:
+
+```bash
+make dev
+```
+
+`make api`, `make web` and `make desktop` start one app at a time; `make help`
+lists everything.
+
+The frontend uses `NEXT_PUBLIC_API_BASE_URL` for API requests. For local development, confirm that `apps/web/.env.local` contains:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080
+```
+
+Service URLs and probes:
+
+| Service | URL |
+| --- | --- |
+| Frontend | `http://localhost:3000` |
+| API | `http://localhost:8080` |
+| Liveness | `http://localhost:8080/healthz` |
+| Readiness | `http://localhost:8080/readyz` |
+| Version | `http://localhost:8080/api/v1/version` |
+| Swagger (development only) | `http://localhost:8080/swagger/index.html` |
+
+If `NEXT_PUBLIC_API_BASE_URL` is omitted, local development defaults to `localhost:8080`; same-origin deployments use the current origin.
+
+### Workspace Commands
+
+The root `Makefile` is the single entry point; every target runs from the
+repository root and routes to pnpm / turbo / cargo / go underneath.
+
+| Command | Purpose |
+| --- | --- |
+| `make dev` | Frontend and backend in watch mode. |
+| `make api` / `make web` / `make desktop` | One app at a time. |
+| `make check` | Lint, type, architecture and version checks, all workspaces. |
+| `make test` | Tests, all workspaces. |
+| `make build` | Static frontend, backend binary, desktop (turbo, cached). |
+| `make build-desktop` / `make release-desktop` | Quick local `.app` / signed release bundle. |
+| `make verify` | check + test + build, what CI runs. |
+| `make api-docs` | Regenerate Swagger artifacts and TypeScript API types. |
+| `make version` / `make version-check` | Synchronize/check versions, Cargo.lock and generated Swagger/TypeScript API contracts. |
+
+The same verbs exist as pnpm scripts (`pnpm dev:api`, `pnpm check`, …) for
+tooling that prefers them; CI uses those directly.
+
+The frontend is exported as static files, so `pnpm build` writes the browser artifact to `apps/web/out`. The Go service can serve that directory in the production image or through `server.frontend_dist_dir`.
+
+### Docker Deployment
+
+Docker deployment has one entry point. It builds the app and the command-runner and project-browser images, then starts the app with PostgreSQL and Redis. No copied config, overlay, host helper script or manually entered digest is required:
+
+```bash
+docker compose -f docker-compose.yml build
+docker compose -f docker-compose.yml up -d
+```
+
+首次启动由一次性 `config-init` 自动生成根 `config.yaml` 及随机数据库密码、JWT/加密密钥；已有配置和 secret 不覆盖。旧 `data/storage`、`data/app`、`data/postgres`、`data/redis` 路径及 `3700:8080` 端口不变。缺少旧配置但存在旧数据时拒绝初始化，不重置密钥。默认本地 HTTP 配置使用 `dev`；公网部署须先配置 HTTPS、域名/CORS 并切换 `prod`，不会绕过后端生产校验。
+
+`app` 入口直接读取本地构建的 `deeix-agent-command:local` 与 `deeix-agent-browser:local`，校验镜像 ID 和 runner 标签后注入环境变量；不再使用 DinD、内部 registry、seed 或 `runtime.env`。`agent-command` 与 `agent-browser` 是 build-only 服务，启动即退出；运行中常驻容器只有 `app`、`postgres`、`redis`。
+
+**执行模式：同机默认挂载宿主 `/var/run/docker.sock`，等同于把宿主高权限交给 `app`；独立节点由管理员设置 `AGENT_DOCKER_HOST`（TCP 需 TLS）和 `DEEIX_DOCKER_SOCKET=/dev/null`，不挂宿主 socket，风险面更小。** 仅面向 Linux Docker Engine，Compose >= 2.20 + BuildKit。资源能力、任务容器真实 CPU/memory/swap/pids/seccomp 限额或 Chromium sandbox 不支持时 readiness 失败。迁移仍只需原两条命令，**无需 `down -v`**。已在 Linux Docker 实测通过 Compose 启动、隔离命令执行与项目浏览器截图；公网浏览器、持久任务队列与物理清理仍未开放。完整链路和风险见 [deploy/README.md](deploy/README.md)。
+
+升级前备份 `config.yaml` 和整个 `data`；更新源码后仍执行上述两条命令。修改配置后同样执行两条命令以更新快照。状态与日志：
+
+```bash
+docker compose -f docker-compose.yml ps -a
+docker compose -f docker-compose.yml logs --tail=100 config-init agent-command agent-browser app
+docker compose -f docker-compose.yml logs -f app
+curl --fail http://localhost:3700/healthz
+curl --fail http://localhost:3700/readyz
+# 停止但保留数据；不要使用 down -v
+docker compose -f docker-compose.yml down
+```
+
+`up -d` 返回不代表最终健康；确认本次 `config-init`、`agent-command`、`agent-browser` 退出 0，且 `postgres`/`redis`/`app` healthy，不能把升级前仍运行的旧 app 当成本次升级成功。`config-init` 是唯一挂仓库目录的可信服务，无网络、无执行 socket；任务容器不接触该挂载。不要删除数据或重置加密密钥来排错。
+
+#### Optional Installation Services
+
+These services are optional. Start only the ones you enable in the admin console or `config.yaml`.
+They live under `deploy/services/` and attach to `deeix-chat-network`; start this compose stack first, or create the network manually with `docker network create deeix-chat-network`. Run from inside `deploy/`:
+
+```bash
+docker compose -f services/tika/docker-compose.yml up -d
+docker compose -f services/tesseract/docker-compose.yml up -d --build
+docker compose -f services/docling/docker-compose.yml up -d --build
+```
+
+Default local endpoints:
+
+| Service | URL | Purpose |
+| --- | --- | --- |
+| Tika | `http://127.0.0.1:9998` | Document text extraction |
+| Tesseract OCR | `http://127.0.0.1:8004/ocr` | OCR service |
+| Docling | `http://127.0.0.1:8005/ocr` | Document/OCR extraction |
+
+`deploy/services/rapidocr` currently provides a Dockerfile and app entrypoint, but no compose file. Add a compose file or run it manually if you choose RapidOCR.
+
+### Separated Deployment
+
+Use this mode when the frontend and backend are served from different public origins, for example `https://chat.example.com` and `https://api.example.com`.
+
+1. Configure public URLs.
+
+   - Frontend build variable: `NEXT_PUBLIC_API_BASE_URL=https://api.example.com`
+   - Backend config: `server.public_api_base_url=https://api.example.com`
+   - Backend config: `server.public_web_base_url=https://chat.example.com`
+   - Backend config: `server.cors_allow_origin=https://chat.example.com`
+
+   For Docker image builds, pass the frontend API URL at build time:
+
+   ```bash
+   docker build --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.example.com -t deeix-chat .
+   ```
+
+2. Build and publish the frontend.
+
+   ```bash
+   pnpm install
+   NEXT_PUBLIC_API_BASE_URL=https://api.example.com pnpm --filter @deeix/web build
+   ```
+
+   The static output is `apps/web/out`. Serve it with Nginx, CDN, object storage, or any static web server. To let the Go backend serve the frontend, place `apps/web/out` under `server.frontend_dist_dir`; the Docker image defaults to `/app/frontend/out`.
+
+3. Apply CDN rules.
+
+   | Path | Rule |
+   | --- | --- |
+   | `/_next/static/*` | Cache for 1 year with immutable assets enabled. |
+   | `/logo*.svg`, `/*.ico`, `/*.png`, `/*.jpg`, `/*.webp`, `/*.woff2` | Cache for 1 day to 30 days. |
+   | `/`, `/*.html`, `/login*`, `/auth*`, `/chat*`, `/recent*`, `/files*`, `/knowledge-bases*`, `/library*`, `/settings*`, `/admin*`, `/share*`, `/preview*` | Do not long-cache. Use `no-cache` or a short TTL. |
+   | `/api/*`, `/healthz`, `/readyz`, `/swagger/*` | Bypass CDN cache and forward all request headers, methods, query strings, and request bodies. |
+
+   If the CDN serves `apps/web/out` from object storage, enable route fallback so clean URLs resolve to their exported `index.html` files, for example `/chat` -> `/chat/index.html`.
+
+### Startup Check and First Login
+
+After the application starts, verify liveness, readiness, the mounted config file, and startup logs. For Docker deployments:
+
+```bash
+curl http://localhost:3700/healthz
+curl http://localhost:3700/readyz
+docker compose exec app ls -l /app/config.yaml
+docker compose logs app
+```
+
+Swagger is registered only when `APP_ENV=dev` or `APP_ENV=development`; production deployments intentionally do not expose the Swagger UI route.
+
+If the database does not contain a superadmin account, the backend creates the initial administrator on first startup and prints the initial password only once.
+
+| Item | Description |
+| --- | --- |
+| Initial username | `admin` |
+| Initial password | Inspect backend startup logs, search for `bootstrap superadmin created`, and read the `password` field. |
+| First login | The system requires changing the username and password. |
+| Later changes | Use the account flow or admin console; credentials are not managed through `config.yaml`. |
+
+If a superadmin already exists, the service does not regenerate or print the initial password again.
+
+## Configuration
+
+> Full configuration guide: [Configuration](https://deeix.com/docs/deeix-chat/configuration).
+
+Backend configuration is split into static runtime configuration and runtime business settings. Static runtime configuration describes branding and the infrastructure, security, and storage parameters required to start the service, and is provided through `config.yaml` and environment variables. Runtime business settings cover product capabilities such as authentication, conversations, models, files, and billing; they are stored in `system_settings` and maintained from the admin console. Environment variables override matching config-file values, which is useful for containerized deployments, separated deployments, and secret injection.
+
+At startup, the backend resolves the default config file from the working directory: starting from the repository root reads `config.yaml`, while starting from `backend/` reads `../config.yaml`. Docker deployments mount the root `config.yaml` as read-only `/app/config.yaml` inside the container. If the config file is stored elsewhere, set `CONFIG_FILE` to a path accessible from the running process or container. The effective priority is `environment variables > config.yaml > built-in defaults`.
+
+Frontend branding is also runtime configuration. Set the `branding` section in `config.yaml`, then restart the application; rebuilding the frontend or Docker image is not required. See [Custom branding](docs/BRANDING.md).
+
+Static configuration environment variables:
+
+| Area | Environment variable | Purpose |
+| --- | --- | --- |
+| Frontend build | `NEXT_PUBLIC_API_BASE_URL` | Browser API base URL; set in `apps/web/.env.local` for local dev or at build time for separated deployment. |
+| Config file | `CONFIG_FILE` | Optional config file path; Docker values should use the container path. |
+| Application | `APP_NAME` | Application name. |
+| Application | `APP_ENV` | Runtime environment: `dev`/`development` or `prod`/`production`; omitted values default to `prod`. |
+| HTTP service | `HTTP_PORT` | API/runtime port. |
+| HTTP service | `CORS_ALLOW_ORIGIN` | Allowed CORS origins, comma-separated. |
+| HTTP service | `TRUSTED_PROXIES` | Trusted proxy CIDR list. |
+| HTTP service | `PUBLIC_API_BASE_URL` | Public API URL for links, callbacks, and public URL generation. Required for third-party sign-in. |
+| HTTP service | `PUBLIC_WEB_BASE_URL` | Public Web URL for links, callbacks, and public URL generation. |
+| HTTP service | `FRONTEND_DIST_DIR` | Frontend static output directory. |
+| HTTP service | `HTTP_READ_HEADER_TIMEOUT_SECONDS` | HTTP read-header timeout. |
+| HTTP service | `HTTP_READ_TIMEOUT_SECONDS` | HTTP request read timeout. |
+| HTTP service | `HTTP_IDLE_TIMEOUT_SECONDS` | HTTP keep-alive idle timeout. |
+| HTTP service | `HTTP_MAX_HEADER_BYTES` | Maximum HTTP request header size. |
+| Security | `JWT_SECRET` | JWT signing secret. |
+| Security | `DATA_ENCRYPTION_KEY` | Key material for upstream API keys, users' own provider keys, SSO secrets, MCP tokens, sensitive settings, and TOTP secrets. Do not replace it in place; see `DATA_ENCRYPTION_KEYS_PREVIOUS`. |
+| Security | `DATA_ENCRYPTION_KEYS_PREVIOUS` | Comma-separated keys used before the current `DATA_ENCRYPTION_KEY`. Data encrypted with them stays readable, and while this is set the server re-encrypts that data with the current key in the background after each startup. Remove it once the log reports `data_encryption_key_rotation_completed`. |
+| Security | `SSRF_PROTECTION_ENABLED` | Enables outbound SSRF protection. |
+| Security | `SSRF_ALLOWED_HOSTS` | Exact hostnames for deployment-level integrations or trusted private redirect targets, comma-separated. |
+| Security | `SSRF_ALLOWED_CIDRS` | Trusted deployment-level integration or private redirect CIDRs, comma-separated. |
+| Network | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Standard outbound proxy variables, honored with or without SSRF protection. `ALL_PROXY` is not supported. The startup log reports the active proxy (`outbound_proxy_enabled`). Changes require a restart. |
+| Security | `TURNSTILE_SITEVERIFY_URL` | Cloudflare Turnstile siteverify endpoint. |
+| Database | `DATABASE_DRIVER` | `postgres` or `sqlite`. |
+| PostgreSQL | `POSTGRES_DSN` | PostgreSQL DSN. |
+| PostgreSQL | `POSTGRES_MAX_OPEN_CONNS` | Maximum open connections. |
+| PostgreSQL | `POSTGRES_MAX_IDLE_CONNS` | Maximum idle connections. |
+| PostgreSQL | `POSTGRES_CONN_MAX_LIFETIME_MINUTES` | Maximum connection lifetime. |
+| PostgreSQL | `POSTGRES_CONN_MAX_IDLE_TIME_MINUTES` | Maximum idle connection time. |
+| SQLite | `SQLITE_PATH` | Database file path. |
+| SQLite | `SQLITE_DSN` | Full DSN; takes priority over path-based DSN construction. |
+| SQLite | `SQLITE_MAX_OPEN_CONNS` | Maximum open connections, default `1`. |
+| SQLite | `SQLITE_BUSY_TIMEOUT_MS` | Busy timeout. |
+| SQLite | `SQLITE_CACHE_SIZE_KB` | Page cache size. |
+| SQLite | `SQLITE_MMAP_SIZE_BYTES` | Mmap size. |
+| SQLite | `SQLITE_SYNCHRONOUS` | Synchronous mode: `OFF`, `NORMAL`, `FULL`, or `EXTRA`. |
+| SQLite | `SQLITE_TEMP_STORE` | Temporary storage: `DEFAULT`, `FILE`, or `MEMORY`. |
+| Cache | `CACHE_DRIVER` | `redis` or `memory`; `memory` is single-process only. |
+| Redis | `REDIS_ADDR` | Redis address. |
+| Redis | `REDIS_USERNAME` | Redis ACL username; leave empty for password-only/default-user Redis. |
+| Redis | `REDIS_PASSWORD` | Redis password. |
+| Redis | `REDIS_DB` | Redis DB number. |
+| Redis | `REDIS_TLS_ENABLED` | Enable TLS for Redis connections, for example Upstash Redis. |
+| Redis | `REDIS_TLS_INSECURE_SKIP_VERIFY` | Skip Redis TLS certificate verification; keep `false` unless required by a nonstandard endpoint. |
+| Storage | `STORAGE_BACKEND` | `local` or `s3`. |
+| Local storage | `STORAGE_ROOT_DIR` | Local file storage directory. |
+| S3 storage | `STORAGE_S3_ENDPOINT` | S3-compatible endpoint. |
+| S3 storage | `STORAGE_S3_REGION` | S3 region; required when S3 storage is enabled. |
+| S3 storage | `STORAGE_S3_BUCKET` | S3 bucket; required when S3 storage is enabled. |
+| S3 storage | `STORAGE_S3_PREFIX` | S3 object prefix. |
+| S3 storage | `STORAGE_S3_ACCESS_KEY_ID` | S3 Access Key ID. |
+| S3 storage | `STORAGE_S3_SECRET_ACCESS_KEY` | S3 Secret Access Key. |
+| S3 storage | `STORAGE_S3_FORCE_PATH_STYLE` | Whether to use path-style access. |
+| GeoIP | `GEOIP_PROVIDER` | `none`, `ipwhois`, `ipinfo`, or `mmdb`. |
+| GeoIP | `GEOIP_BASE_URL` | GeoIP HTTP service URL, default `https://ipwho.is`. |
+| GeoIP | `GEOIP_TOKEN` | GeoIP service token. |
+| GeoIP | `GEOIP_TIMEOUT_MS` | GeoIP request timeout. |
+| GeoIP | `GEOIP_DATABASE_URL` | MMDB download URL. |
+| GeoIP | `GEOIP_DATABASE_PATH` | Local MMDB path. |
+| GeoIP | `GEOIP_DATABASE_MAX_BYTES` | Maximum MMDB download size. |
+| GeoIP | `GEOIP_REFRESH_INTERVAL_HOURS` | MMDB refresh interval. |
+| OpenTelemetry | `OTEL_ENABLED` | Enables tracing; when omitted, a configured endpoint enables tracing automatically. |
+| OpenTelemetry | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint. |
+| OpenTelemetry | `OTEL_EXPORTER_OTLP_HEADERS` | OTLP headers in `key=value,key2=value2` format. |
+| OpenTelemetry | `OTEL_EXPORTER_OTLP_INSECURE` | Whether to use plaintext transport. |
+| OpenTelemetry | `OTEL_EXPORTER_OTLP_PROTOCOL` | OTLP exporter protocol: `grpc`, `http`, or `http/protobuf`; defaults to `grpc`. |
+| OpenTelemetry | `OTEL_TRACES_SAMPLER_ARG` / `OTEL_SAMPLING_RATE` | Trace sampling rate from `0` to `1`; `OTEL_TRACES_SAMPLER_ARG` takes priority. |
+
+Authentication, registration, conversation settings, model option policies, file processing, RAG, embedding, MCP, billing, payments, and announcements are runtime business settings, not static YAML configuration. Their defaults are seeded by the backend and maintained in the admin console.
+
+When SSRF protection is enabled in production, administrator-saved model, MCP, Embedding, OIDC/OAuth2, and custom Turnstile endpoints are authorized locally by exact origin (`scheme + host + port`) and do not require entries in the global allowlist. Model, MCP, and Embedding redirects retain standard compatibility: public cross-origin targets are allowed, while private cross-origin targets must match `SSRF_ALLOWED_HOSTS` or `SSRF_ALLOWED_CIDRS`; OIDC/OAuth2 and Turnstile keep their stricter identity boundary. Generated media is downloaded, validated, and stored by the backend: a private artifact URL inherits trust only when it has the same origin as the selected model endpoint; public cross-origin artifact URLs remain subject to the strict public-network policy, and private cross-origin artifact URLs are blocked. The global allowlist also remains available for deployment-level integrations that cannot be tied to an administrator-saved endpoint, such as selected GeoIP or extraction deployments. Link-local, multicast, unspecified, and known metadata targets always remain blocked. Invalid allowlist entries stop backend startup, and global allowlist changes require a restart.
+
+Outbound requests honor the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables, including when SSRF protection is enabled. The proxy address itself is treated as deployment-authorized; target URLs are still validated against the SSRF policy before a proxy is selected, so metadata and other blocked targets remain rejected, and requests that bypass the proxy (via `NO_PROXY` or loopback) keep the full DNS-validated dial path. When a request is sent through the proxy, the proxy resolves the target hostname. Before handing it over, the backend rejects numeric hostnames such as `127.1` or `2130706433` and resolves the hostname locally once, rejecting it if any resolved address is blocked by the policy; if local resolution fails, the request is left to the proxy. This does not protect against DNS rebinding at the proxy, so DNS-level egress control remains the responsibility of your proxy. There is no proxy setting in `config.yaml`: proxy addresses and credentials stay in the deployment environment. Go does not read `ALL_PROXY`, so for a SOCKS proxy set `HTTP_PROXY` and `HTTPS_PROXY` to a `socks5://` URL; if only `ALL_PROXY` is set, the backend logs `outbound_proxy_ignored` at startup and connects directly. Proxy environment changes require a restart.
+
+### OAuth callbacks for Web, App, and Desktop
+
+Third-party sign-in requires `PUBLIC_API_BASE_URL` to be the externally reachable API origin. For every OIDC/OAuth2 provider, register the single server callback shown in the admin provider dialog:
+
+```text
+<PUBLIC_API_BASE_URL>/api/v1/auth/providers/<provider-slug>/callback
+```
+
+Sign-in, registration, and account identity binding on Web, App, and Desktop all use this callback. The external provider authorization code and client secret remain on the self-hosted server; public clients receive only a short-lived, one-time DEEIX grant bound to their PKCE verifier. While `PUBLIC_API_BASE_URL` is unset, provider sign-in is disabled and the admin console shows a notice.
+
+## Feature Guides
+
+- [User Guide](https://deeix.com/docs/deeix-chat/new-chat)
+- [Admin Guide](https://deeix.com/docs/deeix-chat/admin-accounts)
+- [Advanced Guide](https://deeix.com/docs/deeix-chat/advanced-capabilities-passthrough-tools)
+
+### Conversation System Prompt
+
+- The global default lives in the admin console under conversation settings (`chat.default_system_prompt`, up to 20,000 characters). A new conversation copies that value as its own snapshot when it is created; later changes to the global default do not rewrite existing conversations.
+- In the chat header menu, choose **System prompt** to view or edit the prompt for the current conversation. An empty value falls back to the global default. Saving takes effect on the next request and persists across reloads.
+- API: `PATCH /api/v1/conversations/:id/system-prompt` with `{"systemPrompt": "..."}` and Bearer auth. The server trims the value, enforces the 20,000-character limit, and only writes the conversation's own `system_prompt` field, so the content can never be injected as another role's message. An over-limit value is rejected; an empty value falls back to the global default.
+- The per-conversation prompt replaces the platform-level layer in the layered prompt; model, project, format, and UI-component layers keep their existing priority.
+
+### Workspace File Delivery
+
+Agent file tools in a non-project conversation operate on that conversation's workspace. Deliverables can be downloaded without opening a project file manager:
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /api/v1/conversations/:id/workspace/download?path=<relative path>` | Bearer | Download one file by workspace-relative path. |
+| `GET /api/v1/conversations/:id/workspace/archive?path=<file or dir>&path=<...>` | Bearer | Stream a ZIP of selected files and directories; omit `path` for the whole workspace. |
+| `GET /api/v1/workspace-downloads/signed?conversation_id=...&mode=file\|archive&path=...&user_id=...&expires=...&signature=...` | Signed URL | Session-bound, HMAC-signed download. Expiry is aligned to the next hour boundary, so links stay valid for about one to two hours; expired, tampered, or cross-conversation links return 401. |
+
+- Paths are normalised and matched against workspace database records; the server never resolves a client-supplied path against the filesystem, so `..` traversal and absolute paths are rejected. A missing or already-deleted file returns 404; an archive over the limits below returns 413.
+- Directory targets recurse by path prefix. ZIP delivery reuses the existing limits: 2,000 files, 20 MiB per file, 200 MiB total.
+- The agent tool `project_deliver_files` returns file metadata and signed links without reading file bytes into the model context. It is rejected in project conversations, where `project_create_archive` remains the fixed-version delivery path. The chat renders a download card for each file plus a **Download all** action for directories or multiple files, and the reply text includes the same copyable links.
+- Per-file links in the tool result are capped by a small payload budget so the message trace can always be parsed; larger deliveries return the archive link plus the first few files. Download URLs are absolute when `PUBLIC_API_BASE_URL` is set and otherwise relative to the API origin.
+- Filenames are encoded with RFC 5987 (`filename*=UTF-8''...`) so Chinese names download correctly.
+
+## Security Notes
+
+- User passwords are hashed with bcrypt.
+- Production mode rejects unsafe default secrets, weak encryption keys, wildcard CORS, and non-HTTPS public URLs.
+- Refresh tokens and recovery-style secrets are stored as hashes.
+- Upstream API keys, users' own provider keys, SSO client secrets, MCP auth tokens, sensitive settings, and TOTP secrets are encrypted with AES-256-GCM using `DATA_ENCRYPTION_KEY`. The server must decrypt these values to call providers, so anyone holding both the database and `DATA_ENCRYPTION_KEY` can read them.
+- To change `DATA_ENCRYPTION_KEY`, set the new value, move the old one to `DATA_ENCRYPTION_KEYS_PREVIOUS`, and restart. The server re-encrypts stored secrets with the new key in the background and logs `data_encryption_key_rotation_completed` when nothing depends on the old key; then remove `DATA_ENCRYPTION_KEYS_PREVIOUS` and restart again. If it logs `data_encryption_key_rotation_incomplete` instead, keep the old key and follow the listed reasons. Replacing the key outright makes every stored secret unreadable. The server also warns at startup when a key is a built-in or example placeholder.
+- Access tokens are short-lived and held client-side in memory; refresh tokens are issued through HttpOnly cookies.
+- User-supplied model options are filtered before provider requests. System-generated fields such as model, messages, tools, system prompts, headers, and previous-response identifiers are not user-overridable.
+
+## Documentation
+
+- [Quick Start](https://deeix.com/docs/deeix-chat/quickstart)
+- [Configuration](https://deeix.com/docs/deeix-chat/configuration)
+- [User Guide](https://deeix.com/docs/deeix-chat/new-chat)
+- [Admin Guide](https://deeix.com/docs/deeix-chat/admin-accounts)
+- [Advanced Guide](https://deeix.com/docs/deeix-chat/advanced-capabilities-passthrough-tools)
+- Backend guide: [backend/README.md](../backend/README.md)
+- Agent design decisions: [docs/agent-design-decisions.md](../docs/agent-design-decisions.md)
+- API documentation index: [backend/docs/README.md](../backend/docs/README.md)
+- Frontend guide: [apps/web/README.md](../apps/web/README.md)
+- API contract package: [packages/api-contract/README.md](../packages/api-contract/README.md)
+- Contributing: [CONTRIBUTING.md](../.github/CONTRIBUTING.md)
+- Security policy: [SECURITY.md](../.github/SECURITY.md)
+- Swagger UI (development only): `http://localhost:8080/swagger/index.html`
+
+## Acknowledgements
+
+DEEIX Chat is built on the open-source ecosystem. Thanks to all maintainers and communities in the AI tooling ecosystem.
+
+- [Next.js](https://nextjs.org)
+- [Go](https://go.dev)
+- [LINUX DO](https://linux.do)
+
+## Contact & Community
+
+- Website: [deeix.com](https://deeix.com/)
+- Blog: [blog.cheny.me](https://blog.cheny.me/)
+- Email: [support@deeix.com](mailto:support@deeix.com)
+- Telegram: [t.me/deeix_chat](https://t.me/deeix_chat)
+- X: [@DEEIX_AI](https://x.com/DEEIX_AI)
+
+## License
+
+DEEIX Chat is licensed under the [Apache License 2.0](../LICENSE).

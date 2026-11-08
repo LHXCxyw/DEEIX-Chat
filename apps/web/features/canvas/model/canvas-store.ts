@@ -1992,6 +1992,7 @@ const canvasStoreImplementation = {
       references,
       maskReference: generateNode.maskReference ?? null,
       mediaType,
+      stream: generateNode.stream !== false,
       route: decision.route,
       conversationID,
       runID,
@@ -2010,6 +2011,7 @@ const canvasStoreImplementation = {
     references,
     maskReference,
     mediaType,
+    stream,
     route,
     conversationID,
     runID,
@@ -2026,6 +2028,8 @@ const canvasStoreImplementation = {
     references: CanvasNodeReference[];
     maskReference: CanvasNodeReference | null;
     mediaType: CanvasMediaType;
+    // 本次生成是否使用流式上游请求
+    stream: boolean;
     route: "image_generation" | "image_edit" | "chat" | "video_generation";
     conversationID: string;
     runID: string;
@@ -2064,6 +2068,7 @@ const canvasStoreImplementation = {
               ? `${prompt}${chatImagePromptSuffix(mergedOptions)}`
               : prompt,
             contentType: references.length > 0 ? "mixed" : "text",
+            stream,
             knowledgeBaseIDs: [],
             model: model.platformModelName,
             options: Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
@@ -2090,6 +2095,7 @@ const canvasStoreImplementation = {
               prompt,
               model: model.platformModelName,
               options: Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
+              stream,
               clientRunID: runID,
               fileIDs: references.length > 0 ? references.map((item) => item.fileID) : undefined,
               maskFileID: maskReference?.fileID,

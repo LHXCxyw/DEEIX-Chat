@@ -31,6 +31,8 @@ var (
 	ErrConversationShareSchemaOutdated = apperr.NewMasked("conversation_share.schema_outdated", "conversation share schema is outdated", "conversation share schema outdated")
 	// ErrInvalidConversationTitle 会话标题不合法。
 	ErrInvalidConversationTitle = apperr.New("conversation.invalid_title", "invalid conversation title")
+	// ErrInvalidConversationSystemPrompt 会话系统提示词不合法。
+	ErrInvalidConversationSystemPrompt = apperr.New("conversation.invalid_system_prompt", "invalid conversation system prompt")
 	// ErrInvalidConversationLabels 会话标签不合法。
 	ErrInvalidConversationLabels = apperr.New("request.invalid_conversation_labels", "invalid conversation labels")
 	// ErrConversationProjectNotFound 会话项目不存在或无权限。
@@ -51,9 +53,16 @@ var (
 	ErrInvalidProjectFileVersion = apperr.New("project.invalid_expected_version", "expected_version must be a non-negative integer")
 	// ErrFileInUse 文件正在被头像、知识库等资源使用。
 	ErrFileInUse = apperr.NewMasked("file.in_use", "file is in use", "file in use")
-	// ErrStorageQuotaExceeded 文件配额超限。
+	// ErrStorageQuotaExceeded 用户存储配额超限（文件库总容量），与模型/渠道额度无关。
 	// 仓储层仍返回 repository.ErrStorageQuotaExceeded，由应用边界转换为此带契约的哨兵。
-	ErrStorageQuotaExceeded = apperr.NewMasked(MessageErrorCodeQuotaExceeded, "quota exceeded", "storage quota exceeded")
+	ErrStorageQuotaExceeded = apperr.NewMasked(MessageErrorCodeQuotaExceeded, "storage quota exceeded", "user storage quota exceeded")
+	// ErrMediaArtifactStorageQuotaExceeded 媒体产物已生成，但保存进文件库时存储空间不足。
+	// 与 ErrStorageQuotaExceeded 区分，避免用户误判为模型或渠道额度用尽。
+	ErrMediaArtifactStorageQuotaExceeded = apperr.NewMasked(
+		"media.storage_quota_exceeded",
+		"generated media could not be saved: storage quota exceeded",
+		"media artifact save rejected by user storage quota",
+	)
 	// ErrFileTooLarge 文件过大。
 	ErrFileTooLarge = apperr.New("file.too_large", "file too large")
 	// ErrMIMEBlocked 文件类型不被允许。
@@ -203,6 +212,18 @@ func withRunContext(err error, run *model.Run) error {
 		UpstreamTaskID: strings.TrimSpace(run.UpstreamTaskID),
 		Status:         strings.TrimSpace(run.Status),
 	}
+}
+
+// refineMediaArtifactSaveError 把媒体产物保存阶段的存储配额超限细化为专用错误码，
+// 便于前端区分“生成失败”和“已生成但存不下”。其余错误保持原样。
+func refineMediaArtifactSaveError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrStorageQuotaExceeded) {
+		return ErrMediaArtifactStorageQuotaExceeded
+	}
+	return err
 }
 
 // mapMessageWriteError 把仓储层在消息写入与删除路径上返回的哨兵转换为应用层契约哨兵。

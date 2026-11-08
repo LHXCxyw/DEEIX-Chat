@@ -22,6 +22,8 @@ type ConversationResponse struct {
 	ProjectID       string     `json:"projectID"`
 	ProjectName     string     `json:"projectName"`
 	Title           string     `json:"title"`
+	// SystemPrompt 是会话级系统提示词快照；空串表示当前跟随全局默认。
+	SystemPrompt    string     `json:"systemPrompt"`
 	LabelsJSON      string     `json:"labelsJSON"`
 	Model           string     `json:"model"`
 	Provider        string     `json:"provider"`
@@ -110,6 +112,7 @@ func toConversationResponse(item *model.Conversation) ConversationResponse {
 		ProjectID:                item.ProjectPublicID,
 		ProjectName:              item.ProjectName,
 		Title:                    item.Title,
+		SystemPrompt:             item.SystemPrompt,
 		LabelsJSON:               labelsJSON,
 		Model:                    item.Model,
 		Provider:                 item.Provider,

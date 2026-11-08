@@ -222,6 +222,8 @@ function ModelOptionPolicyGuideButton({ t }: { t: (key: string) => string }) {
     ],
     "openai_image_generations": [
       "background",
+      "frame_count",
+      "frame_duration_ms",
       "moderation",
       "n",
       "output_compression",
@@ -235,6 +237,8 @@ function ModelOptionPolicyGuideButton({ t }: { t: (key: string) => string }) {
     ],
     "openai_image_edits": [
       "background",
+      "frame_count",
+      "frame_duration_ms",
       "input_fidelity",
       "n",
       "output_compression",
