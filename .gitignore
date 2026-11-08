@@ -192,6 +192,11 @@ frontend.zip
 # 本地 Trae 工作区配置
 .trae/
 
+# 本地 AI 协作工具目录（Zed Agent / WorkBuddy / Codex），仅存在于开发者机器
+.zcode/
+.workbuddy/
+.codex/
+
 # 本地打包产物（apps.zip 为源码快照，不纳入版本管理）
 apps.zip
 
