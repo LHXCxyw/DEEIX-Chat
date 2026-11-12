@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
@@ -174,16 +175,18 @@ function AssetPickerList({
   assets,
   onPick,
   emptyLabel,
+  maxHeight = 256,
 }: {
   assets: ReadonlyArray<CanvasAssetEntry>;
   onPick: (asset: CanvasAssetEntry) => void;
   emptyLabel: string;
+  maxHeight?: number;
 }) {
   if (assets.length === 0) {
     return <p className="px-2 py-3 text-center text-xs text-muted-foreground">{emptyLabel}</p>;
   }
   return (
-    <div className="max-h-64 space-y-1 overflow-y-auto overscroll-contain p-1">
+    <div className="space-y-1 overflow-y-auto overscroll-contain p-1" style={{ maxHeight }}>
       {assets.map((asset) => (
         <button
           key={asset.reference.fileID}
@@ -1196,6 +1199,48 @@ export function CanvasNodeInspector({
   const editorRef = React.useRef<PromptEditorHandle | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const mentionListRef = React.useRef<HTMLDivElement | null>(null);
+  const promptBoxRef = React.useRef<HTMLDivElement | null>(null);
+  // @ 列表改为挂到 body 上，避免被对话框的 overflow 裁切；位置跟随提示词框实时测量
+  const [mentionFrame, setMentionFrame] = React.useState<{ style: React.CSSProperties; maxHeight: number } | null>(null);
+
+  const measureMentionFrame = React.useCallback(() => {
+    const box = promptBoxRef.current;
+    if (!box) return;
+    const rect = box.getBoundingClientRect();
+    const margin = 8;
+    const gap = 8;
+    const width = Math.min(Math.max(rect.width * 0.42, 208), 264, window.innerWidth - margin * 2);
+    const left = Math.min(Math.max(rect.left, margin), Math.max(window.innerWidth - width - margin, margin));
+    const spaceAbove = rect.top - gap - margin;
+    const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
+    const placeBelow = spaceAbove < 220 && spaceBelow > spaceAbove;
+    const maxHeight = Math.max(Math.min(placeBelow ? spaceBelow : spaceAbove, 320), 120);
+    setMentionFrame({
+      style: placeBelow
+        ? { top: rect.bottom + gap, left, width, maxHeight }
+        : { bottom: window.innerHeight - rect.top + gap, left, width, maxHeight },
+      maxHeight,
+    });
+  }, []);
+
+  // 面板打开期间跟随提示词框尺寸、窗口变化与画布滚动重新定位
+  React.useEffect(() => {
+    if (!mentionOpen) {
+      setMentionFrame(null);
+      return;
+    }
+    measureMentionFrame();
+    const box = promptBoxRef.current;
+    const observer = box ? new ResizeObserver(() => measureMentionFrame()) : null;
+    if (box && observer) observer.observe(box);
+    window.addEventListener("resize", measureMentionFrame);
+    window.addEventListener("scroll", measureMentionFrame, true);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measureMentionFrame);
+      window.removeEventListener("scroll", measureMentionFrame, true);
+    };
+  }, [mentionOpen, measureMentionFrame]);
 
   // 素材选择面板：点击面板与编辑器之外自动收起，避免常驻遮挡
   React.useEffect(() => {
@@ -1518,7 +1563,7 @@ export function CanvasNodeInspector({
 
       {/* 提示词：编辑态与展示态一致，素材标记始终渲染为小图 / 音频气泡 */}
       <div className="relative px-3 pt-2.5">
-        <div className="relative rounded-xl border border-border/50 bg-muted/25 px-3 py-2.5 focus-within:ring-1 focus-within:ring-primary/30">
+        <div ref={promptBoxRef} className="relative rounded-xl border border-border/50 bg-muted/25 px-3 py-2.5 focus-within:ring-1 focus-within:ring-primary/30">
           {!prompt.trim() ? (
             <span className="pointer-events-none absolute left-3 top-2.5 text-[13px] leading-6 text-muted-foreground/60">{t("promptPlaceholder")}</span>
           ) : null}
@@ -1531,20 +1576,26 @@ export function CanvasNodeInspector({
           />
         </div>
 
-        {/* @ 素材选择：选中后插入引用标记，同时在节点图中创建/复用素材节点并连线 */}
-        {mentionOpen ? (
-          <div
-            ref={mentionListRef}
-            data-canvas-ui="mention-list"
-            className="absolute bottom-12 left-3 z-10 max-h-64 w-1/3 min-w-[200px] max-w-[240px] overflow-hidden rounded-xl border border-border/60 bg-background/98 shadow-xl backdrop-blur-xl"
-          >
-            <div className="flex items-center justify-between px-2.5 pt-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t("mentionTitle")}</p>
-              <button type="button" className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setMentionOpen(false)}>{t("close")}</button>
-            </div>
-            <AssetPickerList assets={libraryAssets} onPick={attachAsset} emptyLabel={t("libraryEmpty")} />
-          </div>
-        ) : null}
+        {/* @ 素材选择：选中后插入引用标记，同时在节点图中创建/复用素材节点并连线；挂到 body 上避免被对话框裁切 */}
+        {mentionOpen && mentionFrame && typeof document !== "undefined"
+          ? createPortal(
+              <div
+                ref={mentionListRef}
+                data-canvas-ui="mention-list"
+                style={mentionFrame.style}
+                className="fixed z-[80] flex flex-col overflow-hidden rounded-xl border border-border/60 bg-background/98 shadow-xl backdrop-blur-xl"
+                onPointerDown={(event) => event.stopPropagation()}
+                onWheel={(event) => event.stopPropagation()}
+              >
+                <div className="flex shrink-0 items-center justify-between px-2.5 pt-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t("mentionTitle")}</p>
+                  <button type="button" className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setMentionOpen(false)}>{t("close")}</button>
+                </div>
+                <AssetPickerList assets={libraryAssets} onPick={attachAsset} emptyLabel={t("libraryEmpty")} maxHeight={mentionFrame.maxHeight - 30} />
+              </div>,
+              document.body,
+            )
+          : null}
 
         <div className="mt-1.5 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1">
