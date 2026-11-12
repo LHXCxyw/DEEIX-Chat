@@ -38,25 +38,41 @@ Personal upstream channels (BYOK), user model management, and user model routing
 
 ### Customisation Highlights
 
-- **Visual creation canvas**: a zoomable and pannable infinite canvas that organises image and video generation, editing, and result flow as a node graph, with prompt / reference / generation / output node connections, generation tasks handing off to output nodes so runs can overlap, and cross-device persistence.
-- **Canvas node type registry**: node sizes, ports, connection rules, accent colours, and toolbar entries are all derived from a single registry, so a new node type only needs one registry entry.
-- **Canvas HTML preview node**: write HTML/CSS/JS directly inside the canvas with a live preview that runs in a restricted iframe with no access to application data.
-- **Canvas context injection**: attach a summary of the current canvas nodes and connections to the chat composer with one toggle, submitted alongside the prompt.
-- **AI project workspace**: a project conversation is a file workspace where the AI creates, reads, searches, patches, deletes, and archives files through dedicated project tools instead of printing code into the conversation, with archives delivered as one-click download cards.
-- **IDE-style resource manager**: a persistent sidebar with a collapsible file tree, multi-select actions, localised context menus, manual file editing, ZIP import and download, and path-aware drag-and-drop import that drops files into the hovered folder.
-- **In-conversation code editing**: opened files appear as tabs next to chat threads, powered by CodeMirror with syntax highlighting, language-service completion, word wrapping, and localised context menus, alongside per-round change cards that show a cumulative merged diff for repeated edits to the same file.
-- **Sandboxed HTML preview in the workspace**: HTML/SVG files preview live in an isolated iframe, workspace-relative assets are inlined automatically, and preview scripts cannot reach application data.
-- **Message rewind**: rewind a conversation to any earlier point and restore the project workspace file state from that point's snapshot.
-- **Media requery and artifact retry**: requery unsettled media artifacts and retry them, reducing cases where a generation succeeds but its output is lost.
-- **Channel and model protocol presets**: the admin console and personal upstream channels share one list of compatible-protocol and model-protocol presets, which constrains the selectable capability kinds per protocol.
-- **Sandboxed agent execution**: one-shot, network-disabled Docker tasks for workspace commands and a Playwright Chromium project browser, with typed actions, screenshots delivered as attachments, strict resource limits and a fail-closed readiness check.
-- **Three-level agent permissions**: manual approval, automatic approval and full access. The client sends only the mode; the server normalises `manual`, `auto` and `full` to the same file-edit and code-execution capability set, so the modes differ only in approval behaviour.
-- **Generated vs uploaded files**: the file library can filter AI-generated assets and bulk-delete them without touching user-uploaded reference files.
-- **Multi-provider import links**: one import link can carry several personal upstream services, with per-entry validation and a batch confirmation screen.
-- **Ultra reasoning level and owned-parameter hiding**: the OpenAI reasoning format can declare `ultra`, and native parameters controlled by reasoning-effort translation are no longer offered as separate controls.
-- **Edit with the send shortcut**: message editing saves with the configured send shortcut, with IME composition guarded.
-- **Per-conversation system prompt**: each conversation can view, edit, and save its own system prompt from the chat header menu, inherited from the global default at creation; saving applies to the next request and survives reloads.
-- **Workspace file delivery for non-project chats**: files the agent creates in a plain conversation stay in that conversation's workspace and are downloadable through session-bound signed links, with per-file download cards, one-click ZIP for directories, and copyable links in the reply text.
+This fork focuses on two things: **letting AI create (the creation canvas)** and **letting AI do real work (the agent workspace)**. Everything else is engineering support around those two tracks.
+
+#### Creation canvas: from an idea to a finished cut
+
+One infinite canvas turns "prompt → reference asset → image / video generation → editing → export" into a connected node graph, all on a single page:
+
+- **Nodes as work units**: text, image / video / audio references, image generation, video generation, timeline, and output. Connections express dependencies, anchors live only on the left (input) and right (output) of a node, and a timeline output can feed a video generation node for another pass.
+- **Generation and editing**: inpainting, outpainting (the selection may extend beyond the image) and cropping all happen inline, with the edit description written straight into the generate node. Video supports first/last frames, duration, resolution and streaming preview frames; the parameter panel offers aspect-ratio glyphs, custom resolution and a 3-7 line prompt box.
+- **Timeline editing**: video and audio tracks plus custom tracks; clips move freely between tracks of the same kind, never overlap, and push later clips right when inserted. Exact splitting at the playhead with undo/redo, hover and playback previews, and a fullscreen editor that plays the whole sequence.
+- **Frames and audio**: capture first / last / custom frames and detach audio; exported cuts are concatenated by ffmpeg on the backend with the audio track mixed in.
+- **Canvas ergonomics**: drag files onto the canvas to import, floating asset toolbar, double-click rename, snap alignment guides, one button that toggles marquee / pan (hold Ctrl to invert), automatic group layout (assets left, generations right), fit-to-content reset, cross-project node copy/paste, and a full undo stack.
+
+<p align="center">
+  <img src="./assets/screenshots/SnowShot_2026-11-12_18-06-58.png" alt="Creation canvas overview" width="100%" />
+</p>
+<p align="center">
+  <img src="./assets/screenshots/SnowShot_2026-11-12_18-08-13.png" alt="Floating asset toolbar and prompt dialog" width="49.45%" />
+  <img src="./assets/screenshots/SnowShot_2026-11-12_18-09-10.png" alt="Timeline editing and preview" width="49.45%" />
+</p>
+
+#### AI agent: turning conversations into deliverables
+
+- **A project is a workspace**: project conversations bind a real file workspace, and the agent creates, reads, searches, patches, deletes and archives files through dedicated tools instead of printing code into the chat; outputs arrive as file cards.
+- **IDE-style explorer and code editing**: collapsible file tree, multi-select, context menus, ZIP import/export, path-aware drag and drop; opened files edit in CodeMirror tabs with per-round merged diffs.
+- **Isolated execution**: one-shot, network-disabled Docker tasks run workspace commands and a Playwright Chromium project browser with typed actions, DOM summaries and screenshot attachments, plus strict resource limits and a fail-closed readiness check.
+- **Three permission levels**: manual approval, automatic approval and full access; the client only sends the mode, and the server normalises all three to file editing plus code execution.
+- **Rewind and delivery**: rewinding a conversation also restores the workspace snapshot; artifacts from non-project chats are downloadable per file or as a ZIP through session-bound signed links.
+- **Reliable long tasks**: queued generation slots with reclamation, plus media requery and artifact retry.
+
+#### Other enhancements
+
+- Registry-driven canvas node types: size, ports, connection rules, accent colours and toolbar entries come from one registry entry.
+- In-canvas HTML preview node and canvas context injection (node and edge summaries submitted with the prompt).
+- Sandboxed HTML/SVG preview for agent workspaces, with no access to application data.
+- Protocol presets for channels and user models, per-conversation system prompts, generated-vs-uploaded file separation, an Ultra reasoning level, and send-shortcut message editing.
 
 ![DEEIX Chat workspace](../docs/assets/screenshots/DEEIX-Chat.jpg)
 
