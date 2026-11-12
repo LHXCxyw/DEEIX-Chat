@@ -1,6 +1,7 @@
 "use client";
 
-import { Scan, Sparkles, Trash2, X } from "lucide-react";
+import { Scan, Settings2, Sparkles, Trash2, X } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 
@@ -1439,6 +1440,15 @@ export function CanvasWorkspace() {
               <p className="max-w-72 text-xs leading-relaxed text-muted-foreground/70">
                 {modelsErrorMsg || (imageModels.length === 0 ? t("noImageModelsHint") : t("emptyHintGraph"))}
               </p>
+              {!modelsErrorMsg && imageModels.length === 0 ? (
+                <Link
+                  href="/settings/models"
+                  className="pointer-events-auto mt-1 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/90 px-3 text-[11px] font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent"
+                >
+                  <Settings2 className="size-3.5 text-muted-foreground" strokeWidth={1.8} />
+                  {t("noImageModelsAction")}
+                </Link>
+              ) : null}
             </div>
           </div>
         ) : null}

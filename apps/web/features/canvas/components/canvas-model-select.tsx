@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, KeyRound, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, KeyRound, Settings2, Sparkles } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
@@ -159,7 +160,45 @@ function CanvasModelCapabilityBadge({ model }: { model: CanvasModelOption }) {
   return null;
 }
 
+// 空目录引导：画布只接受声明了图像 / 视频协议的模型，新用户往往不知道去哪里改协议，
+// 因此在模型空态给出可执行的配置路径，而不是只显示"暂无模型"。
+function CanvasModelSetupGuide({ onNavigate }: { onNavigate?: () => void }) {
+  const t = useTranslations("canvas");
+  return (
+    <div className="min-w-0 px-1.5 pb-1.5">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md bg-amber-500/12 text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="size-3.5" strokeWidth={1.8} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold text-foreground">{t("modelSetupTitle")}</p>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">{t("modelSetupDescription")}</p>
+        </div>
+      </div>
+      <ol className="mt-2 list-decimal space-y-1 pl-6 text-[10px] leading-relaxed text-muted-foreground">
+        <li>{t("modelSetupStep1")}</li>
+        <li>{t("modelSetupStep2")}</li>
+        <li>{t("modelSetupStep3")}</li>
+      </ol>
+      <p className="mt-2 rounded-md bg-muted/60 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+        {t("modelSetupProtocols")}
+      </p>
+      <Link
+        href="/settings/models"
+        data-canvas-ui="model-setup-action"
+        className="mt-2 flex h-8 items-center justify-center gap-1.5 rounded-lg bg-primary text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        onClick={onNavigate}
+      >
+        <Settings2 className="size-3.5" strokeWidth={1.8} />
+        {t("modelSetupAction")}
+      </Link>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/80">{t("modelSetupAdminHint")}</p>
+    </div>
+  );
+}
+
 function CanvasModelMenuItem({
+
   model,
   selected,
   onSelect,
@@ -506,8 +545,8 @@ export function CanvasModelSelect({
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger
         ref={triggerRef}
-        disabled={disabled || models.length === 0}
-        aria-label={t("modelSelectPlaceholder")}
+        disabled={disabled}
+        aria-label={models.length === 0 ? t("modelNeedsSetup") : t("modelSelectPlaceholder")}
         className={cn(
           "flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-accent hover:text-accent-foreground",
           "disabled:pointer-events-none disabled:opacity-50",
@@ -515,7 +554,12 @@ export function CanvasModelSelect({
           className,
         )}
       >
-        {selectedModel ? (
+        {models.length === 0 ? (
+          <>
+            <AlertTriangle className="size-3.5 text-amber-500" strokeWidth={1.8} />
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{t("modelNeedsSetup")}</span>
+          </>
+        ) : selectedModel ? (
           <>
             <ModelIcon iconUrl={triggerIconURL} label={triggerLabel} size={14} />
             <span className="min-w-0 flex-1 truncate" title={triggerLabel}>
@@ -545,12 +589,16 @@ export function CanvasModelSelect({
         }}
         className={cn(
           "relative overflow-visible rounded-xl",
-          isMobile
+          models.length === 0
             ? "w-[min(20rem,calc(100vw-3rem))] p-1.5"
-            : "w-[min(14rem,calc(100vw-3rem))] border-0 bg-transparent p-0 shadow-none",
+            : isMobile
+              ? "w-[min(20rem,calc(100vw-3rem))] p-1.5"
+              : "w-[min(14rem,calc(100vw-3rem))] border-0 bg-transparent p-0 shadow-none",
         )}
       >
-        {isMobile ? (
+        {models.length === 0 ? (
+          <CanvasModelSetupGuide onNavigate={() => handleOpenChange(false)} />
+        ) : isMobile ? (
           <>
             <div className="flex h-7 items-center justify-between gap-2 px-2">
               {mobileGroup ? (
