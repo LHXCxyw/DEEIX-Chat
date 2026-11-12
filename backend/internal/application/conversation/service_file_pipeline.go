@@ -33,6 +33,7 @@ func (s *Service) StartBackgroundWorkers(ctx context.Context) {
 	}
 	s.startInMemoryCacheCleanupWorker(ctx)
 	s.startContextArtifactCleanupWorker(ctx)
+	s.StartAgentSlotReclaimWorker(ctx)
 }
 
 func (s *Service) startContextArtifactCleanupWorker(ctx context.Context) {

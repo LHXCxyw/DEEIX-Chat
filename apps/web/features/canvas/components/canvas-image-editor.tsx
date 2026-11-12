@@ -48,6 +48,8 @@ export function CanvasImageEditor({
   sourceURL,
   imageModels,
   defaultModel,
+  initialMode = "inpaint",
+  inline = false,
   onClose,
   onSubmit,
 }: {
@@ -56,6 +58,10 @@ export function CanvasImageEditor({
   sourceURL?: string;
   imageModels: CanvasModelOption[];
   defaultModel: CanvasModelOption | null;
+  // 从资产操作行进入时直接切换到重绘 / 裁剪 / 扩图
+  initialMode?: EditorMode;
+  // 画布内联模式：不铺满遮罩，编辑区与操作条直接浮在画布上
+  inline?: boolean;
   onClose: () => void;
   onSubmit: (input: { prompt: string; mode: EditorMode; image: File; mask?: File; model: CanvasModelOption; outputWidth: number; outputHeight: number }) => Promise<boolean>;
 }) {
@@ -65,7 +71,7 @@ export function CanvasImageEditor({
   const imageRef = React.useRef<HTMLImageElement | null>(null);
   const drawingRef = React.useRef(false);
   const cropDragRef = React.useRef<{ handle: CropHandle; x: number; y: number; rect: CropRect } | null>(null);
-  const [mode, setMode] = React.useState<EditorMode>("inpaint");
+  const [mode, setMode] = React.useState<EditorMode>(initialMode);
   const [prompt, setPrompt] = React.useState("");
   const [cropRect, setCropRect] = React.useState<CropRect>({ x: 10, y: 10, width: 80, height: 80 });
   const [outpaint, setOutpaint] = React.useState<OutpaintSides>({ top: 20, right: 20, bottom: 20, left: 20 });
@@ -270,9 +276,24 @@ export function CanvasImageEditor({
   ];
 
   return (
-    <div data-canvas-ui="image-editor" role="dialog" aria-modal="true" aria-label={t("nodeEdit")} className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:p-4">
-      <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-        <header className="flex items-center gap-2 border-b border-border p-3">
+    <div
+      data-canvas-ui="image-editor"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("nodeEdit")}
+      className={cn(
+        "absolute inset-0 z-50 flex flex-col items-center justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4",
+        inline ? "bg-background/40" : "bg-background/90 backdrop-blur-xl",
+      )}
+    >
+      <div className={cn(
+        "flex max-h-full w-full flex-col overflow-hidden",
+        inline ? "max-w-4xl gap-2 bg-transparent" : "max-w-5xl rounded-2xl border border-border bg-card shadow-2xl",
+      )}>
+        <header className={cn(
+          "flex items-center gap-2 p-3",
+          inline && "shrink-0 self-center rounded-xl border border-border/60 bg-background/90 px-2 py-1.5 shadow-lg backdrop-blur-xl",
+        )}>
           {modes.map((item) => (
             <button key={item.id} type="button" onClick={() => setMode(item.id)} className={cn("inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs", mode === item.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}>
               <item.icon className="size-3.5" />{item.label}
@@ -280,7 +301,10 @@ export function CanvasImageEditor({
           ))}
           <button type="button" aria-label={t("nodePreviewClose")} className="ml-auto rounded-lg p-2 text-muted-foreground hover:bg-accent" onClick={onClose}><X className="size-4" /></button>
         </header>
-        <div className="min-h-0 flex flex-1 items-center justify-center overflow-auto overscroll-contain bg-muted/20 p-3 sm:p-4">
+        <div className={cn(
+          "min-h-0 flex flex-1 items-center justify-center overflow-auto overscroll-contain p-3 sm:p-4",
+          inline ? "bg-transparent" : "bg-muted/20",
+        )}>
           {mode === "outpaint" ? (
             <div
               className="relative max-h-[58vh] max-w-full overflow-hidden rounded-xl border border-dashed border-primary/70 bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,color-mix(in_oklab,var(--primary)_10%,transparent)_10px,color-mix(in_oklab,var(--primary)_10%,transparent)_20px)]"
@@ -331,7 +355,10 @@ export function CanvasImageEditor({
             </div>
           )}
         </div>
-        <footer className="flex max-h-[42vh] flex-col gap-3 overflow-y-auto overscroll-contain border-t border-border p-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <footer className={cn(
+          "flex max-h-[42vh] flex-col gap-3 overflow-y-auto overscroll-contain p-3 sm:flex-row sm:flex-wrap sm:items-center",
+          inline ? "shrink-0 rounded-2xl border border-border/60 bg-background/90 shadow-lg backdrop-blur-xl" : "border-t border-border",
+        )}>
           {mode === "inpaint" ? (
             <><label className="flex min-h-10 items-center gap-2 text-xs text-muted-foreground"><span>{t("editorBrushSize")}</span><input aria-label={t("editorBrushSize")} type="range" min="1" max="15" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} className="h-1.5 min-w-28 cursor-pointer appearance-none rounded-full bg-muted accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" /></label><button type="button" className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs text-muted-foreground hover:bg-accent" onClick={resetMask}><Eraser className="size-3.5" />{t("editorClearMask")}</button></>
           ) : mode === "crop" ? (

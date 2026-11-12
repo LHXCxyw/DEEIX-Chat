@@ -305,8 +305,7 @@
     "videoPollTimeout": "视频任务等待超时：上游仍在生成，结果可稍后点「重新查询」回收。",
     "invalidTask": "图片任务参数无效。",
     "videoInputInvalid": "视频生成输入无效。",
-    "videoPromptRequired": "请输入视频提示词。",
-    "videoTooManyInputs": "视频生成输入图片过多。"
+    "videoPromptRequired": "请输入视频提示词。"
   },
   "message": {
     "feedbackTargetInvalid": "消息反馈目标无效。",

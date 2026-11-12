@@ -26,14 +26,16 @@ export function buildMediaImagePreviewMarkdown(
   event: Extract<StreamMessageEvent, { type: "media_image_delta" }>,
   fallbackAlt: string,
 ): string {
-  const b64 = event.b64_json.trim();
+  const alt = escapeMarkdownImageAlt(event.revised_prompt?.trim() || fallbackAlt);
+  const b64 = (event.b64_json ?? "").trim();
   if (!b64) {
-    return "";
+    // 上游只返回图片地址时直接用它预览，服务端同时继续落盘。
+    const url = (event.url ?? "").trim();
+    return url ? `![${alt}](${url})` : "";
   }
   const source = b64.startsWith("data:")
     ? b64
     : `data:${event.mime_type?.trim() || "image/png"};base64,${b64}`;
-  const alt = escapeMarkdownImageAlt(event.revised_prompt?.trim() || fallbackAlt);
   return `![${alt}](${source})`;
 }
 

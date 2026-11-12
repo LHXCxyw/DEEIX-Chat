@@ -68,6 +68,8 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup, gate middleware.F
 	authRequired.POST("/conversations/:id/media/images/edits/stream", m.Handler.StreamImageEdit)
 	authRequired.POST("/conversations/:id/media/videos/generations/stream", m.Handler.StreamVideoGeneration)
 	authRequired.POST("/conversations/:id/media/videos/extensions/stream", m.Handler.StreamVideoExtension)
+	// 时间线节点：按片段顺序裁剪并拼接多个视频，输出平台视频文件
+	authRequired.POST("/media/timeline/concat", m.Handler.ConcatTimeline)
 	authRequired.GET("/context-artifacts/:id", m.Handler.GetContextArtifact)
 	authRequired.GET("/conversation-runs/stream", m.Handler.StreamActiveMessageGenerations)
 	authRequired.POST("/conversation-runs/statuses", m.Handler.GetConversationRunStatuses)

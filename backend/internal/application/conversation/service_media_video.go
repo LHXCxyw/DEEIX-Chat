@@ -26,13 +26,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// 视频生成参考素材上限：图片 7 张、参考视频 3 个、参考音频 4 个（对齐上游引用规则）。
-const (
-	maxMediaVideoInputImages = 7
-	maxMediaVideoInputVideos = 3
-	maxMediaVideoInputAudios = 4
-)
-
 // MediaVideoTaskType 区分普通视频生成与基于源视频的扩展。
 type MediaVideoTaskType string
 
@@ -641,27 +634,18 @@ func (s *Service) resolveMediaVideoInputs(ctx context.Context, input MediaVideoI
 
 // readMediaVideoReferenceParts 按类别组装视频生成的参考素材：图片进入 images、
 // 视频进入 videos、音频进入 audios，顺序保持上传顺序。
+// 参考素材数量不在平台侧设上限，交由上游按自身规则校验。
 // 素材一律以服务端签发的限时公开 URL 交付上游（见 docs/adr/0003），不再读取文件字节。
 func (s *Service) readMediaVideoReferenceParts(userID uint, attachments []AttachmentInput) ([]llm.ContentPart, error) {
 	parts := make([]llm.ContentPart, 0, len(attachments))
-	imageCount, videoCount, audioCount := 0, 0, 0
 	for _, attachment := range attachments {
 		var kind string
 		switch normalizeAttachmentKind(attachment.Kind, attachment.MimeType) {
 		case "image":
-			if imageCount++; imageCount > maxMediaVideoInputImages {
-				return nil, ErrMediaVideoTooManyInputs
-			}
 			kind = llm.ContentPartImage
 		case "video":
-			if videoCount++; videoCount > maxMediaVideoInputVideos {
-				return nil, ErrMediaVideoTooManyInputs
-			}
 			kind = llm.ContentPartVideo
 		case "audio":
-			if audioCount++; audioCount > maxMediaVideoInputAudios {
-				return nil, ErrMediaVideoTooManyInputs
-			}
 			kind = llm.ContentPartAudio
 		default:
 			return nil, ErrMediaVideoInputInvalid

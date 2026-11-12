@@ -88,14 +88,15 @@ test("图像编辑仍要求参考图并保留协议实际输入限制", () => {
     "image_task_rejects_non_image_attachments");
 });
 
-test("视频参考限制来自协议而非输入模态声明", () => {
+test("视频参考素材不受平台侧数量限制，仅按协议判断音频能力", () => {
   const attachments = [attachment("audio/wav"), attachment("video/mp4"), attachment("image/png")];
   const selected = model({ kinds: ["video_gen"], protocols: ["openai_video_generations"], inputModalities: [] });
   assert.equal(resolveChatSubmitDecision(selected, attachments).blockedReason, null);
   assert.equal(resolveChatSubmitDecision(selected, attachments).task, "video_generation");
-  // xAI 视频协议只接受单张参考图：音频属于"协议不支持"，与数量超限区分开。
+  // xAI 视频协议不接受参考音频：音频属于"协议不支持"，数量仍不拦截。
   const xai = { ...selected, protocols: ["xai_video"] };
   assert.equal(resolveChatSubmitDecision(xai, attachments).blockedReason, "video_generation_unsupported_audio");
-  assert.equal(resolveChatSubmitDecision(xai, [attachment("image/png"), attachment("image/png")]).blockedReason,
-    "video_generation_too_many_references");
+  const manyImages = Array.from({ length: 12 }, () => attachment("image/png"));
+  assert.equal(resolveChatSubmitDecision(xai, manyImages).blockedReason, null);
+  assert.equal(resolveChatSubmitDecision(selected, manyImages).blockedReason, null);
 });

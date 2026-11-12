@@ -79,6 +79,17 @@ export function useCanvasModels() {
     () => [...imageModels, ...videoModels],
     [imageModels, videoModels],
   );
+  // 文本模型：只承担提示词优化等文本改写任务，不进媒体模型目录
+  const textModels = React.useMemo(
+    () =>
+      canvasModelOptions.filter(
+        (item) =>
+          item.kinds.includes("chat")
+          && !item.kinds.includes("image_gen")
+          && !item.kinds.includes("video_gen"),
+      ),
+    [canvasModelOptions],
+  );
 
   // 选择态以身份键保存：同一模型名可能存在于多个接口（用户模型按上游重复）
   const [selectedModelKey, setSelectedModelKey] = React.useState<string | null>(null);
@@ -159,6 +170,7 @@ export function useCanvasModels() {
     imageModels,
     videoModels,
     mediaModels,
+    textModels,
     selectedModel,
     selectedVideoModel,
     selectModel,

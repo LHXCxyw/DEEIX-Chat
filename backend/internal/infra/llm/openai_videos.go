@@ -21,13 +21,6 @@ const (
 	openAIVideoMaxPollDuration = 10 * time.Minute
 )
 
-// 视频生成参考素材上限：与上游 Seedance 2.0 / 2.5 的引用规则对齐。
-const (
-	maxOpenAIVideoInputImages = 7
-	maxOpenAIVideoInputVideos = 3
-	maxOpenAIVideoInputAudios = 4
-)
-
 // openAIVideoAdapter 实现 Sora 兼容的异步视频生成协议（POST /v1/videos）。
 type openAIVideoAdapter struct {
 	client *Client
@@ -156,15 +149,6 @@ func buildOpenAIVideoSubmissionBody(model string, input portllm.GenerateInput) (
 	audios := collectMediaInputParts(input.Messages, portllm.ContentPartAudio)
 	if strings.TrimSpace(prompt) == "" {
 		return nil, nil, fmt.Errorf("video generation prompt required")
-	}
-	if len(images) > maxOpenAIVideoInputImages {
-		return nil, nil, fmt.Errorf("too many video generation input images")
-	}
-	if len(videos) > maxOpenAIVideoInputVideos {
-		return nil, nil, fmt.Errorf("too many video generation input videos")
-	}
-	if len(audios) > maxOpenAIVideoInputAudios {
-		return nil, nil, fmt.Errorf("too many video generation input audios")
 	}
 	imageURLs, err := openAIVideoMaterialURLs(images)
 	if err != nil {

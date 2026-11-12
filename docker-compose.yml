@@ -1,5 +1,8 @@
-# 唯一入口：docker compose -f docker-compose.yml build && docker compose -f docker-compose.yml up -d
-# 运行中常驻容器只有 app、postgres、redis；config-init 与两个 agent 服务均为一次性容器。
+# 唯一入口：docker compose -f docker-compose.yml --profile build-only build && docker compose -f docker-compose.yml up -d
+# 运行中常驻容器只有 app、postgres、redis。
+# agent-command / agent-browser 只用于构建镜像（profile: build-only），不会创建运行容器。
+# config-init 只做一次性配置初始化（profile: init），默认 up 不会创建它。
+# 首次安装：先 build，再 `docker compose -f docker-compose.yml run --rm config-init`，最后 up -d。
 name: deeix-chat
 services:
   config-init:
@@ -10,6 +13,7 @@ services:
     command: ["config"]
     network_mode: none
     restart: "no"
+    profiles: ["init"]
     volumes:
       - .:/repository
 
@@ -24,19 +28,10 @@ services:
     user: "0:0"
     restart: unless-stopped
     depends_on:
-      config-init:
-        condition: service_completed_successfully
-        restart: true
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      agent-command:
-        condition: service_completed_successfully
-        restart: true
-      agent-browser:
-        condition: service_completed_successfully
-        restart: true
     environment:
       # 同机默认空端点（Unix socket）；独立节点由管理员注入远程端点与 TLS 配置。
       AGENT_DOCKER_HOST: ${AGENT_DOCKER_HOST:-}
@@ -64,10 +59,6 @@ services:
     pull_policy: missing
     container_name: deeix-chat-postgres
     restart: unless-stopped
-    depends_on:
-      config-init:
-        condition: service_completed_successfully
-        restart: true
     environment:
       POSTGRES_USER: deeix_chat
       POSTGRES_DB: deeix_chat
@@ -91,10 +82,6 @@ services:
     pull_policy: missing
     container_name: deeix-chat-redis
     restart: unless-stopped
-    depends_on:
-      config-init:
-        condition: service_completed_successfully
-        restart: true
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - 'password=$$(cat /run/deeix-config/redis-password); exec /usr/local/bin/docker-entrypoint.sh redis-server --requirepass "$$password"'
@@ -109,7 +96,7 @@ services:
       start_period: 5s
     networks: [deeix-chat]
 
-  # build-only：仅负责构建本地镜像，启动即退出，不进入常驻运行集合。
+  # build-only：仅负责构建本地镜像，不创建运行容器
   agent-command:
     build:
       context: deploy/services/agent-command
@@ -119,6 +106,7 @@ services:
     command: []
     network_mode: none
     restart: "no"
+    profiles: ["build-only"]
 
   agent-browser:
     build:
@@ -130,6 +118,7 @@ services:
     command: []
     network_mode: none
     restart: "no"
+    profiles: ["build-only"]
 
 networks:
   deeix-chat:

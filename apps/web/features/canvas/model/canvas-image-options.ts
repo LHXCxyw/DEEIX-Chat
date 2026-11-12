@@ -80,8 +80,7 @@ export type CanvasRouteBlockReason =
   | "edit_reference_required"
   | "image_unsupported"
   | "edit_unsupported"
-  | "video_unsupported"
-  | "video_too_many_references";
+  | "video_unsupported";
 
 export type CanvasRouteDecision =
   | { route: CanvasRoute; blockedReason: null }
@@ -213,7 +212,7 @@ export function modelCanvasMediaType(model: CanvasModelOption | null): CanvasMed
   return modelSupportsVideoRoute(model) ? "video" : "image";
 }
 
-// 按节点媒体类型解析生成路由；视频仅支持 generate 操作（参考图上限 7 张）
+// 按节点媒体类型解析生成路由；视频仅支持 generate 操作（参考素材数量交由上游校验）
 export function resolveCanvasMediaRoute(
   model: CanvasModelOption | null,
   mediaType: CanvasMediaType,
@@ -222,9 +221,6 @@ export function resolveCanvasMediaRoute(
   if (mediaType === "video") {
     if (!modelSupportsVideoRoute(model)) {
       return { route: null, blockedReason: "video_unsupported" };
-    }
-    if (referenceCount > 7) {
-      return { route: null, blockedReason: "video_too_many_references" };
     }
     return { route: "video_generation", blockedReason: null };
   }

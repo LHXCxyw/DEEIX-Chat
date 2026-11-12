@@ -78,6 +78,6 @@ case "${1:-}" in
     exec /app/deeix-chat
     ;;
   *)
-    fail '此文件为内部容器入口，请执行 docker compose -f docker-compose.yml build 及 up -d'
+    fail '此文件为内部容器入口，请执行 docker compose -f docker-compose.yml --profile build-only build、run --rm config-init 及 up -d'
     ;;
 esac

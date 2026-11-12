@@ -1,11 +1,94 @@
 "use client";
 
-import { X } from "lucide-react";
+import { AudioLines, Image as ImageIcon, Video, X } from "lucide-react";
 import * as React from "react";
-import { type GraphPortDefinition, graphNodePorts, graphPortOffsetY } from "@/features/canvas/model/canvas-graph";
 import { CANVAS_NODE_REGISTRY } from "@/features/canvas/model/canvas-node-registry";
 import type { CanvasMediaType, GraphNodeKind } from "@/features/canvas/model/canvas-types";
 import { cn } from "@/lib/utils";
+
+// 资产名称条：常驻显示类型图标 + 名称，双击可改名；名称写回节点 reference.fileName
+export function AssetNameBar({
+  kind,
+  name,
+  onRename,
+  className,
+  editable = true,
+}: {
+  kind: "image" | "video" | "audio";
+  name: string;
+  onRename: (next: string) => void;
+  className?: string;
+  // 生成节点的名称来自模型 / 产物，不允许就地改名
+  editable?: boolean;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(name);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(name);
+    }
+  }, [editing, name]);
+
+  React.useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    const next = draft.trim();
+    setEditing(false);
+    if (next && next !== name) {
+      onRename(next);
+    }
+  };
+
+  const Icon = kind === "video" ? Video : kind === "audio" ? AudioLines : ImageIcon;
+  const tone = kind === "video" ? "text-violet-500" : kind === "audio" ? "text-fuchsia-500" : "text-sky-500";
+
+  return (
+    <div
+      data-canvas-selectable
+      title={name}
+      className={cn("flex h-7 w-full min-w-0 items-center gap-1.5 px-1 text-xs text-muted-foreground", className)}
+      onPointerDown={(event) => event.stopPropagation()}
+      onDoubleClick={() => {
+        if (!editable) {
+          return;
+        }
+        setDraft(name);
+        setEditing(true);
+      }}
+    >
+      <Icon className={cn("size-3.5 shrink-0", tone)} strokeWidth={1.8} />
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={draft}
+          aria-label={name}
+          className="min-w-0 flex-1 rounded bg-background px-1 text-xs text-foreground outline-none ring-1 ring-primary/40"
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            } else if (event.key === "Escape") {
+              setEditing(false);
+            }
+          }}
+        />
+      ) : (
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+      )}
+    </div>
+  );
+}
 
 // 各类节点的主题色：用于标题栏点缀、端口与选中态的层次区分，从节点注册表派生
 export const GRAPH_NODE_ACCENTS: Record<GraphNodeKind, { dot: string; soft: string; ring: string }> =
@@ -16,53 +99,10 @@ export const GRAPH_NODE_ACCENTS: Record<GraphNodeKind, { dot: string; soft: stri
 // 视频节点的紫色主题变体：与图像节点在同一画布上可一眼区分
 export const VIDEO_NODE_ACCENT = { dot: "bg-violet-500", soft: "text-violet-500", ring: "ring-violet-500/40" };
 
-// 节点端口：出入方向决定左右位置，纵向偏移由注册表或生成节点的清单行派生
-function GraphPort({
-  nodeID,
-  port,
-  offsetY,
-  accent,
-  highlighted,
-}: {
-  nodeID: string;
-  port: GraphPortDefinition;
-  offsetY: number;
-  accent: string;
-  highlighted: boolean;
-}) {
-  const isOut = port.direction === "out";
-  return (
-    <span
-      data-graph-port={port.direction}
-      data-graph-port-id={port.id}
-      data-graph-node-id={nodeID}
-      aria-hidden="true"
-      className={cn(
-        "group/port absolute z-20 flex size-4 cursor-crosshair items-center justify-center",
-        isOut ? "-right-2 -translate-x-0" : "-left-2",
-      )}
-      style={{ top: offsetY - 8 }}
-    >
-      {/* 命中区扩大便于拖拽，视觉圆点居中 */}
-      <span
-        className={cn(
-          "block size-2.5 rounded-full border-2 transition-all duration-150 group-hover/port:scale-125",
-          isOut
-            ? cn("border-transparent", accent, "shadow-[0_0_0_3px_color-mix(in_oklab,var(--background)_85%,transparent)]")
-            : "border-muted-foreground/50 bg-background",
-          highlighted && "scale-125 ring-2 ring-primary/60",
-        )}
-      />
-    </span>
-  );
-}
-
 // 图节点外壳：标题栏（图标 + 标题 + 删除）、内容区与端口；尺寸固定以保证端口几何正确
 export function GraphNodeShell({
   nodeID,
   kind,
-  mediaType,
-  portRowCounts,
   title,
   icon,
   width,
@@ -72,14 +112,13 @@ export function GraphNodeShell({
   onRemove,
   removeLabel,
   variant,
+  bare = false,
   children,
 }: {
   nodeID: string;
   kind: GraphNodeKind;
-  // 媒体类型决定端口布局（视频生成节点含参考视频 / 参考音频入端口）
+  // 媒体类型曾用于派生端口布局；单连接点交互后端口不再由节点渲染，保留字段兼容既有调用
   mediaType?: CanvasMediaType;
-  // 生成节点每个入端口的清单行数：端口纵向锚点据此与清单行对齐
-  portRowCounts?: number[];
   title: string;
   icon: React.ReactNode;
   width: number;
@@ -90,58 +129,52 @@ export function GraphNodeShell({
   removeLabel: string;
   // "video" 时使用视频主题色变体
   variant?: "video";
+  // 无壳模式：不显示卡片背景、阴影、标题栏与描边，只保留内容（资产 / 生成节点）
+  bare?: boolean;
   children: React.ReactNode;
 }) {
   const accent = variant === "video" ? VIDEO_NODE_ACCENT : GRAPH_NODE_ACCENTS[kind];
-  const ports = graphNodePorts(kind, mediaType);
   return (
     <div
+      data-canvas-node-id={nodeID}
       className={cn(
-        "group/node relative flex flex-col overflow-visible rounded-2xl border bg-card text-card-foreground select-none",
-        "border-border/70 shadow-[0_24px_60px_-28px_rgba(0,0,0,0.55)] transition-[border-color,box-shadow] duration-200",
-        "hover:border-primary/35",
-        selected && cn("border-primary/60 ring-2", accent.ring),
-        compatible && "border-primary/70",
+        // 节点卡片不显示描边：层次由背景、阴影与选中光环表达
+        "group/node relative flex flex-col overflow-visible select-none",
+        bare
+          ? "rounded-xl"
+          : "rounded-2xl bg-card text-card-foreground shadow-[0_18px_50px_-32px_rgba(0,0,0,0.6)] transition-[box-shadow,filter] duration-200 hover:shadow-[0_22px_60px_-30px_rgba(0,0,0,0.55)]",
+        selected && cn("ring-2", accent.ring),
+        compatible && "ring-2 ring-primary/60",
       )}
       style={{ width, height }}
     >
-      {/* 标题栏：左侧主题色点 + 图标 + 大写标题 + 删除按钮 */}
-      <div className="flex h-7 shrink-0 items-center gap-2 rounded-t-2xl border-b border-border/60 bg-muted/30 px-2.5">
-        <span className={cn("size-1.5 shrink-0 rounded-full", accent.dot)} aria-hidden="true" />
-        {icon}
-        <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/80">
-          {title}
-        </span>
-        <button
-          type="button"
-          aria-label={removeLabel}
-          title={removeLabel}
-          data-canvas-selectable
-          className="pointer-events-auto flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove();
-          }}
-        >
-          <X className="size-3.5" strokeWidth={1.8} />
-        </button>
-      </div>
+      {/* 标题栏：左侧主题色点 + 图标 + 标题 + 悬停显示的删除按钮（无描边） */}
+      {bare ? null : (
+        <div className="flex h-8 shrink-0 items-center gap-2 px-2.5">
+          <span className={cn("size-1.5 shrink-0 rounded-full", accent.dot)} aria-hidden="true" />
+          {icon}
+          <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/75">
+            {title}
+          </span>
+          <button
+            type="button"
+            aria-label={removeLabel}
+            title={removeLabel}
+            data-canvas-selectable
+            className="pointer-events-auto flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover/node:opacity-100"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemove();
+            }}
+          >
+            <X className="size-3.5" strokeWidth={1.8} />
+          </button>
+        </div>
+      )}
 
       {/* 内容区 */}
       <div className="relative min-h-0 flex-1">{children}</div>
-
-      {/* 端口：固定几何位置，由视口统一处理连线交互 */}
-      {ports.map((port) => (
-        <GraphPort
-          key={port.id}
-          nodeID={nodeID}
-          port={port}
-          offsetY={graphPortOffsetY(kind, port.id, mediaType, portRowCounts)}
-          accent={accent.dot}
-          highlighted={compatible === true}
-        />
-      ))}
     </div>
   );
 }

@@ -201,7 +201,7 @@ func (s *Service) executeProjectScreenshot(ctx context.Context, input ExecuteToo
 	if err != nil {
 		return "", err
 	}
-	identity, _ := json.Marshal([]any{input.UserID, input.RunID, input.ToolCallID})
+	identity, _ := json.Marshal([]any{input.UserID, input.RunID, input.ToolCallID, parameterHash})
 	spec := operation.Spec{OwnerUserID: input.UserID, OperationID: "screenshot-" + commandHash(identity), RunID: input.RunID, WorkspaceID: workspaceID, Kind: operation.Command, ParametersHash: parameterHash, ExpectedWorkspaceVersion: hash, PermissionScope: "execute_code:offline_screenshot:" + commandHash([]byte(r.image))}
 	item, err := r.repo.Create(ctx, spec)
 	if err != nil {
@@ -215,11 +215,12 @@ func (s *Service) executeProjectScreenshot(ctx context.Context, input ExecuteToo
 	if err := r.repo.Approve(ctx, input.UserID, spec.OperationID, revision, operation.Approval{Binding: spec.Binding(), GrantedAt: now, ExpiresAt: now.Add(time.Minute)}); err != nil {
 		return "", err
 	}
-	lease, err := r.admission.AcquireCommandLease(ctx, input.UserID, spec.OperationID)
+	lease, err := s.acquireAgentCommandLease(ctx, r, input.UserID, spec.OperationID)
 	if err != nil {
 		return "", err
 	}
-	release := false
+	// 取得租约后默认释放；仅当容器清理未确认时保留租约等待核对。
+	release := true
 	defer func() {
 		if release {
 			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -232,12 +233,15 @@ func (s *Service) executeProjectScreenshot(ctx context.Context, input ExecuteToo
 	}
 	bindings := r.repo.(repository.AgentCommandSlotRecoveryRepository)
 	workspace := strconv.FormatUint(uint64(workspaceID), 10)
-	result, execErr := r.executor.Execute(ctx, runtime.Request{OperationID: spec.OperationID, TaskID: input.RunID, WorkspaceID: workspace, Permission: runtime.Permission{TaskID: input.RunID, WorkspaceID: workspace, ExecuteCode: true, Network: runtime.NetworkNone, Workspace: runtime.WorkspaceEphemeral}, Image: r.image, Command: []string{"/usr/local/bin/node", "/app/src/offline-cli.js"}, Stdin: html, Limits: runtime.Limits{MilliCPUs: 2000, MemoryBytes: 1 << 30, PIDs: 128, WorkspaceBytes: 256 << 20, InputBytes: 1 << 20, OutputBytes: 6 << 20, Timeout: 60 * time.Second}, BindContainer: func(bindCtx context.Context, id runtime.ContainerIdentity) error {
+	result, execErr, execPanic := runAgentExecutor(ctx, r.executor, runtime.Request{OperationID: spec.OperationID, TaskID: input.RunID, WorkspaceID: workspace, Permission: runtime.Permission{TaskID: input.RunID, WorkspaceID: workspace, ExecuteCode: true, Network: runtime.NetworkNone, Workspace: runtime.WorkspaceEphemeral}, Image: r.image, Command: []string{"/usr/local/bin/node", "/app/src/offline-cli.js"}, Stdin: html, Limits: runtime.Limits{MilliCPUs: 2000, MemoryBytes: 1 << 30, PIDs: 128, WorkspaceBytes: 256 << 20, InputBytes: 1 << 20, OutputBytes: 6 << 20, Timeout: 60 * time.Second}, BindContainer: func(bindCtx context.Context, id runtime.ContainerIdentity) error {
 		return bindings.BindCommandContainer(bindCtx, lease, revision+2, id)
 	}})
-	if !errors.Is(execErr, runtime.ErrCleanup) {
-		release = true
+	if execPanic != nil {
+		// 执行器崩溃时容器状态未知，保持租约等待核对后再继续向上传播。
+		release = false
+		panic(execPanic)
 	}
+	release = !errors.Is(execErr, runtime.ErrCleanup)
 	var pngData []byte
 	if execErr == nil {
 		if result.ExitCode != 0 {

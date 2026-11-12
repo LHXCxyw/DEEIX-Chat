@@ -111,18 +111,18 @@ export function stableFrameIDForElement(
   return [...matches].sort((a, b) => a.width * a.height - b.width * b.height || a.id.localeCompare(b.id))[0]?.id ?? null;
 }
 
-export function activeElasticDecorationForElement<T extends CanvasArrangeElement & { kind: "frame" | "section" | "note"; collapsed?: boolean }>(
+export function activeElasticDecorationForElement<T extends CanvasArrangeElement & { kind: "frame" | "note"; collapsed?: boolean }>(
   element: CanvasArrangeElement,
   decorations: ReadonlyArray<T>,
 ): T | null {
   return decorations
-    .filter((item) => (item.kind === "frame" || item.kind === "section") && !item.locked && !item.collapsed)
+    .filter((item) => item.kind === "frame" && !item.locked && !item.collapsed)
     .filter((item) => isCanvasElementCenterInside(item, element))
     .sort((a, b) => a.width * a.height - b.width * b.height || a.id.localeCompare(b.id))[0] ?? null;
 }
 
 export function canvasElementIDsCarriedByDecoration(
-  decoration: CanvasArrangeElement & { kind: "frame" | "section" | "note" },
+  decoration: CanvasArrangeElement & { kind: "frame" | "note" },
   elements: ReadonlyArray<CanvasArrangeElement>,
 ): Set<string> {
   if (decoration.kind !== "frame") return new Set();

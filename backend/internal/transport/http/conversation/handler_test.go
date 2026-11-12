@@ -239,7 +239,6 @@ func TestDescribeSendMessageErrorContract(t *testing.T) {
 		{appconversation.ErrMediaImageEditInputInvalid, http.StatusBadRequest, "media.image_edit_input_invalid", "image edit input image is invalid"},
 		{appconversation.ErrMediaVideoPromptRequired, http.StatusBadRequest, "media.video_prompt_required", "video prompt is required"},
 		{appconversation.ErrMediaVideoInputInvalid, http.StatusBadRequest, "media.video_input_invalid", "video generation input is invalid"},
-		{appconversation.ErrMediaVideoTooManyInputs, http.StatusBadRequest, "media.video_too_many_inputs", "too many video generation input images"},
 		{appconversation.ErrMediaRouteProtocolMismatch, http.StatusServiceUnavailable, "media.route_protocol_mismatch", "media route protocol does not match task"},
 		{appconversation.ErrInvalidMediaGenerationTask, http.StatusBadRequest, "media.invalid_task", "invalid media generation task"},
 		{appconversation.ErrDuplicateMessageGenerationRun, http.StatusConflict, "message_generation_run.already_exists", "message generation run already exists"},

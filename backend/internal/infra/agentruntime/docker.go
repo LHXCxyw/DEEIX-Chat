@@ -237,13 +237,21 @@ func (d *Docker) cleanup(name string) error {
 	_, stopErr := d.capture(stopCtx, []string{"stop", "--time=0", name}, 4096)
 	stopCancel()
 	rmCtx, rmCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	_, rmErr := d.capture(rmCtx, []string{"rm", "--force", "--volumes", name}, 4096)
+	rmOutput, rmErr := d.capture(rmCtx, []string{"rm", "--force", "--volumes", name}, 4096)
 	rmCancel()
 	// 强制删除成功已证明容器被回收，即使 stop 报告容器未运行也不影响结果。
-	if rmErr != nil {
+	// Docker 明确报告容器不存在时同样视为已回收：外部回收（例如 docker system prune）
+	// 不应把租约永久留在“清理未确认”，否则槽位再也无法使用。
+	if rmErr != nil && !containerMissingOutput(rmOutput) {
 		return errors.Join(port.ErrCleanup, stopErr, rmErr)
 	}
 	return nil
+}
+
+// containerMissingOutput 只匹配 Docker 明确报告容器不存在的输出，不做模糊推断。
+func containerMissingOutput(output []byte) bool {
+	text := string(output)
+	return strings.Contains(text, "No such container") || strings.Contains(text, "No such object")
 }
 
 type boundedOutput struct {

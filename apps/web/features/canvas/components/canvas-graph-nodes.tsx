@@ -11,51 +11,44 @@ import {
   ImageOff,
   ImagePlus,
   Images,
-  ListOrdered,
   Maximize2,
   Paintbrush,
-  Pencil,
-  Play,
   Repeat2,
   RotateCw,
   Search,
   Square,
   TextCursorInput,
-  Trash2,
   Upload,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
-import { GRAPH_NODE_ACCENTS, GraphNodeShell } from "@/features/canvas/components/canvas-graph-node-shell";
+import { AssetNameBar, GraphNodeShell } from "@/features/canvas/components/canvas-graph-node-shell";
 import { MediaGraphNodeView } from "@/features/canvas/components/canvas-media-node";
-import { CanvasImageParams } from "@/features/canvas/components/canvas-image-params";
-import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
+import { TimelineGraphNodeView, type TimelineAttachOption, type TimelineSourceInfo } from "@/features/canvas/components/canvas-timeline-node";
 import { CanvasPromptExpandDialog } from "@/features/canvas/components/canvas-prompt-expand";
 import { PromptTemplateLibrary } from "@/features/canvas/components/canvas-prompt-template-library";
 import { CopyActionButton } from "@/shared/components/copy-action";
 import type { CanvasReferenceImage } from "@/features/canvas/hooks/use-canvas-store";
 import {
-  type GraphConnectionSummary,
-  type GraphNodeInputSummary,
   type GraphPortID,
   graphModelDisplayName,
   graphNodePorts,
   isGraphPortCompatibleTarget,
 } from "@/features/canvas/model/canvas-graph";
 import {
-  GENERATE_CONNECTION_ROW_HEIGHT,
   type CanvasMediaKind,
   type GenerateGraphNode,
   type GraphNode,
   type GraphNodeUpdate,
   graphNodeSize,
   type ImageGraphNode,
+  type MediaGraphNode,
   type OutputGraphNode,
   PROMPT_MAX_LENGTH,
   type PromptGraphNode,
+  type TimelineTrackKind,
 } from "@/features/canvas/model/canvas-types";
-import type { CanvasModelOption } from "@/features/canvas/model/canvas-image-options";
 import { cn } from "@/lib/utils";
 
 export type GraphNodeActionHandlers = {
@@ -71,9 +64,27 @@ export type GraphNodeActionHandlers = {
   // 输出节点产物保存重试（保存待重试时输出节点自治重新保存）
   onRetryOutputSave: (nodeID: string) => void;
   onPreviewNode: (node: OutputGraphNode) => void;
+  // 合并节点的结果预览：图像与视频统一入口
+  onPreviewResult: (node: OutputGraphNode) => void;
   onDownloadNode: (node: OutputGraphNode) => void;
   onEditNode: (node: OutputGraphNode) => void;
-  onEditReferenceNode: (node: ImageGraphNode) => void;
+  onEditReferenceNode: (node: ImageGraphNode, mode?: "inpaint" | "crop" | "outpaint") => void;
+  // 点击素材节点 / 视频结果：打开素材悬浮工具栏（模型选择 + 各类操作）
+  onOpenAssetToolbar: (node: ImageGraphNode | MediaGraphNode | OutputGraphNode) => void;
+  // 选中节点：点击生成结果时打开该生成节点的对话框
+  onSelectNode: (nodeID: string) => void;
+  // 时间线节点：按片段时间点分割、删除片段、导出拼接结果、接入新的视频来源
+  onSplitTimelineSegment: (nodeID: string, segmentID: string, at: number, duration: number, timelineAt?: number) => void;
+  // 在指定时间点切分所有跨越该点的片段（含整段素材的已知时长与时间线偏移）
+  onSplitTimelineAt: (nodeID: string, at: number, layout: Record<string, { offset: number; duration: number }>) => void;
+  onRemoveTimelineSegment: (nodeID: string, segmentID: string) => void;
+  onExportTimeline: (nodeID: string) => void;
+  onAttachTimelineSource: (timelineNodeID: string, sourceNodeID: string, track: TimelineTrackKind, trackID?: string) => void;
+  // 时间线工具栏内的撤销 / 重做
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   onUseAsReference: (node: OutputGraphNode) => void;
   uploadReferenceFile: (file: File) => Promise<CanvasReferenceImage | null>;
 };
@@ -230,8 +241,9 @@ function ImageGraphNodeView({
 }) {
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
-  const inputRef = React.useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = React.useState(false);
+  // 记录按下位置：拖动节点后不误触工具栏
+  const pressRef = React.useRef<{ x: number; y: number } | null>(null);
 
   // 预览缺失（刷新恢复 / 跨节点拖入）时按 fileID 拉取
   React.useEffect(() => {
@@ -325,14 +337,38 @@ function ImageGraphNodeView({
       compatible={compatible}
       onRemove={() => handlers.onRemoveNode(node.id)}
       removeLabel={t("nodeDelete")}
+      bare
     >
-      <div className="h-full p-2.5">
+      <div className="flex size-full flex-col overflow-hidden rounded-xl">
         {node.reference ? (
+          <>
           <div
             className={cn(
-              "group/ref relative h-full overflow-hidden rounded-lg border border-border/50 bg-muted/30 transition-colors",
-              dragOver && "border-primary/70 ring-2 ring-primary/30",
+              "group/ref relative min-h-0 flex-1 overflow-hidden bg-muted/25 transition-colors",
+              dragOver && "ring-2 ring-primary/40",
             )}
+            role="button"
+            tabIndex={0}
+            aria-label={t("assetActions")}
+            onPointerDown={(event) => {
+              pressRef.current = { x: event.clientX, y: event.clientY };
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              const press = pressRef.current;
+              pressRef.current = null;
+              if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 4) {
+                return;
+              }
+              handlers.onOpenAssetToolbar(node);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                handlers.onOpenAssetToolbar(node);
+              }
+            }}
             {...dropProps}
           >
             {node.previewURL ? (
@@ -379,58 +415,27 @@ function ImageGraphNodeView({
                 </span>
               </div>
             ) : null}
-            <div className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-1.5 rounded-lg bg-background/85 px-2 py-1 opacity-0 backdrop-blur-md transition-opacity group-hover/ref:opacity-100">
-              <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-                {node.reference.fileName}
-              </span>
-              <div data-canvas-selectable className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  aria-label={t("editReference")}
-                  title={t("editReference")}
-                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => handlers.onEditReferenceNode(node)}
-                >
-                  <Pencil className="size-3" strokeWidth={1.8} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={t("attachReference")}
-                  title={t("attachReference")}
-                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => inputRef.current?.click()}
-                >
-                  <Upload className="size-3" strokeWidth={1.8} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={t("removeReference")}
-                  title={t("removeReference")}
-                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() =>
-                    handlers.onUpdateNode(node.id, { reference: null, previewURL: undefined, previewFailed: false })
-                  }
-                >
-                  <Trash2 className="size-3" strokeWidth={1.8} />
-                </button>
-              </div>
-            </div>
           </div>
+          <AssetNameBar
+            kind="image"
+            name={node.reference.fileName}
+            onRename={(next) => handlers.onUpdateNode(node.id, {
+              reference: node.reference ? { ...node.reference, fileName: next } : null,
+            })}
+            className="shrink-0 pt-1"
+          />
+          </>
         ) : (
           <label
             data-canvas-selectable
             data-canvas-image-drop
             className={cn(
-              "pointer-events-auto flex h-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-background/40 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground",
-              dragOver && "border-primary/60 bg-primary/5 text-foreground",
+              "pointer-events-auto flex min-h-0 flex-1 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground",
+              dragOver && "bg-primary/5 text-foreground ring-2 ring-primary/40",
             )}
             {...dropProps}
           >
             <input
-              ref={inputRef}
               type="file"
               accept="image/*"
               className="hidden"
@@ -465,44 +470,8 @@ function ImageGraphNodeView({
 }
 
 // ---------------------------------------------------------------------------
-// 生成节点：模型选择、参数配置、运行状态与结果预览
+// 生成节点：模型选择、提示词摘要、运行状态与结果预览（生成与输出合并为一张卡片）
 // ---------------------------------------------------------------------------
-// 上游清单行：端口名按类型独立编号（参考视频1 / 参考视频2），随后是已连接节点名。
-// 未连接的端口也占一行（不带编号），新用户据此知道每个连接点该连什么
-function GenerateConnectionRow({ port, connection, index }: {
-  port: GraphPortID;
-  connection: GraphConnectionSummary | null;
-  index: number;
-}) {
-  const t = useTranslations("canvas");
-  const portLabel = port === "prompt"
-    ? t("nodeKindPrompt")
-    : port === "image"
-      ? t("nodeKindImage")
-      : port === "video"
-        ? t("nodeKindMediaVideo")
-        : t("nodeKindMediaAudio");
-  return (
-    <li
-      style={{ height: GENERATE_CONNECTION_ROW_HEIGHT }}
-      className="flex items-center gap-1.5 px-1 text-[10px]"
-    >
-      <span
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          connection ? GRAPH_NODE_ACCENTS[connection.kind].dot : "bg-muted-foreground/30",
-        )}
-        aria-hidden="true"
-      />
-      <span className={cn("shrink-0 tabular-nums", connection ? "text-muted-foreground/70" : "text-muted-foreground/45")}>
-        {connection ? `${portLabel}${index}` : portLabel}
-      </span>
-      <span className={cn("min-w-0 flex-1 truncate", connection ? "text-foreground/75" : "text-muted-foreground/45")}>
-        {connection ? connection.label : t("inputPortEmpty")}
-      </span>
-    </li>
-  );
-}
 
 // 错误原始响应：可折叠的脱敏上游详情（含 HTTP 状态与上游正文），附复制按钮便于用户反馈排障
 function ErrorDetailPanel({ detail }: { detail: string }) {
@@ -551,52 +520,42 @@ function GenerateGraphNodeView({
   node,
   selected,
   compatible,
-  imageModels,
-  inputSummary,
+  resultNode,
   handlers,
 }: {
   node: GenerateGraphNode;
   selected: boolean;
   compatible: boolean;
-  imageModels: CanvasModelOption[];
-  inputSummary: GraphNodeInputSummary;
+  // 已合并进卡片的输出子节点：结果、运行态与失败信息都从它读取
+  resultNode: OutputGraphNode | null;
   handlers: GraphNodeActionHandlers;
 }) {
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
   const mediaType = node.mediaType ?? "image";
   const isVideo = mediaType === "video";
-  // 按节点媒体类型过滤可选模型：视频节点只列视频模型，图像节点只列图像模型
-  const candidateModels = React.useMemo(
-    () => imageModels.filter((model) => model.kinds.includes("video_gen") === isVideo),
-    [imageModels, isVideo],
-  );
-  const model = React.useMemo(
-    () =>
-      // 以作用域 + 用户模型 ID + 名称匹配：同一名称可能存在于多个接口（用户模型按上游重复）
-      candidateModels.find((item) =>
-        (node.modelScope === "user"
-          ? item.modelScope === "user" && item.userModelID === node.userModelID
-          : (item.modelScope ?? "platform") === (node.modelScope ?? "platform"))
-        && item.platformModelName === node.model)
-      // 旧版节点未保存作用域：按名称回退匹配
-      ?? (node.model ? candidateModels.find((item) => item.platformModelName === node.model) : null)
-      ?? null,
-    [candidateModels, node.model, node.modelScope, node.userModelID],
-  );
-  // 兼容旧数据：遗留运行状态仍记录在生成节点上
-  const legacyRunning = node.runStatus === "pending" || node.runStatus === "streaming";
+  const running = resultNode?.status === "running"
+    || node.runStatus === "pending"
+    || node.runStatus === "streaming";
+  const isDone = resultNode?.status === "done";
+  const errorMessage = resultNode?.status === "error" ? resultNode.errorMessage : node.errorMessage;
+  const statusLabel = resultNode?.statusLabel ?? node.statusLabel;
+  const progress = resultNode?.progress ?? node.progress;
+  const streamingPreview = resultNode?.status === "running" ? resultNode.previewURL : node.previewURL;
+  const cancelTargetID = resultNode?.status === "running" ? resultNode.runID ?? resultNode.sourceGenerateID ?? null : node.id;
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  // 记录按下位置：结果区允许拖动节点，拖动后不误触工具栏
+  const pressRef = React.useRef<{ x: number; y: number } | null>(null);
 
   return (
     <GraphNodeShell
       nodeID={node.id}
       kind="generate"
       mediaType={mediaType}
-      portRowCounts={node.portRowCounts}
       title={isVideo ? t("nodeKindGenerateVideo") : t("nodeKindGenerate")}
       icon={isVideo
         ? <Clapperboard className="size-3.5 shrink-0 text-violet-500" strokeWidth={1.8} />
-        : <ListOrdered className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.8} />}
+        : <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.8} />}
       width={size.width}
       height={size.height}
       selected={selected}
@@ -604,53 +563,51 @@ function GenerateGraphNodeView({
       variant={isVideo ? "video" : undefined}
       onRemove={() => handlers.onRemoveNode(node.id)}
       removeLabel={t("nodeDelete")}
+      bare
     >
-      <div className="flex h-full flex-col gap-2 p-2.5">
-        {/* 模型与参数 */}
-        <div data-canvas-selectable className="shrink-0 space-y-1.5">
-          <CanvasModelSelect
-            models={candidateModels}
-            selectedModel={model}
-            onSelect={(nextModel) => {
-              // 节点媒体类型跟随所选模型（视频模型 -> 视频节点，图像模型 -> 图像节点）；
-              // 同时记录作用域与用户模型 ID，同名模型可区分来源接口
-              handlers.onUpdateNode(node.id, {
-                model: nextModel.platformModelName,
-                modelScope: nextModel.modelScope === "user" ? "user" : "platform",
-                userModelID: nextModel.modelScope === "user" ? nextModel.userModelID : undefined,
-                mediaType: nextModel.kinds.includes("video_gen") ? "video" : "image",
-              });
-            }}
-            className="w-full justify-between"
-          />
-          <CanvasImageParams
-            model={model}
-            mediaType={mediaType}
-            options={node.options}
-            onOptionsChange={(options) => handlers.onUpdateNode(node.id, { options })}
-            resultCount={node.resultCount}
-            onResultCountChange={(resultCount) => handlers.onUpdateNode(node.id, { resultCount })}
-            streamEnabled={node.stream !== false}
-            onStreamEnabledChange={(enabled) => handlers.onUpdateNode(node.id, { stream: enabled })}
-            className="w-full justify-between"
-          />
-        </div>
-
-        {/* 生成区：上游连接清单 + 运行状态。清单按连接顺序编号，与左侧入端口对应；
-            任务创建即转交输出节点，等待/进度在输出节点上呈现，
-            兼容旧数据的生成节点运行态仍在此展示 */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-muted/25">
-          <div className="relative min-h-0 flex-1">
-          {legacyRunning ? (
-            node.previewURL ? (
+      <div className="relative size-full">
+        {/* 结果区：生成节点只呈现产物；模型、参数、提示词与运行按钮都在点击展开的面板里 */}
+        <div
+          className="relative size-full overflow-hidden rounded-xl bg-white shadow-[0_10px_36px_-24px_rgba(0,0,0,0.45)] dark:bg-card"
+          onMouseEnter={() => {
+            const video = videoRef.current;
+            if (!video) {
+              return;
+            }
+            // 默认带声音播放；浏览器拦截未静音自动播放时退回静音，保证画面正常
+            void video.play().catch(() => {
+              video.muted = true;
+              void video.play().catch(() => {});
+            });
+          }}
+          onMouseLeave={() => {
+            const video = videoRef.current;
+            if (video) {
+              video.pause();
+              video.currentTime = 0;
+            }
+          }}
+        >
+          {running ? (
+            streamingPreview ? (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img alt="" src={node.previewURL} className="size-full object-contain" draggable={false} />
+                <img alt="" src={streamingPreview} className="size-full object-contain" draggable={false} />
                 <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-background/80 px-2 py-1 backdrop-blur-sm">
                   <span className="size-3 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
-                  <span className="truncate text-[10px] text-muted-foreground">
-                    {node.statusLabel || t("nodePreparing")}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{statusLabel || t("nodePreparing")}</span>
+                  <button
+                    type="button"
+                    data-canvas-selectable
+                    className="shrink-0 rounded-sm px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (cancelTargetID) handlers.onCancelNode(cancelTargetID);
+                    }}
+                  >
+                    {t("nodeCancel")}
+                  </button>
                 </div>
               </>
             ) : (
@@ -660,44 +617,31 @@ function GenerateGraphNodeView({
                   "relative size-6 animate-spin rounded-full border-2 border-primary/25",
                   isVideo ? "border-t-violet-500" : "border-t-primary",
                 )} />
-                <p className="relative max-w-[85%] truncate text-[11px] text-muted-foreground">
-                  {node.statusLabel || t("nodePreparing")}
-                </p>
-                {/* 视频任务的粒度进度（后端 progress 事件） */}
-                {isVideo && typeof node.progress === "number" ? (
+                <p className="relative max-w-[85%] truncate text-[11px] text-muted-foreground">{statusLabel || t("nodePreparing")}</p>
+                {isVideo && typeof progress === "number" ? (
                   <div className="relative flex w-[70%] items-center gap-2">
                     <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-violet-500 transition-[width] duration-500"
-                        style={{ width: `${Math.min(100, Math.max(0, node.progress))}%` }}
-                      />
+                      <div className="h-full rounded-full bg-violet-500 transition-[width] duration-500" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
                     </div>
-                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
-                      {Math.min(100, Math.max(0, node.progress))}%
-                    </span>
+                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{Math.min(100, Math.max(0, progress))}%</span>
                   </div>
                 ) : null}
-              </div>
-            )
-          ) : node.errorMessage ? (
-            <div className="flex size-full flex-col items-center justify-center gap-1.5 overflow-y-auto p-2 text-center">
-              {/* 重查进行中（错误态节点带 statusLabel）：显示加载状态并隐藏重查按钮 */}
-              {node.statusLabel ? (
-                <div className="flex flex-col items-center gap-1.5">
-                  <span className={cn(
-                    "size-5 animate-spin rounded-full border-2 border-primary/25",
-                    isVideo ? "border-t-violet-500" : "border-t-primary",
-                  )} />
-                  <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
-                    {node.statusLabel}
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <AlertTriangle className="size-5 shrink-0 text-destructive/80" strokeWidth={1.6} />
-                  <p className="text-[11px] leading-relaxed break-words text-muted-foreground">
-                    {node.errorMessage}
-                  </p>
+                <div className="relative flex items-center gap-1.5">
+                  {isVideo ? (
+                    <button
+                      type="button"
+                      data-canvas-selectable
+                      className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (resultNode) handlers.onRequeryOutputNode(resultNode.id);
+                      }}
+                    >
+                      <Search className="size-3" strokeWidth={1.8} />
+                      {t("nodeRequery")}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     data-canvas-selectable
@@ -705,7 +649,131 @@ function GenerateGraphNodeView({
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
                       event.stopPropagation();
-                      handlers.onRequeryNode(node.id);
+                      if (cancelTargetID) handlers.onCancelNode(cancelTargetID);
+                    }}
+                  >
+                    <Square className="size-3" strokeWidth={2} />
+                    {t("nodeCancel")}
+                  </button>
+                </div>
+              </div>
+            )
+          ) : isDone && resultNode ? (
+            <>
+              {isVideo ? (
+                <button
+                  type="button"
+                  className="size-full"
+                  aria-label={t("assetPreviewVideo")}
+                  onPointerDown={(event) => {
+                    pressRef.current = { x: event.clientX, y: event.clientY };
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const press = pressRef.current;
+                    pressRef.current = null;
+                    // 拖动节点后不打开工具栏
+                    if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 4) {
+                      return;
+                    }
+                    // 点击结果只打开对话框与工具栏，不再放大预览
+                    handlers.onSelectNode(node.id);
+                    handlers.onOpenAssetToolbar(resultNode);
+                  }}
+                >
+                  <video
+                    ref={videoRef}
+                    src={resultNode.objectURL}
+                    loop
+                    playsInline
+                    preload="metadata"
+                    className="size-full object-contain"
+                  >
+                    <track kind="captions" />
+                  </video>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="size-full cursor-pointer"
+                  aria-label={t("nodePreviewTitle")}
+                  onPointerDown={(event) => {
+                    pressRef.current = { x: event.clientX, y: event.clientY };
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const press = pressRef.current;
+                    pressRef.current = null;
+                    // 拖动节点后不打开工具栏
+                    if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 4) {
+                      return;
+                    }
+                    handlers.onSelectNode(node.id);
+                    handlers.onOpenAssetToolbar(resultNode);
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt={resultNode.fileName ?? ""}
+                    src={resultNode.objectURL}
+                    className="size-full object-contain"
+                    draggable={false}
+                    onError={() => handlers.onUpdateNode(resultNode.id, { imageLoadFailed: true })}
+                  />
+                </button>
+              )}
+              <div className="absolute right-1.5 top-1.5 flex items-center gap-1 opacity-0 transition-opacity group-hover/node:opacity-100">
+                <OutputActionButton label={isVideo ? t("assetPreviewVideo") : t("nodePreviewTitle")} onClick={() => handlers.onPreviewResult(resultNode)}>
+                  <Maximize2 className="size-3.5" strokeWidth={1.8} />
+                </OutputActionButton>
+                <OutputActionButton label={t("nodeDownload")} onClick={() => handlers.onDownloadNode(resultNode)}>
+                  <Download className="size-3.5" strokeWidth={1.8} />
+                </OutputActionButton>
+                {isVideo ? (
+                  <OutputActionButton label={t("assetActions")} onClick={() => handlers.onOpenAssetToolbar(resultNode)}>
+                    <Clapperboard className="size-3.5" strokeWidth={1.8} />
+                  </OutputActionButton>
+                ) : null}
+                {isVideo ? null : (
+                  <>
+                    <OutputActionButton label={t("nodeEdit")} onClick={() => handlers.onEditNode(resultNode)}>
+                      <Paintbrush className="size-3.5" strokeWidth={1.8} />
+                    </OutputActionButton>
+                    <OutputActionButton label={t("nodeUseAsReference")} onClick={() => handlers.onUseAsReference(resultNode)}>
+                      <ImagePlus className="size-3.5" strokeWidth={1.8} />
+                    </OutputActionButton>
+                  </>
+                )}
+              </div>
+              {isVideo && resultNode.durationSeconds ? (
+                <span className="pointer-events-none absolute bottom-1.5 left-1.5 rounded bg-background/80 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground backdrop-blur-sm">
+                  {resultNode.durationSeconds}s
+                </span>
+              ) : null}
+            </>
+          ) : errorMessage ? (
+            <div className="flex size-full flex-col items-center justify-center gap-1.5 overflow-y-auto p-2 text-center">
+              {statusLabel ? (
+                <div className="flex flex-col items-center gap-1.5">
+                  <span className={cn("size-5 animate-spin rounded-full border-2 border-primary/25", isVideo ? "border-t-violet-500" : "border-t-primary")} />
+                  <p className="text-[11px] leading-relaxed break-words text-muted-foreground">{statusLabel}</p>
+                </div>
+              ) : (
+                <>
+                  <AlertTriangle className="size-5 shrink-0 text-destructive/80" strokeWidth={1.6} />
+                  <p className="text-[11px] leading-relaxed break-words text-muted-foreground">{errorMessage}</p>
+                  <button
+                    type="button"
+                    data-canvas-selectable
+                    className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (resultNode) {
+                        handlers.onRequeryOutputNode(resultNode.id);
+                      } else {
+                        handlers.onRequeryNode(node.id);
+                      }
                     }}
                   >
                     <Search className="size-3" strokeWidth={1.8} />
@@ -716,67 +784,25 @@ function GenerateGraphNodeView({
               {node.errorDetail ? <ErrorDetailPanel detail={node.errorDetail} /> : null}
             </div>
           ) : (
-            // 空闲态即上游连接描述：逐行列出每个入端口连什么、当前连了谁
-            <ul className="flex size-full min-h-0 flex-col justify-start px-1.5">
-              {inputSummary.ports.flatMap((row) =>
-                row.connections.length > 0
-                  ? row.connections.map((connection, index) => (
-                    <GenerateConnectionRow
-                      key={`${row.port}-${connection.id}`}
-                      port={row.port}
-                      connection={connection}
-                      index={index + 1}
-                    />
-                  ))
-                  : [
-                    <GenerateConnectionRow
-                      key={row.port}
-                      port={row.port}
-                      connection={null}
-                      index={0}
-                    />,
-                  ],
-              )}
-            </ul>
+            <div className="flex size-full flex-col items-center justify-center gap-1.5 p-3 text-center">
+              <ImageOff className="size-5 text-muted-foreground/50" strokeWidth={1.5} />
+              <p className="text-[11px] leading-relaxed text-muted-foreground/80">
+                {isVideo ? t("generateNodeIdleHintVideo") : t("nodeEmptyHint")}
+              </p>
+            </div>
           )}
+        </div>
+        {/* 悬浮名称条：位于节点下方，显示类型图标 + 名称，双击可改名 */}
+        <div className="absolute inset-x-0 top-full z-20 mt-1 flex">
+          <div className="pointer-events-auto max-w-[80%] rounded-md border border-border/50 bg-background/90 shadow-sm backdrop-blur">
+            <AssetNameBar
+              kind={isVideo ? "video" : "image"}
+              name={node.displayName ?? resultNode?.fileName ?? node.model ?? (isVideo ? t("nodeKindGenerateVideo") : t("nodeKindGenerate"))}
+              onRename={(next) => handlers.onUpdateNode(node.id, { displayName: next })}
+              className="h-6"
+            />
           </div>
         </div>
-
-        {/* 运行按钮：生成节点不继承输出节点的运行状态，可连续点击发起多次生成；
-            等待/取消在各自输出节点上。仅遗留数据（运行态记录在生成节点上）显示取消 */}
-        <button
-          type="button"
-          data-canvas-selectable
-          disabled={!model}
-          className={cn(
-            "pointer-events-auto flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg text-xs font-semibold text-primary-foreground shadow-sm transition-all",
-            legacyRunning
-              ? "bg-amber-600 hover:bg-amber-600/90 active:scale-[0.98]"
-              : isVideo ? "bg-violet-600 hover:bg-violet-600/90 active:scale-[0.98]" : "bg-primary hover:bg-primary/90 active:scale-[0.98]",
-            "disabled:pointer-events-none disabled:opacity-50",
-          )}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (legacyRunning) {
-              handlers.onCancelNode(node.id);
-            } else {
-              handlers.onRunNode(node.id);
-            }
-          }}
-        >
-          {legacyRunning ? (
-            <>
-              <Square className="size-3.5" strokeWidth={2} />
-              {t("nodeCancel")}
-            </>
-          ) : (
-            <>
-              <Play className="size-3.5" strokeWidth={2} />
-              {isVideo ? t("generateNodeRunVideo") : t("generateNodeRun")}
-            </>
-          )}
-        </button>
       </div>
     </GraphNodeShell>
   );
@@ -810,6 +836,8 @@ function OutputGraphNodeView({
   const t = useTranslations("canvas");
   const size = graphNodeSize(node);
   const [imageLoaded, setImageLoaded] = React.useState(false);
+  // 记录按下位置：结果区允许拖动节点，拖动后不误触工具栏
+  const pressRef = React.useRef<{ x: number; y: number } | null>(null);
   const isVideo = (node.mediaType ?? (node.mimeType?.startsWith("video/") ? "video" : "image")) === "video";
   // 运行中任务的取消目标：运行控制器按 runID 登记（并发多次生成互不影响）
   const cancelTargetID = node.status === "running" ? node.runID ?? node.sourceGenerateID ?? null : null;
@@ -870,7 +898,14 @@ function OutputGraphNodeView({
             node.previewURL ? (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img alt="" src={node.previewURL} className="size-full object-contain" draggable={false} />
+                <img
+                  alt=""
+                  src={node.previewURL}
+                  className="size-full object-contain"
+                  draggable={false}
+                  // 上游地址可能无法被浏览器直连：加载失败就退回等待态，保存完成后仍会显示文件
+                  onError={() => handlers.onUpdateNode(node.id, { previewURL: undefined })}
+                />
                 <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-background/80 px-2 py-1 backdrop-blur-sm">
                   <span className="size-3 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
                   <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
@@ -1062,6 +1097,9 @@ function OutputGraphNodeView({
                 <OutputActionButton label={t("nodeDownload")} onClick={() => handlers.onDownloadNode(node)}>
                   <Download className="size-3" strokeWidth={1.8} />
                 </OutputActionButton>
+                <OutputActionButton label={t("assetActions")} onClick={() => handlers.onOpenAssetToolbar(node)}>
+                  <Clapperboard className="size-3" strokeWidth={1.8} />
+                </OutputActionButton>
                 <OutputActionButton label={t("nodeCopyPrompt")} onClick={() => void copyPrompt()}>
                   <Copy className="size-3" strokeWidth={1.8} />
                 </OutputActionButton>
@@ -1079,11 +1117,18 @@ function OutputGraphNodeView({
                 type="button"
                 aria-label={t("nodePreviewHint")}
                 title={t("nodePreviewHint")}
-                data-canvas-selectable
                 className="pointer-events-auto block size-full cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                onPointerDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => {
+                  pressRef.current = { x: event.clientX, y: event.clientY };
+                }}
                 onClick={(event) => {
                   event.stopPropagation();
+                  const press = pressRef.current;
+                  pressRef.current = null;
+                  // 拖动节点后不触发预览
+                  if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 4) {
+                    return;
+                  }
                   handlers.onPreviewNode(node);
                 }}
               >
@@ -1117,11 +1162,28 @@ function OutputGraphNodeView({
               </div>
             </>
           ) : node.status === "done" && node.fileID && !node.objectURL ? (
-            // 图像文件拉取中（objectURL 尚未就绪）：加载动画 + 文字
-            <div className="flex size-full flex-col items-center justify-center gap-2">
-              <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/50" />
-              <p className="text-[11px] text-muted-foreground">{t("nodeLoadingImage")}</p>
-            </div>
+            // 保存完成但本地文件仍在拉取：保留生成时的预览图，避免图片消失再出现
+            node.previewURL ? (
+              <div className="relative size-full">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt={node.prompt || node.fileName || "output"}
+                  src={node.previewURL}
+                  className="size-full object-contain"
+                  draggable={false}
+                  onError={() => handlers.onUpdateNode(node.id, { previewURL: undefined })}
+                />
+                <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-background/80 px-2 py-1 backdrop-blur-sm">
+                  <span className="size-3 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+                  <span className="truncate text-[10px] text-muted-foreground">{t("nodeLoadingImage")}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex size-full flex-col items-center justify-center gap-2">
+                <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/50" />
+                <p className="text-[11px] text-muted-foreground">{t("nodeLoadingImage")}</p>
+              </div>
+            )
           ) : node.imageLoadFailed ? (
             <div className="flex size-full flex-col items-center justify-center gap-1.5 text-muted-foreground">
               <ImageIcon className="size-5" strokeWidth={1.6} />
@@ -1195,15 +1257,20 @@ export function GraphNodeView({
   node,
   selected,
   connecting,
-  imageModels,
-  inputSummary,
+  resultNode,
+  timelineSources,
+  timelineAttachOptions,
   handlers,
 }: {
   node: GraphNode;
   selected: boolean;
   connecting: { kind: string; port: GraphPortID; mediaKind?: CanvasMediaKind } | null;
-  imageModels: CanvasModelOption[];
-  inputSummary: GraphNodeInputSummary;
+  // 合并节点的输出子节点：生成卡片内的结果与运行态来源
+  resultNode: OutputGraphNode | null;
+  // 时间线节点的片段来源信息（名称与预览地址），由视口按连线解析后传入
+  timelineSources?: TimelineSourceInfo[];
+  // 时间线节点可接入的视频来源（+ 按钮菜单）
+  timelineAttachOptions?: TimelineAttachOption[];
   handlers: GraphNodeActionHandlers;
 }) {
   const compatible = useCompatiblePort(node, connecting);
@@ -1218,8 +1285,7 @@ export function GraphNodeView({
           node={node}
           selected={selected}
           compatible={compatible}
-          imageModels={imageModels}
-          inputSummary={inputSummary}
+          resultNode={resultNode}
           handlers={handlers}
         />
       );
@@ -1227,5 +1293,16 @@ export function GraphNodeView({
       return <OutputGraphNodeView node={node} selected={selected} compatible={compatible} handlers={handlers} />;
     case "media":
       return <MediaGraphNodeView node={node} selected={selected} compatible={compatible} handlers={handlers} />;
+    case "timeline":
+      return (
+        <TimelineGraphNodeView
+          node={node}
+          selected={selected}
+          compatible={compatible}
+          sources={timelineSources ?? []}
+          availableSources={timelineAttachOptions ?? []}
+          handlers={handlers}
+        />
+      );
   }
 }

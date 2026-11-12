@@ -38,8 +38,8 @@ DEEIX Chat 是一款开源可部署的 AI 平台，面向需要长期、稳定�
 
 ### 二改核心能力
 
-- **可视化创作画布**：提供可缩放、可平移的无限画布，以节点方式组织图像与视频的生成、编辑和结果流转，支持提示词／参考图／生成／输出节点连线、生成任务创建即转交输出节点以支持并发，以及跨设备持久化。
-- **画布节点类型注册表化**：节点尺寸、端口、连线规则、主题色与工具栏入口统一由注册表派生，新增节点类型只需登记一条配置。
+- **可视化创作画布**：提供可缩放、可平移的无限画布。图像与视频生成合并为单一媒体节点，提示词、模型参数与生成结果都绑定在节点内，点击节点在下方展开编辑面板（支持 `@[名称](fileID)` 引用画布素材、上传图片/视频/音频、比例/分辨率/数量的分段参数与时长滑块）；参考内容仍以节点连线表达，节点操作统一走右键菜单（复制副本、删除、锁定、撤销、重做），跨设备持久化。
+- **画布节点类型注册表化**：节点尺寸、端口、连线规则、主题色与工具栏入口统一由注册表派生，新增节点类型只需登记一条配置。装饰仅保留「组」与「注释」，画布右上角菜单可配置图片/视频提示词优化增强并查看快捷键。
 - **画布 HTML 预览节点**：可在画布内直接编写 HTML/CSS/JS 并实时预览，预览运行在受限 iframe 中，无法访问应用数据。
 - **画布上下文注入**：可在对话输入条上一键附上当前画布节点与连线的摘要，随提示词一并提交给模型。
 - **AI 项目工作区**：项目对话即文件工作区，AI 通过专属项目工具完成文件的创建、读取、搜索、片段修改、删除和归档打包，不在对话中直接输出代码；归档结果以一键下载卡片呈现。
@@ -261,11 +261,15 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080
 Docker 部署只有一个入口：仓库根目录的 [`docker-compose.yml`](./docker-compose.yml) 会用当前源码构建应用、命令 runner 和项目浏览器镜像，并启动常驻服务。无需复制配置、overlay 或手填镜像 digest：
 
 ```bash
-docker compose -f docker-compose.yml build
+# 构建应用镜像与两个 agent 镜像（agent 服务属于 build-only profile，只构建不创建容器）
+docker compose -f docker-compose.yml --profile build-only build
+# 仅首次安装或需要重建配置时执行一次初始化；run --rm 结束后容器自动删除
+docker compose -f docker-compose.yml run --rm config-init
+# 启动常驻服务
 docker compose -f docker-compose.yml up -d
 ```
 
-首次启动由一次性 `config-init` 自动生成根 `config.yaml`、数据库密码和 JWT/加密密钥；已有配置与 secret 不覆盖。运行中常驻容器只有 `app`、`postgres`、`redis`；`agent-command` 与 `agent-browser` 仅用于构建镜像，启动即退出。
+首次安装由一次性 `config-init` 生成根 `config.yaml`、数据库密码和 JWT/加密密钥；已有配置与 secret 不覆盖。`up -d` 只创建 `app`、`postgres`、`redis` 三个常驻容器：`agent-command` 与 `agent-browser` 只用于构建镜像，`config-init` 只在显式执行初始化命令时运行，不会留下停止的一次性容器。已初始化过的部署更新时只需重新 build 后 `up -d`。
 
 | 项目 | 取值 |
 | --- | --- |

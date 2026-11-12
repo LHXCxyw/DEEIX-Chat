@@ -2,8 +2,6 @@
 
 import {
   AudioLines,
-  ChevronDown,
-  ChevronRight,
   Clock3,
   Image as ImageIcon,
   Images,
@@ -27,8 +25,6 @@ import {
 } from "@/features/canvas/model/canvas-types";
 import { cn } from "@/lib/utils";
 
-const GROUPS_COLLAPSED_STORAGE_KEY = "deeix-canvas-asset-groups-collapsed";
-
 // 节点状态 -> 现有筛选文案键的静态映射（避免动态 i18n 键）
 const STATUS_LABEL_KEYS = {
   pending: "filterPending",
@@ -44,6 +40,7 @@ const KIND_ACCENTS: Record<GraphNodeKind, string> = {
   media: "bg-fuchsia-500",
   generate: "bg-amber-500",
   output: "bg-emerald-500",
+  timeline: "bg-cyan-500",
 };
 
 type AssetGroupKey = "references" | "results" | "others";
@@ -72,6 +69,8 @@ function assetTitle(node: GraphNode, untitled: string): string {
       return (node.status === "done" && node.fileName) || node.prompt?.trim() || untitled;
     case "media":
       return node.reference?.fileName || untitled;
+    case "timeline":
+      return untitled;
   }
 }
 
@@ -87,48 +86,17 @@ function assetStatusLabel(node: GraphNode): keyof typeof STATUS_LABEL_KEYS | nul
       return node.status === "error" ? "error" : node.status === "done" ? "done" : null;
     case "media":
       return null;
+    case "timeline":
+      return null;
   }
 }
 
-// 画布资产列表侧边栏：参考图片 / 生成结果 / 其他节点三组分组展示，
-// 组内按创建时间倒序，分组可折叠（折叠状态本地持久化），点击行选中并定位到画布
+// 画布资产列表侧边栏：参考图片 / 生成结果 / 其他节点三组分类在顶部横向切换，
+// 组内按创建时间倒序，点击行选中并定位到画布
 export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollapsedChange, onSelectNode, onLocate, onPreviewMedia }: CanvasAssetSidebarProps) {
   const t = useTranslations("canvas");
   const selectedSet = React.useMemo(() => new Set(selectedNodeIDs), [selectedNodeIDs]);
-  // 分组折叠状态（SSR 安全：挂载后读取本地存储）
-  const [collapsedGroups, setCollapsedGroups] = React.useState<Record<AssetGroupKey, boolean>>({
-    references: false,
-    results: false,
-    others: false,
-  });
-
-  React.useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(GROUPS_COLLAPSED_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<Record<AssetGroupKey, boolean>>;
-        setCollapsedGroups({
-          references: parsed.references === true,
-          results: parsed.results === true,
-          others: parsed.others === true,
-        });
-      }
-    } catch {
-      // 解析失败按默认展开处理
-    }
-  }, []);
-
-  const toggleGroup = React.useCallback((key: AssetGroupKey) => {
-    setCollapsedGroups((current) => {
-      const next = { ...current, [key]: !current[key] };
-      try {
-        window.localStorage.setItem(GROUPS_COLLAPSED_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // 存储失败仅影响持久化，不影响交互
-      }
-      return next;
-    });
-  }, []);
+  const [preferredGroup, setPreferredGroup] = React.useState<AssetGroupKey>("references");
 
   const toggleCollapsed = React.useCallback(() => {
     onCollapsedChange(!collapsed);
@@ -283,12 +251,14 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
     );
   }
 
-  // 分组定义：参考图片与生成结果分开展示，空组自动隐藏
-  const groupDefs: { key: AssetGroupKey; label: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; items: { node: GraphNode; index: number }[] }[] = [
+  // 分类定义：参考图片与生成结果分开；空分类自动隐藏，当前分类为空时回退到首个非空分类
+  const allGroupDefs: { key: AssetGroupKey; label: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; items: { node: GraphNode; index: number }[] }[] = [
     { key: "references", label: t("assetsGroupReferences"), icon: ImageIcon, items: groups.references },
     { key: "results", label: t("assetsGroupResults"), icon: Sparkles, items: groups.results },
     { key: "others", label: t("assetsGroupOthers"), icon: Shapes, items: groups.others },
   ];
+  const groupDefs = allGroupDefs.filter((group) => group.items.length > 0);
+  const activeGroup = groupDefs.find((group) => group.key === preferredGroup) ?? groupDefs[0];
 
   return (
     <aside
@@ -312,37 +282,36 @@ export function CanvasAssetSidebar({ nodes, selectedNodeIDs, collapsed, onCollap
       {orderedAssets.length === 0 ? (
         <p className="px-4 py-8 text-center text-xs leading-relaxed text-muted-foreground">{t("assetsEmpty")}</p>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {groupDefs.map((group) => {
-            if (group.items.length === 0) {
-              return null;
-            }
-            const GroupIcon = group.icon;
-            const isCollapsed = collapsedGroups[group.key];
-            const Chevron = isCollapsed ? ChevronRight : ChevronDown;
-            return (
-              <section key={group.key} className="pb-1">
+        <>
+          {/* 分类切换：顶部横向排列 */}
+          <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2 py-1.5">
+            {groupDefs.map((group) => {
+              const GroupIcon = group.icon;
+              const active = activeGroup?.key === group.key;
+              return (
                 <button
+                  key={group.key}
                   type="button"
-                  aria-expanded={!isCollapsed}
-                  title={isCollapsed ? t("assetsGroupExpand") : t("assetsGroupCollapse")}
-                  className="mb-1 flex w-full items-center gap-1.5 rounded-md px-1 pt-1.5 pb-1 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-muted-foreground"
-                  onClick={() => toggleGroup(group.key)}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[10px] font-medium transition-colors",
+                    active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                  onClick={() => setPreferredGroup(group.key)}
                 >
-                  <Chevron className="size-3 shrink-0" strokeWidth={2} />
                   <GroupIcon className="size-3 shrink-0" strokeWidth={2} />
                   <span className="truncate">{group.label}</span>
-                  <span className="ml-auto shrink-0 font-medium tabular-nums text-muted-foreground/50">{group.items.length}</span>
+                  <span className="shrink-0 tabular-nums opacity-70">{group.items.length}</span>
                 </button>
-                {isCollapsed ? null : (
-                  <ul className="space-y-1">
-                    {group.items.map(renderAssetRow)}
-                  </ul>
-                )}
-              </section>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            <ul className="space-y-1">
+              {(activeGroup?.items ?? []).map(renderAssetRow)}
+            </ul>
+          </div>
+        </>
       )}
     </aside>
   );

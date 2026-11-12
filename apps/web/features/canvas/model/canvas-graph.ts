@@ -2,11 +2,11 @@ import { CANVAS_NODE_REGISTRY } from "@/features/canvas/model/canvas-node-regist
 import {
   type CanvasMediaKind,
   type CanvasMediaType,
-  GENERATE_CONNECTION_ROW_HEIGHT,
   type GraphEdge,
   type GraphInputPort,
   type GraphNode,
   type GraphNodeKind,
+  type OutputGraphNode,
   PROMPT_MAX_LENGTH,
   PROMPT_TEMPLATES_STORAGE_KEY,
   type PromptGraphNode,
@@ -41,55 +41,59 @@ export function graphPortSize(
   return graphNodePorts(kind, mediaType).find((port) => port.id === portID) ?? null;
 }
 
-// 生成节点清单区顶部：标题栏(28) + 内容内边距(10) + 模型/参数行(70) + 间距(8)
-export const GENERATE_LIST_TOP = 116;
-
-// 生成节点单个入端口的纵向锚点：对齐该端口第一行清单的中线。
-// 端口按行数顺序排布，前序端口（含未连接端口）的行数决定本端口起点
-export function generatePortOffsetY(portIndex: number, portRowCounts: readonly number[]): number {
-  let rowsBefore = 0;
-  for (let index = 0; index < portIndex; index += 1) {
-    rowsBefore += Math.max(1, portRowCounts[index] ?? 1);
-  }
-  return GENERATE_LIST_TOP + rowsBefore * GENERATE_CONNECTION_ROW_HEIGHT + GENERATE_CONNECTION_ROW_HEIGHT / 2;
-}
-
-// 端口纵向锚点：生成节点的入端口与清单行对齐（依赖派生的 portRowCounts），其余用注册表固定值
+// 生成节点的端口在合并后的卡片上固定分布，不再随上游清单行数变化
 export function graphPortOffsetY(
   kind: GraphNodeKind,
   portID: GraphPortID,
   mediaType?: CanvasMediaType,
-  portRowCounts?: readonly number[],
 ): number {
   const ports = graphNodePorts(kind, mediaType);
-  const port = ports.find((item) => item.id === portID);
-  if (!port) {
-    return 0;
-  }
-  if (kind === "generate" && port.direction === "in" && portRowCounts && portRowCounts.length > 0) {
-    const inputPorts = ports.filter((item) => item.direction === "in");
-    const inputIndex = inputPorts.findIndex((item) => item.id === portID);
-    if (inputIndex >= 0) {
-      return generatePortOffsetY(inputIndex, portRowCounts);
-    }
-  }
-  return port.offsetY;
+  return ports.find((item) => item.id === portID)?.offsetY ?? 0;
 }
 
-// 端口在画布坐标系中的绝对位置
+// 端口在画布坐标系中的绝对位置。
+// 画布采用「单连接点」交互：出线统一从节点右缘中点引出、入线统一落到左缘中点，
+// 连线端点因此与指针悬浮点的位置无关，多条参考内容也会汇聚到同一处，视觉更干净。
 export function graphPortCanvasPosition(
   node: Pick<GraphNode, "kind" | "x" | "y"> & { mediaType?: CanvasMediaType; portRowCounts?: number[] },
   portID: GraphPortID,
-  size: { width: number },
+  size: { width: number; height: number },
 ): { x: number; y: number } | null {
   const port = graphPortSize(node.kind, portID, node.mediaType);
   if (!port) {
     return null;
   }
   return {
-    x: node.x + port.offsetX * size.width,
-    y: node.y + graphPortOffsetY(node.kind, portID, node.mediaType, node.portRowCounts),
+    x: node.x + (port.direction === "out" ? size.width : 0),
+    y: node.y + size.height / 2,
   };
+}
+
+// 单连接点连线的目标端口推断：按来源节点种类与媒体类型自动选择入端口，
+// 用户只需要把点拖到目标节点上，不再区分提示词 / 参考图 / 参考视频等具体落点。
+export function inferGraphConnectionPorts(
+  source: GraphNode,
+  target: GraphNode,
+): GraphInputPort[] {
+  const rules = GRAPH_CONNECTION_RULES[source.kind].filter((rule) => rule.toKind === target.kind);
+  if (rules.length <= 1) {
+    return rules.map((rule) => rule.toPort);
+  }
+  // 媒体节点的参考素材类型决定接入参考视频还是参考音频端口
+  if (source.kind === "media" && source.mediaKind) {
+    const matched = rules.filter((rule) => rule.toPort === source.mediaKind);
+    if (matched.length > 0) {
+      return matched.map((rule) => rule.toPort);
+    }
+  }
+  // 生成 / 输出节点按产物媒体类型决定接到参考图还是参考视频端口
+  if ((source.kind === "generate" || source.kind === "output") && source.mediaType) {
+    const matched = rules.filter((rule) => rule.toPort === source.mediaType);
+    if (matched.length > 0) {
+      return matched.map((rule) => rule.toPort);
+    }
+  }
+  return rules.map((rule) => rule.toPort);
 }
 
 // 三次贝塞尔连线路径，控制点随水平距离自适应，保证水平出线的流畅感
@@ -115,6 +119,40 @@ export function graphEdgeMidpoint(
   };
 }
 
+// 贝塞尔曲线上的参数点：t ∈ [0,1]，用于删除按钮跟随鼠标在线条上任意位置显示
+export function graphEdgePointAt(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  t: number,
+): { x: number; y: number } {
+  const controlOffset = Math.max(48, Math.abs(to.x - from.x) * 0.45);
+  const c1 = { x: from.x + controlOffset, y: from.y };
+  const c2 = { x: to.x - controlOffset, y: to.y };
+  const mt = 1 - t;
+  return {
+    x: mt * mt * mt * from.x + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * to.x,
+    y: mt * mt * mt * from.y + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * to.y,
+  };
+}
+
+// 曲线上离指针最近的点：采样近似即可满足 hover 命中与按钮定位
+export function graphEdgeNearestPoint(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  point: { x: number; y: number },
+  steps = 24,
+): { x: number; y: number; distance: number } {
+  let best = { x: from.x, y: from.y, distance: Number.POSITIVE_INFINITY };
+  for (let index = 0; index <= steps; index += 1) {
+    const sample = graphEdgePointAt(from, to, index / steps);
+    const distance = Math.hypot(sample.x - point.x, sample.y - point.y);
+    if (distance < best.distance) {
+      best = { ...sample, distance };
+    }
+  }
+  return best;
+}
+
 // ---------------------------------------------------------------------------
 // 连线规则：提示词 -> 生成(提示词)；参考图/输出 -> 生成(参考图)；生成 -> 输出
 // ---------------------------------------------------------------------------
@@ -123,6 +161,8 @@ export type GraphConnectionAttempt = {
   fromPort: "out";
   toNodeID: string;
   toPort: GraphInputPort;
+  // 时间线自定义轨道：指定片段落到哪条轨道，缺省落到该端口对应的内置轨
+  trackID?: string;
 };
 
 // 连线规则从节点注册表派生：提示词 -> 生成(提示词)；参考图/输出 -> 生成(参考图)；生成 -> 输出
@@ -131,9 +171,9 @@ const GRAPH_CONNECTION_RULES: Record<GraphNodeKind, { toKind: GraphNodeKind; toP
     Object.values(CANVAS_NODE_REGISTRY).map((entry) => [entry.kind, entry.connectionRules] as const),
   ) as Record<GraphNodeKind, { toKind: GraphNodeKind; toPort: GraphInputPort }[]>;
 
-// 媒体类型兼容性：视频产物不能作为图像参考图回灌，图像生成也不能写入视频输出节点；
-// 参考视频 / 参考音频端口只接受对应素材类型的媒体节点或同类型的输出产物。
-// 未写入结果的输出节点（mediaType 未定）视为中立，可接任意媒体类型的生成节点。
+// 媒体类型兼容性：视频产物不能作为图像参考图回灌；参考视频 / 参考音频端口只接受
+// 对应素材类型的媒体节点或同类型的生成产物。生成结果已合并进生成节点，因此
+// 生成节点本身也可以作为参考来源（取其最近一次成功产物）。
 export type GraphMediaCarrier = { kind: GraphNodeKind; mediaType?: CanvasMediaType; mediaKind?: CanvasMediaKind };
 
 export function graphMediaCompatible(
@@ -145,25 +185,35 @@ export function graphMediaCompatible(
     return true;
   }
   if (toPort === "image") {
-    // 参考图入端口：来源必须是图像（参考图节点或图像输出），视频输出不可作参考
-    if (from?.kind === "output" && from.mediaType === "video") {
-      return false;
-    }
-    return true;
+    // 参考图入端口：来源必须是图像（参考图节点、图像输出或图像生成节点）
+    return !((from?.kind === "output" || from?.kind === "generate") && from.mediaType === "video");
   }
   if (toPort === "video" || toPort === "audio") {
+    // 时间线节点：视频轨只接收视频，音频轨只接收音频素材
+    if (to?.kind === "timeline") {
+      if (toPort === "video") {
+        if (from?.kind === "media") {
+          return from.mediaKind === "video";
+        }
+        return (from?.kind === "generate" || from?.kind === "output") && from.mediaType === "video";
+      }
+      return from?.kind === "media" && from.mediaKind === "audio";
+    }
     // 参考素材入端口：只有视频生成节点提供，且素材类型必须与端口一致。
-    // 素材来源既可以是上传的媒体节点，也可以是同类型（视频）的生成产物
     if (!(to?.kind === "generate" && to.mediaType === "video")) {
       return false;
     }
     if (from?.kind === "media") {
       return from.mediaKind === toPort;
     }
+    // 时间线导出即视频，可作为视频生成节点的参考视频输入
+    if (from?.kind === "timeline") {
+      return toPort === "video";
+    }
     return from?.kind === "output" && from.mediaType === toPort;
   }
   if (toPort === "result") {
-    // 结果入端口：目标输出节点已定型为另一媒体类型时不兼容
+    // 结果入端口：目标输出节点已定型为另一媒体类型时不兼容（兼容旧数据）
     if (to?.kind === "output" && to.mediaType && from?.kind === "generate" && from.mediaType && to.mediaType !== from.mediaType) {
       return false;
     }
@@ -218,15 +268,21 @@ export function isGraphPortCompatibleTarget(
     return false;
   }
   if (targetPort === "video" || targetPort === "audio") {
-    return sourceKind === "media" && sourceMediaKind === targetPort;
+    // 时间线节点：视频轨接受视频来源，音频轨只接受音频素材
+    if (targetKind === "timeline") {
+      if (targetPort === "video") {
+        return sourceKind === "media" ? sourceMediaKind === "video" : sourceKind === "generate" || sourceKind === "output";
+      }
+      return sourceKind === "media" && sourceMediaKind === "audio";
+    }
+    // 素材端口：媒体节点按素材类型匹配；生成节点可能产出视频，允许高亮，
+    // 最终是否可连仍由 canConnectGraphNodes 的媒体类型校验决定
+    return (sourceKind === "media" && sourceMediaKind === targetPort) || sourceKind === "generate";
   }
   return GRAPH_CONNECTION_RULES[sourceKind].some(
     (rule) => rule.toKind === targetKind && rule.toPort === targetPort,
   );
 }
-
-// 生成节点输入汇聚的参考图上限：与后端 maxMediaVideoInputImages 保持一致
-export const MAX_MEDIA_REFERENCE_COUNT = 7;
 
 // ---------------------------------------------------------------------------
 // 上游连接清单：生成节点内按行展示每个入端口已连接的内容（色点标识来源类型）
@@ -269,6 +325,8 @@ export function graphConnectionLabel(node: GraphNode, fallback: string): string 
       return node.model ? graphModelDisplayName(node.model) : fallback;
     case "output":
       return (node.status === "done" ? node.fileName : null) || node.prompt?.trim() || fallback;
+    case "timeline":
+      return fallback;
   }
 }
 
@@ -290,12 +348,25 @@ export type GraphGenerateInputs = {
   outputEdges: GraphEdge[];
 };
 
-function referenceOfNode(node: GraphNode): GraphReference | null {
+function referenceOfNode(node: GraphNode, nodeByID: ReadonlyMap<string, GraphNode>): GraphReference | null {
   if (node.kind === "image" && node.reference) {
     return node.reference;
   }
   if (node.kind === "media" && node.reference) {
     return node.reference;
+  }
+  if (node.kind === "generate") {
+    // 生成节点作为参考来源时取最近一次成功产物（输出节点已吸收进生成节点卡片）
+    const latest = [...nodeByID.values()]
+      .filter((item): item is OutputGraphNode => item.kind === "output" && item.sourceGenerateID === node.id && item.status === "done" && Boolean(item.fileID))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .at(-1);
+    return latest ? {
+      fileID: latest.fileID ?? "",
+      fileName: latest.fileName ?? "image.png",
+      mimeType: latest.mimeType ?? "image/png",
+      sizeBytes: latest.sizeBytes ?? 0,
+    } : null;
   }
   if (node.kind === "output" && node.status === "done" && node.fileID) {
     return {
@@ -335,7 +406,7 @@ export function gatherGraphGenerateInputs(
     }
     if (edge.toNodeID === generateNodeID && edge.toPort === "image") {
       const source = nodeByID.get(edge.fromNodeID);
-      const reference = source ? referenceOfNode(source) : null;
+      const reference = source ? referenceOfNode(source, nodeByID) : null;
       if (reference && !references.some((item) => item.fileID === reference.fileID)) {
         references.push(reference);
         referenceSourceIDs.push(edge.fromNodeID);
@@ -343,7 +414,7 @@ export function gatherGraphGenerateInputs(
     }
     if (edge.toNodeID === generateNodeID && edge.toPort === "video") {
       const source = nodeByID.get(edge.fromNodeID);
-      const reference = source ? referenceOfNode(source) : null;
+      const reference = source ? referenceOfNode(source, nodeByID) : null;
       if (reference && !videoReferences.some((item) => item.fileID === reference.fileID)) {
         videoReferences.push(reference);
         videoReferenceSourceIDs.push(edge.fromNodeID);
@@ -351,7 +422,7 @@ export function gatherGraphGenerateInputs(
     }
     if (edge.toNodeID === generateNodeID && edge.toPort === "audio") {
       const source = nodeByID.get(edge.fromNodeID);
-      const reference = source ? referenceOfNode(source) : null;
+      const reference = source ? referenceOfNode(source, nodeByID) : null;
       if (reference && !audioReferences.some((item) => item.fileID === reference.fileID)) {
         audioReferences.push(reference);
         audioReferenceSourceIDs.push(edge.fromNodeID);

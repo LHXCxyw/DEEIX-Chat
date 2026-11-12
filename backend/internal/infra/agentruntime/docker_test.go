@@ -61,6 +61,23 @@ func assertCleanup(t *testing.T, f *fakeRunner, name string) {
 		t.Fatalf("清理不符: %v", f.calls)
 	}
 }
+
+// TestCleanupTreatsMissingContainerAsSuccess 覆盖容器被外部回收后的清理判定：
+// Docker 明确报告容器不存在时必须视为清理成功，否则租约会被永久保留，槽位无法再用。
+func TestCleanupTreatsMissingContainerAsSuccess(t *testing.T) {
+	f := &fakeRunner{onRun: func(_ context.Context, args []string, _ io.Reader, out io.Writer) error {
+		if args[0] == "rm" {
+			_, _ = io.WriteString(out, "Error response from daemon: No such container: deadbeef")
+			return errors.New("exit status 1")
+		}
+		return defaultRun(args, out)
+	}}
+	result, err := adapter(t, f).Execute(context.Background(), request())
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("容器已被外部回收时应视为清理成功: %+v %v", result, err)
+	}
+}
+
 func TestSecurityArgumentsAndInput(t *testing.T) {
 	f := &fakeRunner{onRun: func(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
 		if args[0] == "start" {

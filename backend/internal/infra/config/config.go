@@ -474,6 +474,8 @@ type Config struct {
 	StorageS3AccessKeyID       string
 	StorageS3SecretAccessKey   string
 	StorageS3ForcePathStyle    bool
+	// FFmpegPath 是时间线视频拼接使用的 ffmpeg 可执行文件路径；空值表示从 PATH 查找。
+	FFmpegPath                 string
 	AdminUsername              string
 	AdminDisplayName           string
 	GeoIPProvider              string
@@ -734,6 +736,7 @@ func Load() Config {
 		StorageS3AccessKeyID:         envOr("STORAGE_S3_ACCESS_KEY_ID", yc.Storage.S3.AccessKeyID, ""),
 		StorageS3SecretAccessKey:     envOr("STORAGE_S3_SECRET_ACCESS_KEY", yc.Storage.S3.SecretAccessKey, ""),
 		StorageS3ForcePathStyle:      envOrBoolPtr("STORAGE_S3_FORCE_PATH_STYLE", yc.Storage.S3.ForcePathStyle, true),
+		FFmpegPath:                   envOr("FFMPEG_PATH", "", ""),
 		AdminUsername:                defaultAdminUsername,
 		AdminDisplayName:             defaultAdminDisplayName,
 		GeoIPProvider:                envOr("GEOIP_PROVIDER", yc.GeoIP.Provider, "ipwhois"),

@@ -145,6 +145,10 @@ func TestWorkspaceCommandAuthorizationPersistenceAndReplay(t *testing.T) {
 			} else if err == nil {
 				t.Fatal("应拒绝或报告失败")
 			}
+			// 除执行器崩溃外，任何失败都必须归还槽位，否则一次异常就会让命令与浏览器永久繁忙。
+			if repo.lease.Token != "" {
+				t.Fatalf("槽位未释放: %+v", repo.lease)
+			}
 			if scenario == "success" || scenario == "uncertain" {
 				if scenario == "uncertain" && repo.item.Status != operation.Uncertain {
 					t.Fatal(repo.item.Status)

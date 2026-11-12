@@ -134,7 +134,6 @@ var sendMessageErrorStatuses = []sendMessageErrorStatus{
 	{err: appconversation.ErrMediaImageEditInputInvalid, status: http.StatusBadRequest},
 	{err: appconversation.ErrMediaVideoPromptRequired, status: http.StatusBadRequest},
 	{err: appconversation.ErrMediaVideoInputInvalid, status: http.StatusBadRequest},
-	{err: appconversation.ErrMediaVideoTooManyInputs, status: http.StatusBadRequest},
 	{err: appconversation.ErrMediaRouteProtocolMismatch, status: http.StatusServiceUnavailable},
 	{err: appconversation.ErrMediaRequeryUnavailable, status: http.StatusConflict},
 	{err: appconversation.ErrMediaVideoPollTimeout, status: http.StatusGatewayTimeout},

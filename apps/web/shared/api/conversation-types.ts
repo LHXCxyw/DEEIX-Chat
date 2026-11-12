@@ -389,7 +389,9 @@ export type StreamMessageEvent =
       type: "media_image_delta";
       seq?: number;
       index?: number;
-      b64_json: string;
+      // 完整图片通常以 base64 内联下发；上游只返回地址时用 url 预览，二选一。
+      b64_json?: string;
+      url?: string;
       mime_type?: string;
       revised_prompt?: string;
     }

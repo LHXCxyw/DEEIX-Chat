@@ -60,10 +60,14 @@ class DeploymentLayoutTests(unittest.TestCase):
                          'AGENT_DOCKER_CERT_PATH', 'AGENT_DOCKER_ALLOW_INSECURE_TCP',
                          '3700:8080', './data/storage:/app/storage', './data/app:/app/data',
                          './data/agent-deploy:/run/deeix-config:ro',
-                         'condition: service_completed_successfully', 'condition: service_healthy'):
+                         'condition: service_healthy'):
             self.assertIn(expected, app)
+        # 一次性服务已移入 profile，app 不再依赖它们，up 不会创建停止的辅助容器
+        for absent in ('config-init', 'agent-command', 'agent-browser'):
+            self.assertNotIn(absent, app)
         init = self.services['config-init']
-        for expected in ('image: deeix-chat:local', 'command: ["config"]', '.:/repository', 'network_mode: none'):
+        for expected in ('image: deeix-chat:local', 'command: ["config"]', '.:/repository',
+                         'network_mode: none', 'profiles: ["init"]'):
             self.assertIn(expected, init)
 
     def test_supporting_services_use_official_images_and_build_only_agents(self):
@@ -76,10 +80,12 @@ class DeploymentLayoutTests(unittest.TestCase):
         command = self.services['agent-command']
         self.assertIn('context: deploy/services/agent-command', command)
         self.assertIn('image: deeix-agent-command:local', command)
+        self.assertIn('profiles: ["build-only"]', command)
         browser = self.services['agent-browser']
         self.assertIn('context: deploy/services/agent-browser', browser)
         self.assertIn('target: project-browser', browser)
         self.assertIn('image: deeix-agent-browser:local', browser)
+        self.assertIn('profiles: ["build-only"]', browser)
 
     def test_one_click_has_only_config_and_app_modes(self):
         modes = set(re.findall(r'^  ([a-z][a-z-]*)\)\s*$', self.entry, re.MULTILINE))

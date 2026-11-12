@@ -31,9 +31,19 @@ func (s *Service) beginDeletion(ctx context.Context, user uint, publicID string,
 	for _, item := range items {
 		targets[item.PublicID] = true
 	}
+	// 先记录被删除会话自身的活跃 Run，再发起停止；用于判断停止后是否仍有残留执行。
+	targetRuns, err := s.activeTargetRuns(ctx, user, targets)
+	if err != nil {
+		return errors.Join(ErrDeletionPending, err)
+	}
 	if err := s.stopDeletedGenerations(ctx, user, targets); err != nil {
 		return err
 	}
+	activeRuns, err := s.activeTargetRuns(ctx, user, targets)
+	if err != nil {
+		return errors.Join(ErrDeletionPending, err)
+	}
+	now := time.Now().UTC()
 	for _, runtime := range []*agentCommandRuntime{s.agentRuntime, s.screenshotRuntime, s.projectBrowserRuntime} {
 		if runtime == nil {
 			continue
@@ -47,12 +57,47 @@ func (s *Service) beginDeletion(ctx context.Context, user uint, publicID string,
 			return errors.Join(ErrDeletionPending, err)
 		}
 		for _, slot := range slots {
-			if slot.OwnerUserID == user {
+			// 只阻塞被删除会话自身的执行；同用户其他会话的槽位不再阻塞删除。
+			// 已过期且未绑定容器的残留由回收 worker 处理，不应卡住删除。
+			if slot.OwnerUserID != user || (!targetRuns[slot.OperationRunID] && !activeRuns[slot.OperationRunID]) {
+				continue
+			}
+			if slot.LeaseUntil.After(now) || slot.Identity.ID != "" {
 				return ErrDeletionPending
 			}
 		}
+		// 三个执行器共享同一张槽位表，只需检查一次。
+		break
 	}
 	return nil
+}
+
+// activeTargetRuns 汇总目标会话当前活跃的 Run：内存执行表与持久化订阅表都要覆盖。
+func (s *Service) activeTargetRuns(ctx context.Context, user uint, targets map[string]bool) (map[string]bool, error) {
+	runs := make(map[string]bool)
+	r := s.generationStreams
+	if r == nil {
+		return runs, nil
+	}
+	r.mu.Lock()
+	for id, active := range r.executing {
+		if active != nil && active.userID == user && targets[active.conversationID] {
+			runs[id] = true
+		}
+	}
+	r.mu.Unlock()
+	if r.store != nil {
+		stored, err := r.store.ListActiveGenerationStreams(ctx, user)
+		if err != nil {
+			return nil, err
+		}
+		for _, active := range stored {
+			if targets[active.ConversationPublicID] {
+				runs[active.RunID] = true
+			}
+		}
+	}
+	return runs, nil
 }
 
 func (s *Service) registerDeletionSafeGeneration(ctx context.Context, runID string, user uint, publicID string, cancel context.CancelFunc) error {

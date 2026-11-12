@@ -167,6 +167,29 @@ export async function listFiles(
   return { ...result, results: result.results.map(withDisplayFileName) };
 }
 
+// 时间线片段：fileID + 源视频内的起止秒数（end <= start 表示整段）
+export type TimelineConcatSegment = { fileID: string; start?: number; end?: number };
+// 独立音频轨片段：timelineStart 为时间线起点，缺省时按顺序紧接上一段
+export type TimelineConcatAudioSegment = { fileID: string; start?: number; end?: number; timelineStart?: number };
+export type TimelineConcatResult = { fileID: string; fileName: string; mimeType: string; sizeBytes: number };
+
+// 时间线拼接：后端用 ffmpeg 按顺序裁剪并拼接多个视频，返回新的平台文件
+export async function concatTimeline(
+  accessToken: string,
+  segments: TimelineConcatSegment[],
+  audioSegments: TimelineConcatAudioSegment[] = [],
+): Promise<TimelineConcatResult> {
+  return authedRequest<TimelineConcatResult>(
+    "/api/v1/media/timeline/concat",
+    {
+      method: "POST",
+      accessToken,
+      body: audioSegments.length > 0 ? { segments, audioSegments } : { segments },
+    },
+    true,
+  );
+}
+
 export async function deleteFile(accessToken: string, fileID: string): Promise<DeleteFileResult> {
   return authedRequest<DeleteFileResult>(
     `/api/v1/files/${pathParam(fileID)}`,

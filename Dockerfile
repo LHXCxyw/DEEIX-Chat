@@ -91,6 +91,12 @@ FROM debian:bookworm-slim AS runtime
 
 WORKDIR /app
 
+# 时间线视频拼接依赖 ffmpeg：装进运行镜像后，后端默认从 PATH 找到 /usr/bin/ffmpeg。
+# 若使用外部 ffmpeg，可通过 FFMPEG_PATH 指定绝对路径覆盖。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=runtime-deps /etc/ssl/certs /etc/ssl/certs
 COPY --from=runtime-deps /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=runtime-deps /etc/localtime /etc/localtime

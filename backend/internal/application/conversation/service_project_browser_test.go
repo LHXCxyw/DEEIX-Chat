@@ -38,7 +38,7 @@ func (e *projectBrowserExecutor) Execute(ctx context.Context, r runtime.Request)
 	return runtime.Result{ExitCode: 0, Output: out}, e.err
 }
 func TestProjectBrowserDeliveryAndApproval(t *testing.T) {
-	for _, scenario := range []string{"成功", "manual", "auto", "hash错误", "路径穿越", "权限拒绝", "清理失败", "容量拒绝", "附件失败"} {
+	for _, scenario := range []string{"成功", "非网页文件", "manual", "auto", "hash错误", "路径穿越", "权限拒绝", "清理失败", "容量拒绝", "附件失败"} {
 		t.Run(scenario, func(t *testing.T) {
 			html := "<script src=\"app.js\"></script>"
 			js := "document.body.textContent='ok'"
@@ -57,6 +57,9 @@ func TestProjectBrowserDeliveryAndApproval(t *testing.T) {
 			}
 			input := ExecuteToolInput{UserID: 1, ConversationID: 3, MessageID: 5, RunID: "run", ToolCallID: "browser", ToolName: "project_browser_run", ArgumentsJSON: `{"entry":"index.html","actions":[{"type":"dom"},{"type":"screenshot"}]}`, AgentPermissions: AgentPermissions{Mode: "full", ExecuteCode: true}}
 			switch scenario {
+			case "非网页文件":
+				// 工作区混入 README 等非网页文件时只跳过它们，不应让浏览器能力整体失败。
+				repo.files = append(repo.files, model.ProjectFile{EntryType: "file", RelativePath: "README.md", StorageKey: "readme", SHA256: commandHash([]byte("# 文档"))})
 			case "manual", "auto":
 				input.AgentPermissions.Mode = scenario
 				service.toolApprovals = &approvalTestRepo{onCreate: func(item *repository.ToolApproval) { item.Status = "denied" }}
@@ -74,7 +77,7 @@ func TestProjectBrowserDeliveryAndApproval(t *testing.T) {
 				repo.attachErr = errors.New("附件失败")
 			}
 			output, err := service.executeToolCallSafely(t.Context(), input)
-			if scenario == "成功" {
+			if scenario == "成功" || scenario == "非网页文件" {
 				if err != nil || len(repo.attachment) != 1 || !strings.Contains(output, `"javascript":true`) || strings.Contains(output, `"data"`) || ops.lease.Token != "" {
 					t.Fatalf("%s %v", output, err)
 				}

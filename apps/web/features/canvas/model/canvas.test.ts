@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canConnectGraphNodes, createUserPromptTemplate, gatherGraphGenerateInputs, graphEdgeMidpoint, graphEdgePath, graphMediaCompatible, graphNodePorts, graphPortCanvasPosition, isGraphPortCompatibleTarget, isPromptGraphNode, loadPromptTemplates, MAX_MEDIA_REFERENCE_COUNT, promptNodeTruncated } from "./canvas-graph.ts";
+import { canConnectGraphNodes, createUserPromptTemplate, gatherGraphGenerateInputs, graphEdgeMidpoint, graphEdgePath, graphMediaCompatible, graphNodePorts, graphPortCanvasPosition, isGraphPortCompatibleTarget, isPromptGraphNode, loadPromptTemplates, promptNodeTruncated } from "./canvas-graph.ts";
 import { editorSizeOptions, modelCanvasMediaType, resolveCanvasMediaRoute, resolveCanvasVideoControls } from "./canvas-image-options.ts";
 import { activeElasticDecorationForElement, canvasElementIDsCarriedByDecoration, canvasElementIDsCarriedByFrame, canvasElementIDsInRegion, elasticCanvasBounds, frameFitBounds, frameUnionBounds, isCanvasElementCenterInside, isCanvasElementInside, nextCanvasVersion, refitFrameDecorations, selectedNodeIDsForFilter, shouldDetachElasticBoundary, stableFrameIDForElement, trappedFocusIndex, viewportForCanvasKey } from "./canvas-interactions.ts";
 import { clampViewportScale, legacyNodeToGraphNodes, parseCanvasState, restoreEdges, restoreGraphNodes, stringifyCanvasState, toPersistedEdges, toPersistedGraphNodes, toPersistedNodes, zoomViewportAt } from "./canvas-persist.ts";
@@ -106,13 +106,13 @@ test("Frame 按元素中心点承载，Section 仅分区不承载", () => {
 
   assert.equal(isCanvasElementCenterInside(bounds, elements[1]), true);
   assert.deepEqual([...canvasElementIDsCarriedByDecoration({ ...bounds, kind: "frame" }, elements)], ["inside", "center-inside"]);
-  assert.deepEqual([...canvasElementIDsCarriedByDecoration({ ...bounds, kind: "section" }, elements)], []);
+  assert.deepEqual([...canvasElementIDsCarriedByDecoration({ ...bounds, kind: "note" }, elements)], []);
   assert.deepEqual([...canvasElementIDsInRegion(bounds, elements)], ["inside", "center-inside"]);
 });
 
-test("卡片从外部进入时动态激活面积最小的 Frame 或 Section", () => {
+test("卡片从外部进入时动态激活面积最小的组", () => {
   const decorations = [
-    { id: "section", kind: "section" as const, x: 0, y: 0, width: 500, height: 500 },
+    { id: "note", kind: "note" as const, x: 0, y: 0, width: 500, height: 500 },
     { id: "frame", kind: "frame" as const, x: 100, y: 100, width: 200, height: 200 },
     { id: "locked", kind: "frame" as const, x: 120, y: 120, width: 100, height: 100, locked: true },
   ];
@@ -274,15 +274,16 @@ test("Frame 边界辅助：成员包围盒与仅向外扩展", () => {
   assert.deepEqual(union, { x: 0, y: -44, width: 574, height: 444 });
 });
 
-test("Frame 归属与 Section 折叠状态可持久化恢复", () => {
+test("组归属与折叠状态可持久化恢复，旧分区装饰在读取时被丢弃", () => {
   const restored = parseCanvasState(JSON.stringify({
     viewport: { x: 0, y: 0, scale: 1 }, pointerMode: "pan", imageOptions: {},
     nodes: [{ id: "node", x: 0, y: 0, prompt: "p", model: "m", status: "done", fileID: "f", frameID: "frame" }],
-    decorations: [{ id: "frame", kind: "frame", x: 0, y: 0, width: 400, height: 400 }, { id: "section", kind: "section", x: 0, y: 0, width: 400, height: 400, collapsed: true }],
+    decorations: [{ id: "frame", kind: "frame", x: 0, y: 0, width: 400, height: 400, collapsed: true }, { id: "section", kind: "section", x: 0, y: 0, width: 400, height: 400, collapsed: true }],
   }));
 
   assert.equal(restored?.nodes?.[0]?.frameID, "frame");
-  assert.equal(restored?.decorations?.find((item) => item.id === "section")?.collapsed, true);
+  assert.equal(restored?.decorations?.find((item) => item.id === "frame")?.collapsed, true);
+  assert.equal(restored?.decorations?.some((item) => item.id === "section"), false);
 });
 
 test("节点 frameID 在保存与解析往返中不丢失（折叠 Frame 成员重载后仍隐藏）", () => {
@@ -431,9 +432,10 @@ test("生成节点输入汇聚：多提示词按序拼接，参考图去重收�
 
 test("端口几何按固定偏移定位，连线为带控制点的贝塞尔路径", () => {
   const promptNode = { kind: "prompt" as const, x: 100, y: 200 };
-  const size = { width: 288 };
+  const size = { width: 288, height: 224 };
   const out = graphPortCanvasPosition(promptNode, "out", size);
-  assert.deepEqual(out, { x: 388, y: 260 });
+  // 单连接点：出线统一从节点右缘中点引出
+  assert.deepEqual(out, { x: 388, y: 312 });
   assert.equal(graphPortCanvasPosition(promptNode, "result", size), null);
   // 每类节点都有出端口，生成节点具备 prompt/image 两个入端口
   assert.ok(graphNodePorts("prompt").some((port) => port.id === "out"));
@@ -568,7 +570,6 @@ test("运行中的输出节点持久化往返保留运行引用，不被降级�
 });
 
 test("媒体类型连线规则：视频输出不可作参考图，图像生成不可写入视频输出节点", () => {
-  assert.equal(MAX_MEDIA_REFERENCE_COUNT, 7);
   // 视频输出 -> 生成节点参考图端口：拒绝
   assert.equal(graphMediaCompatible(
     { kind: "output", mediaType: "video" },
@@ -644,10 +645,10 @@ test("视频模型路由判定与参数控件解析", () => {
   assert.equal(modelCanvasMediaType(videoModel), "video");
   assert.equal(modelCanvasMediaType(imageModel), "image");
 
-  // 视频路由：模型与参考图数量合法时放行，超过 7 张拒绝
+  // 视频路由：模型可用即放行，参考素材数量不在平台侧拦截
   assert.deepEqual(resolveCanvasMediaRoute(videoModel, "video", 0), { route: "video_generation", blockedReason: null });
   assert.deepEqual(resolveCanvasMediaRoute(videoModel, "video", 7), { route: "video_generation", blockedReason: null });
-  assert.equal(resolveCanvasMediaRoute(videoModel, "video", 8).blockedReason, "video_too_many_references");
+  assert.deepEqual(resolveCanvasMediaRoute(videoModel, "video", 12), { route: "video_generation", blockedReason: null });
   // 图像模型不能走视频路由
   assert.equal(resolveCanvasMediaRoute(imageModel, "video", 0).blockedReason, "video_unsupported");
 

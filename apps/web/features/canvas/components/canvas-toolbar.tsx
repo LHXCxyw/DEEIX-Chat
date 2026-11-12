@@ -2,7 +2,6 @@
 
 import {
   Bookmark,
-  CircleHelp,
   FileDown,
   FileUp,
   Frame,
@@ -13,14 +12,12 @@ import {
   Menu,
   MessageSquareText,
   Minus,
-  PanelTop,
   Plus,
   Redo2,
   Scan,
   SquareDashedMousePointer,
   Trash2,
   Undo2,
-  Workflow,
   X
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -28,13 +25,14 @@ import * as React from "react";
 
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CanvasSettingsMenu } from "@/features/canvas/components/canvas-settings-menu";
+import type { CanvasModelOption } from "@/features/canvas/model/canvas-image-options";
 import { CANVAS_TOOLBAR_ACTIONS } from "@/features/canvas/model/canvas-node-registry";
 import {
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
   type CanvasNodeMediaHint,
   type CanvasPointerMode,
-  type CanvasViewMode,
   type CanvasViewport,
   type GraphNodeKind,
 } from "@/features/canvas/model/canvas-types";
@@ -87,8 +85,6 @@ export function CanvasToolbar({
   generatingCount,
   pointerMode,
   onPointerModeChange,
-  viewMode,
-  onViewModeChange,
   onZoom,
   onReset,
   canUndo,
@@ -98,7 +94,6 @@ export function CanvasToolbar({
   selectedCount,
   onAddNode,
   onAddFrame,
-  onAddSection,
   onAddNote,
   onLock,
   onBookmark,
@@ -108,15 +103,13 @@ export function CanvasToolbar({
   onHistory,
   onFit,
   onClear,
+  textModels,
 }: {
   viewport: CanvasViewport;
   nodeCount: number;
   generatingCount: number;
   pointerMode: CanvasPointerMode;
   onPointerModeChange: (mode: CanvasPointerMode) => void;
-  // 使用模式（对话/节点图）：PC 与移动端均可自选
-  viewMode: CanvasViewMode;
-  onViewModeChange: (mode: CanvasViewMode) => void;
   onZoom: (direction: "in" | "out") => void;
   onReset: () => void;
   canUndo: boolean;
@@ -126,7 +119,6 @@ export function CanvasToolbar({
   selectedCount: number;
   onAddNode: (kind: GraphNodeKind, mediaType?: CanvasNodeMediaHint) => void;
   onAddFrame: () => void;
-  onAddSection: () => void;
   onAddNote: () => void;
   onLock: () => void;
   onBookmark: () => void;
@@ -136,6 +128,8 @@ export function CanvasToolbar({
   onHistory: () => void;
   onFit: () => void;
   onClear: () => void;
+  // 提示词优化可选的文本模型
+  textModels: CanvasModelOption[];
 }) {
   const t = useTranslations("canvas");
   const [mobileToolsOpen, setMobileToolsOpen] = React.useState(false);
@@ -215,39 +209,26 @@ export function CanvasToolbar({
       </button>
 
       <div className="pointer-events-auto flex min-w-0 max-w-[calc(100vw-4rem)] items-center gap-1 overflow-x-auto overscroll-x-contain sm:max-w-[calc(100vw-5rem)] sm:gap-2">
-        {/* 使用模式切换：对话 / 节点图（PC 与移动端均可自选，移动端默认对话） */}
-        <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border/70 bg-background/80 p-1.5 shadow-sm backdrop-blur-xl">
-          <ToolbarButton
-            label={t("viewModeChat")}
-            description={t("toolbarViewModeChat")}
-            active={viewMode === "chat"}
-            onClick={() => onViewModeChange("chat")}
-          >
-            <MessageSquareText className="size-4" strokeWidth={1.8} />
-          </ToolbarButton>
-          <ToolbarButton
-            label={t("viewModeGraph")}
-            description={t("toolbarViewModeGraph")}
-            active={viewMode === "graph"}
-            onClick={() => onViewModeChange("graph")}
-          >
-            <Workflow className="size-4" strokeWidth={1.8} />
-          </ToolbarButton>
-        </div>
         {/* 节点添加组 */}
         <div className="hidden items-center gap-0.5 rounded-xl border border-border/70 bg-background/80 px-1.5 py-1.5 shadow-sm backdrop-blur-xl lg:flex">
           {renderNodeActions("sm")}
         </div>
         <div className="hidden items-center gap-0.5 rounded-xl border border-border/70 bg-background/80 p-1.5 shadow-sm backdrop-blur-xl xl:flex">
+          <ToolbarButton label={t("undo")} onClick={onUndo} disabled={!canUndo}><Undo2 className="size-4" strokeWidth={1.8} /></ToolbarButton>
+          <ToolbarButton label={t("redo")} onClick={onRedo} disabled={!canRedo}><Redo2 className="size-4" strokeWidth={1.8} /></ToolbarButton>
+          <div className="mx-0.5 h-4 w-px bg-border" />
           <ToolbarButton label={t("projects")} description={t("toolbarProjects")} onClick={onProjectPanel}><GalleryVerticalEnd className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("addFrame")} description={t("toolbarFrame")} onClick={onAddFrame}><Frame className="size-4" /></ToolbarButton>
-          <ToolbarButton label={t("addSection")} description={t("toolbarSection")} onClick={onAddSection}><PanelTop className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("addNote")} description={t("toolbarNote")} onClick={onAddNote}><MessageSquareText className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("lock")} description={t("toolbarLock")} disabled={selectedCount === 0} onClick={onLock}><Lock className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("bookmark")} description={t("toolbarBookmark")} onClick={onBookmark}><Bookmark className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("history")} description={t("toolbarHistory")} onClick={onHistory}><History className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("exportProject")} description={t("toolbarExport")} onClick={onExportProject}><FileDown className="size-4" /></ToolbarButton>
           <ToolbarButton label={t("importProject")} description={t("toolbarImport")} onClick={onImportProject}><FileUp className="size-4" /></ToolbarButton>
+        </div>
+        {/* 右上角菜单：提示词优化配置与快捷键面板 */}
+        <div className="flex shrink-0 items-center rounded-xl border border-border/70 bg-background/80 p-1 shadow-sm backdrop-blur-xl">
+          <CanvasSettingsMenu shortcuts={shortcuts} textModels={textModels} />
         </div>
         <Popover open={mobileToolsOpen} onOpenChange={setMobileToolsOpen}>
           <div className="flex items-center rounded-xl border border-border/70 bg-background/80 p-1.5 shadow-sm backdrop-blur-xl xl:hidden">
@@ -277,7 +258,7 @@ export function CanvasToolbar({
             <div className="my-1 h-px bg-border" />
             {([
               [t("undo"), onUndo, Undo2, !canUndo], [t("redo"), onRedo, Redo2, !canRedo],
-              [t("projects"), onProjectPanel, GalleryVerticalEnd, false], [t("addFrame"), onAddFrame, Frame, false], [t("addSection"), onAddSection, PanelTop, false], [t("addNote"), onAddNote, MessageSquareText, false],
+              [t("projects"), onProjectPanel, GalleryVerticalEnd, false], [t("addFrame"), onAddFrame, Frame, false], [t("addNote"), onAddNote, MessageSquareText, false],
               [t("lock"), onLock, Lock, selectedCount === 0],
               [t("bookmark"), onBookmark, Bookmark, false], [t("history"), onHistory, History, false], [t("exportProject"), onExportProject, FileDown, false], [t("importProject"), onImportProject, FileUp, false],
             ] satisfies Array<[string, () => void, React.ComponentType<{ className?: string }>, boolean]>).map(([label, action, Icon, disabled]) => (
@@ -287,30 +268,19 @@ export function CanvasToolbar({
             ))}
           </PopoverContent>
         </Popover>
-        {/* 底部居中悬浮条：撤销/重做 + 指针模式 + 缩放（桌面端；移动端以对话输入条替代） */}
-        <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-xl border border-border/70 bg-background/85 px-1.5 py-1.5 shadow-lg backdrop-blur-xl lg:flex">
-          <ToolbarButton label={t("undo")} description={t("toolbarUndo")} disabled={!canUndo} onClick={onUndo}>
-            <Undo2 className="size-4" strokeWidth={1.8} />
-          </ToolbarButton>
-          <ToolbarButton label={t("redo")} description={t("toolbarRedo")} disabled={!canRedo} onClick={onRedo}>
-            <Redo2 className="size-4" strokeWidth={1.8} />
+        {/* 左下角悬浮工具条：指针模式 / 新建组 / 缩放（桌面端） */}
+        <div className="pointer-events-auto absolute bottom-3 left-3 z-10 hidden max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-xl border border-border/60 bg-background/80 px-1.5 py-1.5 shadow-lg backdrop-blur-xl lg:flex">
+          <ToolbarButton
+            label={pointerMode === "pan" ? t("pointerModeSelect") : t("pointerModePan")}
+            onClick={() => onPointerModeChange(pointerMode === "pan" ? "select" : "pan")}
+          >
+            {pointerMode === "pan"
+              ? <Hand className="size-4" strokeWidth={1.8} />
+              : <SquareDashedMousePointer className="size-4" strokeWidth={1.8} />}
           </ToolbarButton>
           <div className="mx-0.5 h-4 w-px bg-border" />
-          <ToolbarButton
-            label={t("pointerModePan")}
-            description={t("toolbarPan")}
-            active={pointerMode === "pan"}
-            onClick={() => onPointerModeChange("pan")}
-          >
-            <Hand className="size-4" strokeWidth={1.8} />
-          </ToolbarButton>
-          <ToolbarButton
-            label={t("pointerModeSelect")}
-            description={t("toolbarSelect")}
-            active={pointerMode === "select"}
-            onClick={() => onPointerModeChange("select")}
-          >
-            <SquareDashedMousePointer className="size-4" strokeWidth={1.8} />
+          <ToolbarButton label={t("addFrame")} onClick={onAddFrame}>
+            <Frame className="size-4" strokeWidth={1.8} />
           </ToolbarButton>
           <div className="mx-0.5 h-4 w-px bg-border" />
           <ToolbarButton label={t("zoomOut")} onClick={() => onZoom("out")} disabled={viewport.scale <= CANVAS_MIN_SCALE}>
@@ -336,24 +306,6 @@ export function CanvasToolbar({
             <Trash2 className="size-4" strokeWidth={1.8} />
           </ToolbarButton>
         </div>
-        <aside
-          data-canvas-ui="shortcut-help"
-          aria-label={t("shortcutHelp")}
-          className="pointer-events-none absolute bottom-3 left-3 hidden w-56 rounded-xl border border-border/40 bg-background/45 px-3 py-2.5 opacity-75 shadow-sm backdrop-blur-md lg:block"
-        >
-          <div className="mb-2 flex items-center gap-2 text-[10px] font-medium text-muted-foreground">
-            <CircleHelp className="size-3.5 shrink-0 text-primary/80" />
-            {t("shortcutHelp")}
-          </div>
-          <div className="grid gap-1.5">
-            {shortcuts.map(([keys, label]) => (
-              <span key={keys} className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground/80">
-                <span className="truncate">{label}</span>
-                <kbd className="shrink-0 rounded border border-border/50 bg-background/50 px-1.5 py-0.5 font-mono text-[9px] text-foreground/70">{keys}</kbd>
-              </span>
-            ))}
-          </div>
-        </aside>
       </div>
     </div>
   );

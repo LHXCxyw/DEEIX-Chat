@@ -116,7 +116,7 @@ func (s *Service) commandSnapshot(ctx context.Context, input ExecuteToolInput) (
 			continue
 		}
 		if seen[name] || len(snapshot) >= 256 {
-			return 0, nil, "", fmt.Errorf("命令快照文件数或路径无效")
+			return 0, nil, "", fmt.Errorf("命令快照最多 256 个允许的文本文件，请精简工作区文本文件后重试")
 		}
 		seen[name] = true
 		content, err := s.openAgentWorkspaceFile(ctx, &file)
@@ -130,7 +130,7 @@ func (s *Service) commandSnapshot(ctx context.Context, input ExecuteToolInput) (
 		}
 		total += len(data)
 		if len(data) > 1<<20 || total > 2<<20 {
-			return 0, nil, "", fmt.Errorf("命令快照大小超过限制")
+			return 0, nil, "", fmt.Errorf("命令快照文本内容超过 2 MiB 上限（单文件 1 MiB），请精简工作区文本文件后重试")
 		}
 		hash := commandHash(data)
 		if hash != file.SHA256 {
@@ -198,7 +198,7 @@ func (s *Service) executeWorkspaceCommand(ctx context.Context, input ExecuteTool
 	if err != nil {
 		return "", err
 	}
-	idBytes, _ := json.Marshal([]any{input.UserID, input.RunID, input.ToolCallID})
+	idBytes, _ := json.Marshal([]any{input.UserID, input.RunID, input.ToolCallID, parameters})
 	spec := operation.Spec{OwnerUserID: input.UserID, OperationID: "command-" + commandHash(idBytes), RunID: input.RunID, WorkspaceID: workspaceID, Kind: operation.Command, ParametersHash: parameters, ExpectedWorkspaceVersion: snapshotHash, PermissionScope: "execute_code:ephemeral:" + commandHash([]byte(r.image))}
 	item, err := r.repo.Create(ctx, spec)
 	if err != nil {
@@ -212,15 +212,18 @@ func (s *Service) executeWorkspaceCommand(ctx context.Context, input ExecuteTool
 	if err := r.repo.Approve(ctx, input.UserID, spec.OperationID, revision, operation.Approval{Binding: spec.Binding(), GrantedAt: now, ExpiresAt: now.Add(time.Minute)}); err != nil {
 		return "", err
 	}
-	lease, err := r.admission.AcquireCommandLease(ctx, input.UserID, spec.OperationID)
+	lease, err := s.acquireAgentCommandLease(ctx, r, input.UserID, spec.OperationID)
 	if err != nil {
 		return "", err
 	}
-	// 执行器可能在容器状态未知时崩溃；在拿到返回值前必须保持租约，fail closed。
-	releaseLease := false
+	// 取得租约后默认释放：任何提前返回或非清理类错误都必须归还槽位，
+	// 否则一次失败就会让命令与浏览器永久“繁忙不可用”。
+	releaseLease := true
 	defer func() {
 		if releaseLease {
-			err = errors.Join(err, r.admission.ReleaseCommandLease(context.Background(), lease))
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err = errors.Join(err, r.admission.ReleaseCommandLease(cleanup, lease))
 		}
 	}()
 	if err := r.repo.Transition(ctx, input.UserID, spec.OperationID, revision+1, operation.Pending, operation.Running, spec.Binding(), ""); err != nil {
@@ -231,15 +234,18 @@ func (s *Service) executeWorkspaceCommand(ctx context.Context, input ExecuteTool
 		return "", runtime.ErrUnavailable
 	}
 	if _, err := s.agentToolWorkspace(ctx, input, false); err != nil {
-		releaseLease = true
 		return "", err
 	}
-	result, execErr := r.executor.Execute(ctx, runtime.Request{BindContainer: func(bindCtx context.Context, id runtime.ContainerIdentity) error {
+	result, execErr, execPanic := runAgentExecutor(ctx, r.executor, runtime.Request{BindContainer: func(bindCtx context.Context, id runtime.ContainerIdentity) error {
 		return bindings.BindCommandContainer(bindCtx, lease, revision+2, id)
 	}, OperationID: spec.OperationID, TaskID: input.RunID, WorkspaceID: strconv.FormatUint(uint64(workspaceID), 10), Permission: runtime.Permission{TaskID: input.RunID, WorkspaceID: strconv.FormatUint(uint64(workspaceID), 10), ExecuteCode: true, Network: runtime.NetworkNone, Workspace: runtime.WorkspaceEphemeral}, Image: r.image, Command: []string{"/usr/local/bin/python3", "-I", "/opt/deeix/runner.py"}, Stdin: payload, Limits: runtime.Limits{MilliCPUs: 1000, MemoryBytes: 256 << 20, PIDs: 64, WorkspaceBytes: 64 << 20, InputBytes: 8 << 20, OutputBytes: 1 << 20, Timeout: 40 * time.Second}})
-	if !errors.Is(execErr, runtime.ErrCleanup) {
-		releaseLease = true
+	if execPanic != nil {
+		// 执行器崩溃时容器状态未知，保持租约等待核对后再继续向上传播。
+		releaseLease = false
+		panic(execPanic)
 	}
+	// 清理未确认时必须保留租约，防止未知状态的容器被并发复用；其余情况都归还槽位。
+	releaseLease = !errors.Is(execErr, runtime.ErrCleanup)
 	parsed := commandRunnerResult{ExitCode: -1}
 	if execErr == nil && (result.ExitCode != 0 || json.Unmarshal(result.Output, &parsed) != nil || parsed.Protocol != 1 || parsed.SnapshotHash != snapshotHash || parsed.PersistentChanges) {
 		execErr = fmt.Errorf("隔离 runner 返回无效或不匹配结果")

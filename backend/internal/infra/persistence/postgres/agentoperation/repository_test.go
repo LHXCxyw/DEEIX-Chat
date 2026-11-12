@@ -84,11 +84,31 @@ func testRepository(t *testing.T, db *gorm.DB) {
 	if err := db.Create(&models.AgentCommandSlot{Slot: 1, OwnerUserID: 9, OperationID: "stale-1", Token: "stale-token-1", LeaseUntil: past}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.AcquireCommandLease(ctx, 9, "same-user"); !errors.Is(err, admission.ErrBusy) {
-		t.Fatal("同一用户不能跨槽并发或复用过期租约", err)
+	// 槽位初始是两个“租约已过期且从未绑定容器”的残留：必须自动回收，否则一次异常中断
+	// 就会让命令与浏览器永久繁忙不可用。
+	reused, err := repo.AcquireCommandLease(ctx, 9, "same-user")
+	if err != nil {
+		t.Fatal("过期未绑定租约未回收", err)
 	}
-	if _, err := repo.AcquireCommandLease(ctx, 10, "expired-reuse"); !errors.Is(err, admission.ErrBusy) {
-		t.Fatal("过期租约未经确认清理不得复用", err)
+	again, err := repo.AcquireCommandLease(ctx, 9, "same-user")
+	if err != nil || again.Token != reused.Token || again.Slot != reused.Slot {
+		t.Fatalf("同一操作未幂等复用租约: %v %+v", err, again)
+	}
+	if _, err := repo.AcquireCommandLease(ctx, 9, "second-op"); !errors.Is(err, admission.ErrBusy) {
+		t.Fatal("同一用户不得跨槽并发", err)
+	}
+	second, err := repo.AcquireCommandLease(ctx, 10, "other-user")
+	if err != nil {
+		t.Fatal("回收后第二个槽位应可用", err)
+	}
+	if _, err := repo.AcquireCommandLease(ctx, 11, "third-user"); !errors.Is(err, admission.ErrBusy) {
+		t.Fatal("满额未拒绝", err)
+	}
+	if err := repo.ReleaseCommandLease(ctx, reused); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReleaseCommandLease(ctx, second); err != nil {
+		t.Fatal(err)
 	}
 	if err := db.Where("slot IN ?", []int{0, 1}).Delete(&models.AgentCommandSlot{}).Error; err != nil {
 		t.Fatal(err)

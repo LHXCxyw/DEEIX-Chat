@@ -267,21 +267,24 @@ The frontend is exported as static files, so `pnpm build` writes the browser art
 Docker deployment has one entry point. It builds the app and the command-runner and project-browser images, then starts the app with PostgreSQL and Redis. No copied config, overlay, host helper script or manually entered digest is required:
 
 ```bash
-docker compose -f docker-compose.yml build
+# Build the app image and the two build-only agent images
+docker compose -f docker-compose.yml --profile build-only build
+# First install or config rebuild only; the container is removed when it exits
+docker compose -f docker-compose.yml run --rm config-init
 docker compose -f docker-compose.yml up -d
 ```
 
-首次启动由一次性 `config-init` 自动生成根 `config.yaml` 及随机数据库密码、JWT/加密密钥；已有配置和 secret 不覆盖。旧 `data/storage`、`data/app`、`data/postgres`、`data/redis` 路径及 `3700:8080` 端口不变。缺少旧配置但存在旧数据时拒绝初始化，不重置密钥。默认本地 HTTP 配置使用 `dev`；公网部署须先配置 HTTPS、域名/CORS 并切换 `prod`，不会绕过后端生产校验。
+首次启动由一次性 `config-init` 生成根 `config.yaml` 及随机数据库密码、JWT/加密密钥；已有配置和 secret 不覆盖。旧 `data/storage`、`data/app`、`data/postgres`、`data/redis` 路径及 `3700:8080` 端口不变。缺少旧配置但存在旧数据时拒绝初始化，不重置密钥。默认本地 HTTP 配置使用 `dev`；公网部署须先配置 HTTPS、域名/CORS 并切换 `prod`，不会绕过后端生产校验。
 
-`app` 入口直接读取本地构建的 `deeix-agent-command:local` 与 `deeix-agent-browser:local`，校验镜像 ID 和 runner 标签后注入环境变量；不再使用 DinD、内部 registry、seed 或 `runtime.env`。`agent-command` 与 `agent-browser` 是 build-only 服务，启动即退出；运行中常驻容器只有 `app`、`postgres`、`redis`。
+`app` 入口直接读取本地构建的 `deeix-agent-command:local` 与 `deeix-agent-browser:local`，校验镜像 ID 和 runner 标签后注入环境变量；不再使用 DinD、内部 registry、seed 或 `runtime.env`。`agent-command` 与 `agent-browser` 属于 `build-only` profile，只构建镜像、不创建容器；`config-init` 属于 `init` profile，只在显式初始化时运行，`up -d` 只创建 `app`、`postgres`、`redis`。
 
-**执行模式：同机默认挂载宿主 `/var/run/docker.sock`，等同于把宿主高权限交给 `app`；独立节点由管理员设置 `AGENT_DOCKER_HOST`（TCP 需 TLS）和 `DEEIX_DOCKER_SOCKET=/dev/null`，不挂宿主 socket，风险面更小。** 仅面向 Linux Docker Engine，Compose >= 2.20 + BuildKit。资源能力、任务容器真实 CPU/memory/swap/pids/seccomp 限额或 Chromium sandbox 不支持时 readiness 失败。迁移仍只需原两条命令，**无需 `down -v`**。已在 Linux Docker 实测通过 Compose 启动、隔离命令执行与项目浏览器截图；公网浏览器、持久任务队列与物理清理仍未开放。完整链路和风险见 [deploy/README.md](deploy/README.md)。
+**执行模式：同机默认挂载宿主 `/var/run/docker.sock`，等同于把宿主高权限交给 `app`；独立节点由管理员设置 `AGENT_DOCKER_HOST`（TCP 需 TLS）和 `DEEIX_DOCKER_SOCKET=/dev/null`，不挂宿主 socket，风险面更小。** 仅面向 Linux Docker Engine，Compose >= 2.20 + BuildKit。资源能力、任务容器真实 CPU/memory/swap/pids/seccomp 限额或 Chromium sandbox 不支持时 readiness 失败。迁移仍只需 build + up，配置变化时补跑一次初始化，**无需 `down -v`**。已在 Linux Docker 实测通过 Compose 启动、隔离命令执行与项目浏览器截图；公网浏览器、持久任务队列与物理清理仍未开放。完整链路和风险见 [deploy/README.md](deploy/README.md)。
 
-升级前备份 `config.yaml` 和整个 `data`；更新源码后仍执行上述两条命令。修改配置后同样执行两条命令以更新快照。状态与日志：
+升级前备份 `config.yaml` 和整个 `data`；更新源码后执行 `--profile build-only build` 与 `up -d`，配置变化时再执行一次 `run --rm config-init`。状态与日志：
 
 ```bash
 docker compose -f docker-compose.yml ps -a
-docker compose -f docker-compose.yml logs --tail=100 config-init agent-command agent-browser app
+docker compose -f docker-compose.yml logs --tail=100 app
 docker compose -f docker-compose.yml logs -f app
 curl --fail http://localhost:3700/healthz
 curl --fail http://localhost:3700/readyz
@@ -289,7 +292,7 @@ curl --fail http://localhost:3700/readyz
 docker compose -f docker-compose.yml down
 ```
 
-`up -d` 返回不代表最终健康；确认本次 `config-init`、`agent-command`、`agent-browser` 退出 0，且 `postgres`/`redis`/`app` healthy，不能把升级前仍运行的旧 app 当成本次升级成功。`config-init` 是唯一挂仓库目录的可信服务，无网络、无执行 socket；任务容器不接触该挂载。不要删除数据或重置加密密钥来排错。
+`up -d` 返回不代表最终健康；确认 `postgres`/`redis`/`app` 健康，且 app 内镜像 ID 与标签校验通过，不能把升级前仍运行的旧 app 当成本次升级成功。`config-init` 是唯一挂仓库目录的可信服务，无网络、无执行 socket；任务容器不接触该挂载。不要删除数据或重置加密密钥来排错。
 
 #### Optional Installation Services
 

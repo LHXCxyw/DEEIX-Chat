@@ -30,6 +30,8 @@ import {
 } from "@/features/canvas/model/canvas-interactions";
 import {
   clearCanvasState,
+  graphEdge,
+  graphNode,
   loadCanvasState,
   restoreEdges,
   restoreGraphNodes,
@@ -38,6 +40,11 @@ import {
   toPersistedEdges,
   toPersistedGraphNodes,
 } from "@/features/canvas/model/canvas-persist";
+import {
+  canvasAssetKind,
+  promptAssetFileIDs,
+  promptForModelWithAssets,
+} from "@/features/canvas/model/canvas-prompt";
 import type { GraphNodeUpdate } from "@/features/canvas/model/canvas-types";
 import {
   CANVAS_MAX_SCALE,
@@ -67,6 +74,7 @@ import {
   type PersistedCanvasPage,
   type PersistedCanvasState,
   type PromptGraphNode,
+  type TimelineGraphNode,
 } from "@/features/canvas/model/canvas-types";
 import { parseAttachments } from "@/features/chat";
 import type { ConversationStreamOptions, MediaArtifactPendingEvent } from "@/shared/api/conversation";
@@ -121,7 +129,6 @@ export type CanvasStoreLabels = {
   editUnsupported: string;
   imageUnsupported: string;
   videoUnsupported: string;
-  videoTooManyReferences: string;
   noImageModels: string;
   missingPromptInput: string;
   videoPromptRequired: string;
@@ -232,6 +239,9 @@ type GraphSnapshot = { nodes: GraphNode[]; edges: GraphEdge[] };
 const undoStack: GraphSnapshot[] = [];
 const redoStack: GraphSnapshot[] = [];
 let nodeMoveSnapshot: GraphSnapshot | null = null;
+// 跨项目复制节点的剪贴板：内存保存完整运行时数据（含 objectURL），localStorage 兜底跨页面/刷新
+const NODE_CLIPBOARD_KEY = "deeix-canvas-node-clipboard";
+let nodeClipboardMemory: { nodes: GraphNode[]; edges: GraphEdge[] } | null = null;
 const HISTORY_LIMIT = 100;
 
 function cloneSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
@@ -322,19 +332,94 @@ function reconcileFrameMembership(nodes: GraphNode[], decorations: CanvasDecorat
       ...node,
       frameID: stableFrameIDForGraphNode(node, frames),
     })),
-    // Section 是最底层分区标记，不参与 Frame 承载（历史遗留的 frameID 一并清除）
-    decorations: decorations.map((item) => item.kind === "section"
-      ? (item.frameID ? { ...item, frameID: null } : item)
-      : item.kind === "frame" ? item : ({
-        ...item,
-        frameID: stableFrameIDForElement(item, frames),
-      })),
+    // 仅「组」承载内容；注释按中心点归属最近的组
+    decorations: decorations.map((item) => item.kind === "frame" ? item : ({
+      ...item,
+      frameID: stableFrameIDForElement(item, frames),
+    })),
   };
 }
 
 function stableFrameIDForGraphNode(node: GraphNode, frames: ReadonlyArray<CanvasDecoration>): string | null {
   const size = graphNodeSize(node);
   return stableFrameIDForElement({ ...node, width: size.width, height: size.height }, frames);
+}
+
+// 已合并进生成节点卡片的输出子节点：随来源生成节点一起删除/复制
+function absorbedOutputIDs(nodes: ReadonlyArray<GraphNode>, removed: ReadonlySet<string>): Set<string> {
+  const ids = new Set<string>();
+  for (const node of nodes) {
+    if (node.kind === "output" && node.sourceGenerateID && removed.has(node.sourceGenerateID)) {
+      ids.add(node.id);
+    }
+  }
+  return ids;
+}
+
+function dedupeReferences(items: ReadonlyArray<CanvasNodeReference>): CanvasNodeReference[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item.fileID || seen.has(item.fileID)) {
+      return false;
+    }
+    seen.add(item.fileID);
+    return true;
+  });
+}
+
+// 提示词内 @ 引用的素材与对话框上传的素材：按 MIME 归类为图像 / 视频 / 音频参考。
+// 画布上已有的节点引用作为元数据来源，避免只拿到 fileID 却不知道媒体类型。
+function promptAssetReferences(
+  node: GenerateGraphNode,
+  nodes: ReadonlyArray<GraphNode>,
+  prompt: string,
+): { images: CanvasNodeReference[]; videos: CanvasNodeReference[]; audios: CanvasNodeReference[] } {
+  const index = new Map<string, CanvasNodeReference>();
+  for (const asset of node.promptAssets ?? []) {
+    index.set(asset.fileID, asset);
+  }
+  for (const item of nodes) {
+    if (item.kind === "image" && item.reference) {
+      index.set(item.reference.fileID, item.reference);
+    }
+    if (item.kind === "media" && item.reference) {
+      index.set(item.reference.fileID, item.reference);
+    }
+    if (item.kind === "output" && item.status === "done" && item.fileID) {
+      index.set(item.fileID, {
+        fileID: item.fileID,
+        fileName: item.fileName ?? "media",
+        mimeType: item.mimeType ?? "",
+        sizeBytes: item.sizeBytes ?? 0,
+      });
+    }
+  }
+  const ids = promptAssetFileIDs(prompt);
+  for (const asset of node.promptAssets ?? []) {
+    if (!ids.includes(asset.fileID)) {
+      ids.push(asset.fileID);
+    }
+  }
+  const result = {
+    images: [] as CanvasNodeReference[],
+    videos: [] as CanvasNodeReference[],
+    audios: [] as CanvasNodeReference[],
+  };
+  for (const fileID of ids) {
+    const reference = index.get(fileID);
+    if (!reference) {
+      continue;
+    }
+    const kind = canvasAssetKind(reference.mimeType, reference.fileName);
+    if (kind === "image") {
+      result.images.push(reference);
+    } else if (kind === "video") {
+      result.videos.push(reference);
+    } else if (kind === "audio") {
+      result.audios.push(reference);
+    }
+  }
+  return result;
 }
 
 function clampScale(scale: number): number {
@@ -503,7 +588,8 @@ function setGeneratingDelta(delta: number): void {
 async function loadOutputImage(nodeID: string, fileID: string): Promise<void> {
   const cached = objectURLCache.get(fileID);
   if (cached) {
-    updateNode(nodeID, (node) => (node.kind === "output" ? { ...node, objectURL: cached, imageLoadFailed: false } : node));
+    // 本地预览已就绪：释放生成期的预览地址（可能是数 MB 的 base64）
+    updateNode(nodeID, (node) => (node.kind === "output" ? { ...node, objectURL: cached, previewURL: undefined, imageLoadFailed: false } : node));
     return;
   }
   const token = await resolveAccessToken();
@@ -518,7 +604,7 @@ async function loadOutputImage(nodeID: string, fileID: string): Promise<void> {
     updateNode(nodeID, (node) =>
       // 加载期间节点可能已被复用写入其他结果，避免旧图覆盖新引用
       node.kind === "output" && node.fileID === fileID
-        ? { ...node, objectURL, imageLoadFailed: false }
+        ? { ...node, objectURL, previewURL: undefined, imageLoadFailed: false }
         : node,
     );
   } catch {
@@ -578,46 +664,72 @@ function nextNodePosition(kind: GraphNodeKind, spawnPoint?: { x: number; y: numb
 
 // 拖到空白处自动补节点：按起拖端口推断应创建的节点，创建后立即连线。
 // reverse 表示新节点在连线的「上游」（从入端口反向拖出）。
+export type CanvasAutoConnectOption = {
+  kind: GraphNodeKind;
+  mediaType: CanvasNodeMediaHint;
+  toPort: GraphInputPort;
+  reverse: boolean;
+};
+
+// 候选创建类型：拖出后让用户选择要补哪种节点（未选择时不自动创建）
+export function canvasAutoConnectOptions(drag: {
+  fromPort: GraphPortID;
+  fromDirection: "in" | "out";
+  fromKind: GraphNodeKind;
+  fromMediaKind?: CanvasMediaKind;
+  fromMediaType?: CanvasMediaType;
+}): CanvasAutoConnectOption[] {
+  if (drag.fromDirection === "in") {
+    switch (drag.fromPort) {
+      case "prompt": return [{ kind: "prompt", mediaType: "image", toPort: "prompt", reverse: true }];
+      case "image": return [{ kind: "image", mediaType: "image", toPort: "image", reverse: true }];
+      case "video": return [{ kind: "media", mediaType: "video", toPort: "video", reverse: true }];
+      case "audio": return [{ kind: "media", mediaType: "audio", toPort: "audio", reverse: true }];
+      default: return [];
+    }
+  }
+  switch (drag.fromKind) {
+    case "prompt":
+      return [
+        { kind: "generate", mediaType: "image", toPort: "prompt", reverse: false },
+        { kind: "generate", mediaType: "video", toPort: "prompt", reverse: false },
+      ];
+    case "image":
+      return [
+        { kind: "generate", mediaType: "image", toPort: "image", reverse: false },
+        { kind: "generate", mediaType: "video", toPort: "image", reverse: false },
+      ];
+    case "media":
+      return drag.fromMediaKind === "audio"
+        ? [{ kind: "generate", mediaType: "video", toPort: "audio", reverse: false }]
+        : [
+          { kind: "generate", mediaType: "video", toPort: "video", reverse: false },
+          { kind: "timeline", mediaType: "video", toPort: "video", reverse: false },
+        ];
+    case "generate":
+    case "output":
+      return drag.fromMediaType === "video"
+        ? [
+          { kind: "generate", mediaType: "video", toPort: "video", reverse: false },
+          { kind: "timeline", mediaType: "video", toPort: "video", reverse: false },
+        ]
+        : [
+          { kind: "generate", mediaType: "image", toPort: "image", reverse: false },
+          { kind: "generate", mediaType: "video", toPort: "video", reverse: false },
+        ];
+    default:
+      return [];
+  }
+}
+
 function resolveAutoConnectPlan(drag: {
   fromPort: GraphPortID;
   fromDirection: "in" | "out";
   fromKind: GraphNodeKind;
   fromMediaKind?: CanvasMediaKind;
   fromMediaType?: CanvasMediaType;
-}): { kind: GraphNodeKind; mediaType: CanvasNodeMediaHint; toPort: GraphInputPort; reverse: boolean } | null {
-  if (drag.fromDirection === "in") {
-    // 从入端口反向拖出：补该端口对应的来源节点
-    switch (drag.fromPort) {
-      case "prompt": return { kind: "prompt", mediaType: "image", toPort: "prompt", reverse: true };
-      case "image": return { kind: "image", mediaType: "image", toPort: "image", reverse: true };
-      case "video": return { kind: "media", mediaType: "video", toPort: "video", reverse: true };
-      case "audio": return { kind: "media", mediaType: "audio", toPort: "audio", reverse: true };
-      case "result": return { kind: "generate", mediaType: "image", toPort: "result", reverse: true };
-      default: return null;
-    }
-  }
-  // 从出端口正向拖出：补下游节点
-  switch (drag.fromKind) {
-    case "prompt": return { kind: "generate", mediaType: "image", toPort: "prompt", reverse: false };
-    case "image": return { kind: "generate", mediaType: "image", toPort: "image", reverse: false };
-    case "media": return {
-      kind: "generate",
-      mediaType: "video",
-      toPort: drag.fromMediaKind === "audio" ? "audio" : "video",
-      reverse: false,
-    };
-    case "generate": return {
-      kind: "output",
-      mediaType: drag.fromMediaType === "video" ? "video" : "image",
-      toPort: "result",
-      reverse: false,
-    };
-    // 输出节点的产物回灌：视频产物接视频生成节点的参考视频端口，图像产物接参考图端口
-    case "output": return drag.fromMediaType === "video"
-      ? { kind: "generate", mediaType: "video", toPort: "video", reverse: false }
-      : { kind: "generate", mediaType: "image", toPort: "image", reverse: false };
-    default: return null;
-  }
+}): CanvasAutoConnectOption | null {
+  return canvasAutoConnectOptions(drag)[0] ?? null;
 }
 
 // 上游响应正文：服务端重新序列化后是单行 JSON，这里按 JSON 美化；非 JSON 原样返回
@@ -1104,6 +1216,14 @@ function writeGenerateResults(
   }
 }
 
+// 媒体增量按序号对应输出节点；序号缺失或越界时退回全部运行中的节点。
+function mediaDeltaTargets(outputNodeIDs: ReadonlyArray<string>, index: number | undefined): ReadonlyArray<string> {
+  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= outputNodeIDs.length) {
+    return outputNodeIDs;
+  }
+  return [outputNodeIDs[index]];
+}
+
 // 流事件回调构建：媒体状态（含视频进度百分比）与图像增量预览写入运行中的输出节点。
 // 任务创建即转交输出节点：等待/流式响应/进度都在输出节点上呈现，生成节点不再承载运行状态。
 // 产物待重试（media_artifact_pending）由会话流层统一分派，画布只需提供回调。
@@ -1143,14 +1263,21 @@ function buildStreamOptions(
       });
     },
     onMediaImageDelta: (event) => {
-      const b64 = event.b64_json.trim();
-      if (!b64) {
+      const b64 = (event.b64_json ?? "").trim();
+      const source = b64
+        ? b64.startsWith("data:")
+          ? b64
+          : `data:${event.mime_type?.trim() || "image/png"};base64,${b64}`
+        : (event.url ?? "").trim();
+      if (!source) {
         return;
       }
-      const source = b64.startsWith("data:")
-        ? b64
-        : `data:${event.mime_type?.trim() || "image/png"};base64,${b64}`;
-      updateRunningOutputs((node) => ({ ...node, previewURL: source }));
+      // 多图任务按序号落到各自输出节点，避免同一张预览覆盖所有结果位
+      for (const nodeID of mediaDeltaTargets(outputNodeIDs, event.index)) {
+        updateNode(nodeID, (node) =>
+          node.kind === "output" && node.status === "running" ? { ...node, previewURL: source } : node,
+        );
+      }
     },
     onDelta: extra.onDelta,
     onModerationBlocked: () => {
@@ -1443,9 +1570,51 @@ const canvasStoreImplementation = {
     hydrateNodeImages(nodes);
   },
 
+  // 选中节点 / 装饰时新建组：按选中范围自动撑开，把内容完整包进组内
+  frameSelection(): boolean {
+    const nodeIDs = new Set(state.selectedNodeIDs);
+    const decorationIDs = new Set(state.selectedDecorationIDs);
+    const nodes = state.nodes.filter((node) => nodeIDs.has(node.id));
+    const items = [
+      ...nodes.map((node) => ({ ...node, ...graphNodeSize(node) })),
+      ...state.decorations.filter((item) => decorationIDs.has(item.id)),
+    ];
+    if (items.length === 0) {
+      return false;
+    }
+    const minX = Math.min(...items.map((item) => item.x));
+    const minY = Math.min(...items.map((item) => item.y));
+    const maxX = Math.max(...items.map((item) => item.x + item.width));
+    const maxY = Math.max(...items.map((item) => item.y + item.height));
+    const padding = 48;
+    const frame: CanvasDecoration = {
+      id: createNodeID(),
+      kind: "frame",
+      x: minX - padding,
+      y: minY - padding - 16,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2 + 16,
+      title: "组",
+      text: "",
+      color: "indigo",
+      createdAt: Date.now(),
+      zIndex: -10,
+    };
+    recordGraphHistory(currentSnapshot());
+    setState((current) => ({
+      ...current,
+      ...reconcileFrameMembership(current.nodes, [...current.decorations, frame]),
+      selectedDecorationIDs: [frame.id],
+      selectedNodeIDs: [],
+      canUndo: true,
+      canRedo: false,
+    }));
+    return true;
+  },
+
   addDecoration(kind: CanvasDecoration["kind"], point: { x: number; y: number }): void {
     const isNote = kind === "note";
-    const item: CanvasDecoration = { id: createNodeID(), kind, x: point.x - (isNote ? 110 : 240), y: point.y - (isNote ? 70 : 160), width: isNote ? 220 : 480, height: isNote ? 140 : 320, title: kind === "frame" ? "Frame" : kind === "section" ? "Section" : "Note", text: isNote ? "Double-click to edit" : "", color: kind === "section" ? "cyan" : kind === "note" ? "amber" : "indigo", createdAt: Date.now(), zIndex: isNote ? 10 : -10 };
+    const item: CanvasDecoration = { id: createNodeID(), kind, x: point.x - (isNote ? 110 : 240), y: point.y - (isNote ? 70 : 160), width: isNote ? 220 : 480, height: isNote ? 140 : 320, title: isNote ? "注释" : "组", text: isNote ? "双击编辑文本" : "", color: isNote ? "amber" : "indigo", createdAt: Date.now(), zIndex: isNote ? 10 : -10 };
     setState((current) => ({ ...current, ...reconcileFrameMembership(current.nodes, [...current.decorations, item]), selectedDecorationIDs: [item.id], selectedNodeIDs: [] }));
   },
 
@@ -1489,6 +1658,9 @@ const canvasStoreImplementation = {
       const removedDecorationIDs = new Set(current.decorations.filter((item) => decorationIDs.has(item.id) && !item.locked).map((item) => item.id));
       if (removedNodeIDs.size === 0 && removedDecorationIDs.size === 0 && edgeIDs.size === 0) {
         return current;
+      }
+      for (const id of absorbedOutputIDs(current.nodes, removedNodeIDs)) {
+        removedNodeIDs.add(id);
       }
       const nodes = current.nodes.filter((item) => !removedNodeIDs.has(item.id));
       const edges = current.edges.filter((edge) =>
@@ -1585,10 +1757,13 @@ const canvasStoreImplementation = {
         modelScope: selectedScope.scope,
         userModelID: selectedScope.userModelID,
         options: {}, resultCount: 1,
+        prompt: "", promptAssets: [],
         operation: "generate", maskReference: null, runStatus: "idle",
       } satisfies GenerateGraphNode;
     } else if (kind === "media") {
       node = { ...base, kind: "media", mediaKind: mediaType === "audio" ? "audio" : "video", reference: null } satisfies MediaGraphNode;
+    } else if (kind === "timeline") {
+      node = { ...base, kind: "timeline", segments: [] } satisfies TimelineGraphNode;
     } else {
       node = { ...base, kind: "output", mediaType: mediaType === "video" ? "video" : undefined, status: "empty" } satisfies OutputGraphNode;
     }
@@ -1615,6 +1790,10 @@ const canvasStoreImplementation = {
   },
 
   updateGraphNode(nodeID: string, patch: GraphNodeUpdate): void {
+    // 时间线的片段 / 轨道属于结构编辑：写入撤销栈，支持误操作回退
+    if ("segments" in patch || "tracks" in patch) {
+      recordGraphHistory(currentSnapshot());
+    }
     updateNode(nodeID, (node) => ({ ...node, ...patch, id: node.id, kind: node.kind }) as GraphNode);
   },
 
@@ -1698,6 +1877,10 @@ const canvasStoreImplementation = {
     if (removed.size === 0) {
       return;
     }
+    // 输出子节点已合并进生成节点卡片：生成节点被删除时一并删除，避免留下不可见残留
+    for (const id of absorbedOutputIDs(state.nodes, removed)) {
+      removed.add(id);
+    }
     for (const nodeID of removed) {
       const controller = abortControllers.get(nodeID);
       if (controller) {
@@ -1730,19 +1913,251 @@ const canvasStoreImplementation = {
     canvasStore.removeNodes([nodeID]);
   },
 
+  // 复制副本：保留模型、参数、提示词与素材引用；运行态与任务绑定一律复位，
+  // 生成节点同时复制其输出子节点，副本整体偏移到右下方便于区分。
+  duplicateNodes(nodeIDs: string[]): void {
+    const sources = state.nodes.filter((node) => nodeIDs.includes(node.id) && !node.locked);
+    if (sources.length === 0) {
+      return;
+    }
+    const sourceIDs = new Set(sources.map((node) => node.id));
+    const outputs = state.nodes.filter((node): node is OutputGraphNode =>
+      node.kind === "output" && Boolean(node.sourceGenerateID) && sourceIDs.has(node.sourceGenerateID as string));
+    recordGraphHistory(currentSnapshot());
+    const now = Date.now();
+    const idMap = new Map<string, string>();
+    for (const node of [...sources, ...outputs]) {
+      idMap.set(node.id, createNodeID());
+    }
+    const clones: GraphNode[] = [...sources, ...outputs].map((node): GraphNode => {
+      const nextID = idMap.get(node.id) as string;
+      if (node.kind === "generate") {
+        return {
+          ...node, id: nextID, x: node.x + 48, y: node.y + 48, createdAt: now, locked: false,
+          runStatus: "idle", statusLabel: undefined, previewURL: undefined, progress: undefined,
+          errorMessage: undefined, errorDetail: undefined, conversationID: undefined, runID: undefined,
+        };
+      }
+      if (node.kind === "output") {
+        return {
+          ...node, id: nextID, x: node.x + 48, y: node.y + 48, createdAt: now, locked: false,
+          sourceGenerateID: node.sourceGenerateID ? idMap.get(node.sourceGenerateID) ?? node.sourceGenerateID : null,
+          conversationID: undefined, runID: undefined, pendingRetry: undefined, retrySaving: undefined,
+          statusLabel: undefined, progress: undefined, previewURL: undefined,
+        };
+      }
+      return { ...node, id: nextID, x: node.x + 48, y: node.y + 48, createdAt: now, locked: false };
+    });
+    setState((current) => ({
+      ...current,
+      ...reconcileFrameMembership([...current.nodes, ...clones], current.decorations),
+      selectedNodeIDs: clones.filter((node) => node.kind !== "output").map((node) => node.id),
+      selectedDecorationIDs: [],
+      selectedEdgeIDs: [],
+      canUndo: true,
+      canRedo: false,
+    }));
+  },
+
+  // 复制节点到跨项目剪贴板：内存保存运行时数据，localStorage 兜底跨页面/刷新
+  copySelectedNodes(nodeIDs: string[]): number {
+    const sources = state.nodes.filter((node) => nodeIDs.includes(node.id) && !node.locked);
+    if (sources.length === 0) {
+      return 0;
+    }
+    const ids = new Set(sources.map((node) => node.id));
+    const outputs = state.nodes.filter((node): node is OutputGraphNode =>
+      node.kind === "output" && Boolean(node.sourceGenerateID) && ids.has(node.sourceGenerateID as string));
+    const all = [...sources, ...outputs];
+    const allIDs = new Set(all.map((node) => node.id));
+    const edges = state.edges.filter((edge) => allIDs.has(edge.fromNodeID) && allIDs.has(edge.toNodeID));
+    nodeClipboardMemory = {
+      nodes: all.map((node) => ({ ...node })),
+      edges: edges.map((edge) => ({ ...edge })),
+    };
+    try {
+      window.localStorage.setItem(NODE_CLIPBOARD_KEY, JSON.stringify({
+        nodes: toPersistedGraphNodes(all),
+        edges: toPersistedEdges(edges),
+        createdAt: Date.now(),
+      }));
+    } catch {
+      // 存储不可用时仅保留内存剪贴板
+    }
+    return sources.length;
+  },
+
+  hasCopiedNodes(): boolean {
+    if (nodeClipboardMemory) {
+      return true;
+    }
+    if (typeof window === "undefined") {
+      return false;
+    }
+    try {
+      return Boolean(window.localStorage.getItem(NODE_CLIPBOARD_KEY));
+    } catch {
+      return false;
+    }
+  },
+
+  // 粘贴节点：重新分配 ID、重映射内部连线，可粘贴到其他画布项目
+  pasteCopiedNodes(point?: { x: number; y: number }): number {
+    const payload = (() => {
+      if (nodeClipboardMemory) {
+        return nodeClipboardMemory;
+      }
+      if (typeof window === "undefined") {
+        return null;
+      }
+      try {
+        const raw = window.localStorage.getItem(NODE_CLIPBOARD_KEY);
+        if (!raw) {
+          return null;
+        }
+        const parsed = JSON.parse(raw) as { nodes?: unknown; edges?: unknown };
+        const persistedNodes = (Array.isArray(parsed.nodes) ? parsed.nodes : [])
+          .flatMap((item) => {
+            const node = graphNode(item);
+            return node ? [node] : [];
+          });
+        if (persistedNodes.length === 0) {
+          return null;
+        }
+        const restoredNodes = restoreGraphNodes(persistedNodes);
+        const validIDs = new Set(restoredNodes.map((node) => node.id));
+        const persistedEdges = (Array.isArray(parsed.edges) ? parsed.edges : [])
+          .flatMap((item) => {
+            const edge = graphEdge(item, validIDs);
+            return edge ? [edge] : [];
+          });
+        return { nodes: restoredNodes, edges: restoreEdges(persistedEdges, restoredNodes) };
+      } catch {
+        return null;
+      }
+    })();
+    if (!payload || payload.nodes.length === 0) {
+      return 0;
+    }
+    const bounds = payload.nodes.reduce((box, node) => ({
+      left: Math.min(box.left, node.x),
+      top: Math.min(box.top, node.y),
+      right: Math.max(box.right, node.x + graphNodeSize(node).width),
+      bottom: Math.max(box.bottom, node.y + graphNodeSize(node).height),
+    }), { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
+    const originX = point?.x ?? bounds.left + 48;
+    const originY = point?.y ?? bounds.top + 48;
+    const offsetX = originX - bounds.left;
+    const offsetY = originY - bounds.top;
+    const idMap = new Map<string, string>();
+    for (const node of payload.nodes) {
+      idMap.set(node.id, createNodeID());
+    }
+    const now = Date.now();
+    const clones = payload.nodes.map((node): GraphNode => {
+      const nextID = idMap.get(node.id) as string;
+      const place = {
+        id: nextID,
+        x: Math.round(node.x + offsetX),
+        y: Math.round(node.y + offsetY),
+        createdAt: now,
+        locked: false,
+        frameID: null,
+      };
+      if (node.kind === "generate") {
+        return {
+          ...node, ...place,
+          runStatus: "idle", statusLabel: undefined, previewURL: undefined, progress: undefined,
+          errorMessage: undefined, errorDetail: undefined, conversationID: undefined, runID: undefined,
+        };
+      }
+      if (node.kind === "output") {
+        return {
+          ...node, ...place,
+          sourceGenerateID: node.sourceGenerateID ? idMap.get(node.sourceGenerateID) ?? null : null,
+          status: node.status === "done" && node.fileID ? "done" : "empty",
+          conversationID: undefined, runID: undefined, pendingRetry: undefined, retrySaving: undefined,
+          statusLabel: undefined, progress: undefined, previewURL: undefined,
+        };
+      }
+      if (node.kind === "timeline") {
+        // 片段来源必须在本次复制范围内，否则无法在新项目里解析
+        const segments = node.segments.flatMap((segment) => {
+          const nextSourceID = idMap.get(segment.sourceNodeID);
+          return nextSourceID ? [{ ...segment, sourceNodeID: nextSourceID }] : [];
+        });
+        return { ...node, ...place, segments };
+      }
+      return { ...node, ...place };
+    });
+    const cloneIDs = new Set(clones.map((node) => node.id));
+    const cloneEdges = payload.edges.flatMap((edge) => {
+      const fromNodeID = idMap.get(edge.fromNodeID);
+      const toNodeID = idMap.get(edge.toNodeID);
+      return fromNodeID && toNodeID && cloneIDs.has(fromNodeID) && cloneIDs.has(toNodeID)
+        ? [{ ...edge, id: createNodeID(), fromNodeID, toNodeID, createdAt: now }]
+        : [];
+    });
+    recordGraphHistory(currentSnapshot());
+    setState((current) => ({
+      ...current,
+      ...reconcileFrameMembership([...current.nodes, ...clones], current.decorations),
+      edges: [...current.edges, ...cloneEdges],
+      selectedNodeIDs: clones.filter((node) => node.kind !== "output").map((node) => node.id),
+      selectedDecorationIDs: [],
+      selectedEdgeIDs: [],
+      canUndo: true,
+      canRedo: false,
+    }));
+    // 参考素材节点在新项目里没有本地预览地址，按 fileID 重新拉取
+    for (const node of clones) {
+      if ((node.kind === "image" || node.kind === "media") && node.reference && !node.previewURL) {
+        void loadImageNodePreview(node.id, node.reference.fileID);
+      }
+    }
+    return clones.filter((node) => node.kind !== "output").length;
+  },
+
   connectGraphNodes(attempt: GraphConnectionAttempt): boolean {
     const decision = canConnectGraphNodes(state.nodes, state.edges, attempt);
     if (!decision.ok) {
       return false;
     }
     recordGraphHistory(currentSnapshot());
-    setState((current) => ({
-      ...current,
-      edges: [...current.edges, { id: createNodeID(), fromNodeID: attempt.fromNodeID, toNodeID: attempt.toNodeID, toPort: attempt.toPort, createdAt: Date.now() }],
-      selectedEdgeIDs: [],
-      canUndo: true,
-      canRedo: false,
-    }));
+    setState((current) => {
+      const source = current.nodes.find((node) => node.id === attempt.fromNodeID);
+      const target = current.nodes.find((node) => node.id === attempt.toNodeID);
+      // 文本节点连到生成节点的文本端口：目标提示词为空时自动填充文本内容
+      const filledNodes = attempt.toPort === "prompt"
+        && source?.kind === "prompt"
+        && target?.kind === "generate"
+        && !(target.prompt ?? "").trim()
+        && source.text.trim()
+        ? current.nodes.map((node) => node.id === target.id ? { ...node, prompt: source.text } : node)
+        : current.nodes;
+      // 时间线节点：每条素材入边对应一个片段，按端口落到的轨道追加到末尾
+      const segmentTrack = attempt.trackID
+        ?? (attempt.toPort === "audio" ? "audio" : "video");
+      const nodes = target?.kind === "timeline" && (attempt.toPort === "video" || attempt.toPort === "audio") && source
+        ? filledNodes.map((node) => node.id === target.id && node.kind === "timeline"
+          ? {
+            ...node,
+            segments: [
+              ...node.segments,
+              { id: createNodeID(), sourceNodeID: source.id, track: segmentTrack, start: 0, end: 0 },
+            ],
+          }
+          : node)
+        : filledNodes;
+      return {
+        ...current,
+        nodes,
+        edges: [...current.edges, { id: createNodeID(), fromNodeID: attempt.fromNodeID, toNodeID: attempt.toNodeID, toPort: attempt.toPort, createdAt: Date.now() }],
+        selectedEdgeIDs: [],
+        canUndo: true,
+        canRedo: false,
+      };
+    });
     return true;
   },
 
@@ -1757,8 +2172,10 @@ const canvasStoreImplementation = {
       fromMediaType?: CanvasMediaType;
     },
     point: { x: number; y: number },
+    // 用户在连线类型菜单中选择的创建目标；缺省按起拖类型自动推断
+    option?: CanvasAutoConnectOption,
   ): boolean {
-    const plan = resolveAutoConnectPlan(drag);
+    const plan = option ?? resolveAutoConnectPlan(drag);
     if (!plan) {
       return false;
     }
@@ -1771,12 +2188,30 @@ const canvasStoreImplementation = {
   },
 
   removeEdge(edgeID: string): void {
-    if (!state.edges.some((edge) => edge.id === edgeID)) {
+    const target = state.edges.find((edge) => edge.id === edgeID);
+    if (!target) {
       return;
     }
     recordGraphHistory(currentSnapshot());
+    const edgePort = target.toPort;
     setState((current) => ({
       ...current,
+      // 时间线节点的片段由入边生成：删除连线时同步移除对应轨道类型的片段（含自定义轨道）
+      nodes: current.nodes.map((node) => {
+        if (node.kind !== "timeline" || node.id !== target.toNodeID || (edgePort !== "video" && edgePort !== "audio")) {
+          return node;
+        }
+        const targetKind = edgePort === "audio" ? "audio" : "video";
+        return {
+          ...node,
+          segments: node.segments.filter((segment) => {
+            const trackID = segment.track ?? "video";
+            const kind = node.tracks?.find((track) => track.id === trackID)?.kind
+              ?? (trackID.startsWith("audio") ? "audio" : "video");
+            return !(segment.sourceNodeID === target.fromNodeID && kind === targetKind);
+          }),
+        };
+      }),
       edges: current.edges.filter((edge) => edge.id !== edgeID),
       selectedEdgeIDs: current.selectedEdgeIDs.filter((id) => id !== edgeID),
       canUndo: true,
@@ -1884,13 +2319,31 @@ const canvasStoreImplementation = {
     if (!generateNode || generateNode.kind !== "generate" || !labels) {
       return;
     }
-    // 允许连续多次生成：不因下游输出节点在运行而占用生成节点，
-    // 每次点击都是独立任务（唯一 runID），等待/取消在各自的输出节点上
+    // 同一生成节点已有运行中的输出任务时忽略重复触发：避免重复计费与并发冲突。
+    // 取消或完成后再运行由输出节点状态自然放行。
+    const hasRunningOutput = state.nodes.some(
+      (item) => item.kind === "output" && item.sourceGenerateID === generateNodeID && item.status === "running",
+    );
+    if (hasRunningOutput) {
+      return;
+    }
     startAborts.delete(generateNodeID);
     const mediaType = generateNode.mediaType ?? "image";
     const inputs = gatherGraphGenerateInputs(generateNodeID, state.nodes, state.edges);
-    // 对话模式继承生成节点时，输入框文案作为本次提示词覆盖上游节点文本（不改动画布连线）
-    const prompt = overrides?.prompt?.trim() || inputs.prompt;
+    // 提示词优先取节点内绑定内容；对话模式继承输入优先于节点文本；旧提示词节点作为回退。
+    // 素材引用按类型序号（图1 / 视频1）发送：模型看不到文件名，只能靠序号定位素材。
+    const boundPrompt = overrides?.prompt?.trim() || generateNode.prompt?.trim() || inputs.prompt;
+    const prompt = promptForModelWithAssets(boundPrompt, (fileID) => {
+      for (const node of state.nodes) {
+        if ((node.kind === "image" || node.kind === "media") && node.reference?.fileID === fileID) {
+          return canvasAssetKind(node.reference.mimeType, node.reference.fileName);
+        }
+        if (node.kind === "output" && node.fileID === fileID) {
+          return canvasAssetKind(node.mimeType, node.fileName);
+        }
+      }
+      return null;
+    });
     const model = canvasStore.resolveModel(generateNode.model, mediaType, generateNode.modelScope, generateNode.userModelID);
     if (!model) {
       const message = mediaType === "video" ? (labels.noVideoModels ?? labels.noImageModels) : labels.noImageModels;
@@ -1906,7 +2359,18 @@ const canvasStoreImplementation = {
       markGenerateNodeError(generateNodeID, message);
       return;
     }
-    const references = inputs.references;
+    const promptAssets = promptAssetReferences(generateNode, state.nodes, boundPrompt);
+    const references = dedupeReferences([...inputs.references, ...promptAssets.images]);
+    // 视频路线把全部参考素材交给后端按 MIME 分类；图像路线只用参考图决定编辑/生成路由
+    const requestReferences = mediaType === "video"
+      ? dedupeReferences([
+        ...references,
+        ...inputs.videoReferences,
+        ...inputs.audioReferences,
+        ...promptAssets.videos,
+        ...promptAssets.audios,
+      ])
+      : references;
     const decision = resolveCanvasMediaRoute(model, mediaType, references.length);
     if (decision.blockedReason) {
       const message = decision.blockedReason === "edit_reference_required"
@@ -1915,9 +2379,7 @@ const canvasStoreImplementation = {
           ? labels.editUnsupported
           : decision.blockedReason === "video_unsupported"
             ? labels.videoUnsupported
-            : decision.blockedReason === "video_too_many_references"
-              ? labels.videoTooManyReferences
-              : labels.imageUnsupported;
+            : labels.imageUnsupported;
       markGenerateNodeError(generateNodeID, message);
       toast.error(message);
       return;
@@ -1989,10 +2451,11 @@ const canvasStoreImplementation = {
       model,
       options: generateNode.options,
       resultCount,
-      references,
+      references: requestReferences,
       maskReference: generateNode.maskReference ?? null,
       mediaType,
-      stream: generateNode.stream !== false,
+      // 图像生成 / 编辑协议固定非流式；只有视频生成沿用节点的流式开关
+      stream: mediaType === "video" ? generateNode.stream !== false : false,
       route: decision.route,
       conversationID,
       runID,
@@ -2095,7 +2558,8 @@ const canvasStoreImplementation = {
               prompt,
               model: model.platformModelName,
               options: Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
-              stream,
+              // 图像生成 / 编辑协议固定非流式：显式关闭流式，上游不会收到 stream=true
+              stream: false,
               clientRunID: runID,
               fileIDs: references.length > 0 ? references.map((item) => item.fileID) : undefined,
               maskFileID: maskReference?.fileID,
@@ -2829,6 +3293,8 @@ const canvasStoreImplementation = {
     sizeOptions?: ConversationOptions;
     sourceImage: CanvasNodeReference;
     maskReference: CanvasNodeReference | null;
+    // 每次都新建生成节点：素材工具栏操作按预设参数开新节点并自动连线
+    forceNewNode?: boolean;
   }): Promise<void> {
     const sourceNode = state.nodes.find((node) => node.id === input.sourceNodeID);
     if (!sourceNode || (sourceNode.kind !== "output" && sourceNode.kind !== "image") || !labels) {
@@ -2836,12 +3302,13 @@ const canvasStoreImplementation = {
     }
     const sourceSize = graphNodeSize(sourceNode);
     const generateSize = GRAPH_NODE_SIZES.generate;
-    const promptSize = GRAPH_NODE_SIZES.prompt;
 
-    // 复用该源节点已连接的生成节点（取最近一条连线），否则新建
-    const existingEdge = [...state.edges]
-      .filter((edge) => edge.fromNodeID === input.sourceNodeID && edge.toPort === "image")
-      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    // 复用该源节点已连接的生成节点（取最近一条连线），否则新建；强制新建时跳过复用
+    const existingEdge = input.forceNewNode
+      ? undefined
+      : [...state.edges]
+        .filter((edge) => edge.fromNodeID === input.sourceNodeID && edge.toPort === "image")
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
     const existingGenerate = existingEdge
       ? state.nodes.find((node) => node.id === existingEdge.toNodeID && node.kind === "generate")
       : undefined;
@@ -2859,21 +3326,13 @@ const canvasStoreImplementation = {
         userModelID: input.model.modelScope === "user" ? input.model.userModelID : undefined,
         options: input.sizeOptions ?? {},
         resultCount: 1, operation: input.operation, maskReference: input.maskReference,
+        // 编辑描述直接写进生成节点，不再额外创建文本节点
+        prompt: input.prompt,
         runStatus: "idle",
-      };
-      const promptNodeID = createNodeID();
-      // 提示词节点放在源节点（参考图/输出图）正上方、生成节点左侧：
-      // 形成提示词/源图纵向对齐在左、生成节点在右的清晰工作流结构
-      const promptNode: PromptGraphNode = {
-        id: promptNodeID, kind: "prompt",
-        x: Math.round(sourceNode.x + (sourceSize.width - promptSize.width) / 2),
-        y: sourceNode.y - promptSize.height - 72,
-        createdAt: Date.now(), text: input.prompt,
       };
       setState((current) => {
         // 源节点被 Frame 承载时，新节点继承归属且 Frame 自动扩展以容纳它们
         const generateWithFrame = { ...generateNode, frameID: sourceNode.frameID ?? null };
-        const promptWithFrame = { ...promptNode, frameID: sourceNode.frameID ?? null };
         let decorations = current.decorations;
         if (sourceNode.frameID) {
           const frame = decorations.find((item) =>
@@ -2881,13 +3340,12 @@ const canvasStoreImplementation = {
           if (frame) {
             const newElements = [
               { id: generateNodeID, x: generateNode.x, y: generateNode.y, width: generateSize.width, height: generateSize.height },
-              { id: promptNodeID, x: promptNode.x, y: promptNode.y, width: promptSize.width, height: promptSize.height },
             ];
             decorations = decorations.map((item) =>
               item.id === frame.id ? { ...item, ...frameUnionBounds(item, newElements) } : item);
           }
         }
-        const nodes = [...current.nodes, generateWithFrame, promptWithFrame];
+        const nodes = [...current.nodes, generateWithFrame];
         const reconciled = reconcileFrameMembership(nodes, decorations);
         return {
           ...current,
@@ -2896,7 +3354,6 @@ const canvasStoreImplementation = {
           edges: [
             ...current.edges,
             { id: createNodeID(), fromNodeID: input.sourceNodeID, toNodeID: generateNodeID, toPort: "image", createdAt: Date.now() },
-            { id: createNodeID(), fromNodeID: promptNodeID, toNodeID: generateNodeID, toPort: "prompt", createdAt: Date.now() + 1 },
             // 编辑结果写回已连接的输出节点，无连线时由运行时派生新的输出节点
           ],
           canUndo: true,
@@ -2918,15 +3375,11 @@ const canvasStoreImplementation = {
               // 复用节点时编辑器同步的分辨率参数覆盖同名配置，其余参数保留
               options: input.sizeOptions ? mergeCanvasOptions(node.options, input.sizeOptions) : node.options,
               maskReference: input.maskReference,
+              prompt: input.prompt,
               runStatus: "idle",
               errorMessage: undefined,
               errorDetail: undefined,
             };
-          }
-          // 复用已连接的提示词节点：更新其文本为编辑器输入
-          const promptEdge = current.edges.find((edge) => edge.toNodeID === generateNodeID && edge.toPort === "prompt" && edge.fromNodeID === node.id);
-          if (promptEdge && node.kind === "prompt") {
-            return { ...node, text: input.prompt };
           }
           return node;
         }),

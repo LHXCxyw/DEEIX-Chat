@@ -25,6 +25,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/tokenestimate"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 // MediaImageTaskType 表示媒体图片任务类型。
@@ -457,46 +458,44 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	if hasGeneratedImages {
 		emitMediaEvent(input.OnEvent, "saving_artifact", "saving image")
 	}
-	uploaded := make([]model.FileObject, 0, len(output.GeneratedImages))
-	attachmentRows := make([]model.Attachment, 0, len(output.GeneratedImages))
-	generatedBytesByFileID := make(map[string][]byte, len(output.GeneratedImages))
+	// 上游一返回就把可显示的内容推给前端：base64 直接内联，仅 url 的结果按渠道归属决定能否直出。
+	// 下载、上传、入库继续在服务端完成，不再占用「图片出现」的等待时间。
+	previewed := emitGeneratedImagePreviews(input.OnEvent, output.GeneratedImages, route.UntrustedEndpoint)
+	readResults := s.readGeneratedImages(ctx, output.GeneratedImages, mediaArtifactSourceFor(route))
+	readyIndexes := make([]int, 0, len(output.GeneratedImages))
 	// 待保存产物：下载瞬时失败时保留上游 URL 引用，保存职责移交输出节点逐个重试
 	pendingArtifacts := make([]pendingImageArtifact, 0)
-	now := time.Now()
-	for i, image := range output.GeneratedImages {
-		source := mediaArtifactSourceFor(route)
-		data, mimeType, readErr := s.readGeneratedImage(ctx, image, source)
-		if readErr != nil && isRetryableGeneratedMediaDownload(readErr) {
-			// 下载类瞬时故障自动重试一次，多数网络抖动在此消化
-			data, mimeType, readErr = s.readGeneratedImage(ctx, image, source)
-		}
-		if readErr != nil {
-			if url := strings.TrimSpace(image.URL); url != "" && isRetryableGeneratedMediaDownload(readErr) {
+	for index, readResult := range readResults {
+		if readResult.err != nil {
+			if url := strings.TrimSpace(output.GeneratedImages[index].URL); url != "" && isRetryableGeneratedMediaDownload(readResult.err) {
 				// 生成已成功：登记待保存引用，交由输出节点重试下载，不占用生成任务状态
-				pendingArtifacts = append(pendingArtifacts, pendingImageArtifact{URL: url, MimeType: mimeType, Index: i})
+				pendingArtifacts = append(pendingArtifacts, pendingImageArtifact{URL: url, MimeType: readResult.mimeType, Index: index})
 				continue
 			}
-			retErr = s.finalizeGeneratedMediaArtifactFailure(ctx, run, assistantMessage.ID, i+1, len(output.GeneratedImages), readErr)
+			retErr = s.finalizeGeneratedMediaArtifactFailure(ctx, run, assistantMessage.ID, index+1, len(output.GeneratedImages), readResult.err)
 			return buildBillableFailure(retErr, output.Usage), retErr
 		}
-		fileName := generatedImageFileName(route.PlatformModelName, now, i, len(output.GeneratedImages), mimeType)
-		uploadResult, uploadErr := s.uploadSvc.UploadFile(ctx, appupload.UploadFileInput{
-			UserID:       input.UserID,
-			Purpose:      "generated_image",
-			FileName:     fileName,
-			MimeType:     mimeType,
-			DeclaredSize: int64(len(data)),
-			Reader:       bytes.NewReader(data),
-			MaxBytes:     maxGeneratedImageBytes,
-		})
-		if uploadErr != nil {
-			retErr = refineMediaArtifactSaveError(uploadErr)
+		readyIndexes = append(readyIndexes, index)
+		if !previewed[index] {
+			// 平台渠道的临时地址不直接暴露给浏览器：取回字节后再内联预览，仍早于上传与入库。
+			emitGeneratedImagePreviewBytes(input.OnEvent, index, readResult.data, readResult.mimeType, output.GeneratedImages[index].RevisedPrompt)
+		}
+	}
+	now := time.Now()
+	saveResults := s.saveGeneratedImageFiles(ctx, input.UserID, route.PlatformModelName, now, len(output.GeneratedImages), readyIndexes, readResults)
+	uploaded := make([]model.FileObject, 0, len(readyIndexes))
+	attachmentRows := make([]model.Attachment, 0, len(readyIndexes))
+	generatedBytesByFileID := make(map[string][]byte, len(readyIndexes))
+	for _, index := range readyIndexes {
+		saveResult := saveResults[index]
+		if saveResult.err != nil {
+			retErr = refineMediaArtifactSaveError(saveResult.err)
 			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), textutil.TruncateTrimmed(messageErrorSummary(retErr), 255))
 			return buildBillableFailure(retErr, output.Usage), retErr
 		}
-		file := uploadResult.File
+		file := saveResult.file
 		uploaded = append(uploaded, file)
-		generatedBytesByFileID[file.FileID] = data
+		generatedBytesByFileID[file.FileID] = readResults[index].data
 		attachmentRows = append(attachmentRows, model.Attachment{
 			ConversationID: input.ConversationID,
 			MessageID:      assistantMessage.ID,
@@ -793,6 +792,138 @@ func emitMediaImageDelta(onEvent func(string, map[string]any) error, event llm.G
 		"mime_type":      strings.TrimSpace(image.MIMEType),
 		"revised_prompt": strings.TrimSpace(image.RevisedPrompt),
 	})
+}
+
+// generatedImageSaveConcurrency 限制单次任务里下载/落盘的并发数，避免上游与存储同时承压。
+const generatedImageSaveConcurrency = 4
+
+type generatedImageReadResult struct {
+	data     []byte
+	mimeType string
+	err      error
+}
+
+type generatedImageSaveResult struct {
+	file model.FileObject
+	err  error
+}
+
+// emitGeneratedImagePreviews 在上游结果到手后立刻推送可显示的图片内容，供前端先展示。
+// base64 直接内联；上游地址只在用户自建渠道（自带 Key）时下发，避免平台凭据随临时链接外泄。
+// 返回每个序号是否已经推送过预览。
+func emitGeneratedImagePreviews(
+	onEvent func(string, map[string]any) error,
+	images []llm.GeneratedImage,
+	allowURLPreview bool,
+) []bool {
+	previewed := make([]bool, len(images))
+	if onEvent == nil {
+		return previewed
+	}
+	for index, image := range images {
+		if b64 := strings.TrimSpace(image.B64JSON); b64 != "" {
+			_ = onEvent("media_image_delta", map[string]any{
+				"index":          index,
+				"b64_json":       b64,
+				"mime_type":      strings.TrimSpace(image.MIMEType),
+				"revised_prompt": strings.TrimSpace(image.RevisedPrompt),
+			})
+			previewed[index] = true
+			continue
+		}
+		if !allowURLPreview {
+			continue
+		}
+		if url := strings.TrimSpace(image.URL); url != "" {
+			_ = onEvent("media_image_delta", map[string]any{
+				"index":          index,
+				"url":            url,
+				"mime_type":      strings.TrimSpace(image.MIMEType),
+				"revised_prompt": strings.TrimSpace(image.RevisedPrompt),
+			})
+			previewed[index] = true
+		}
+	}
+	return previewed
+}
+
+// emitGeneratedImagePreviewBytes 用已取回的图片字节推送内联预览。
+func emitGeneratedImagePreviewBytes(onEvent func(string, map[string]any) error, index int, data []byte, mimeType string, revisedPrompt string) {
+	if onEvent == nil || len(data) == 0 {
+		return
+	}
+	_ = onEvent("media_image_delta", map[string]any{
+		"index":          index,
+		"b64_json":       base64.StdEncoding.EncodeToString(data),
+		"mime_type":      strings.TrimSpace(mimeType),
+		"revised_prompt": strings.TrimSpace(revisedPrompt),
+	})
+}
+
+// readGeneratedImages 并发取回上游图片字节；单张失败只记录在对应序号，不影响其他图片。
+func (s *Service) readGeneratedImages(ctx context.Context, images []llm.GeneratedImage, source mediaArtifactSource) []generatedImageReadResult {
+	results := make([]generatedImageReadResult, len(images))
+	if len(images) == 0 {
+		return results
+	}
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(generatedImageSaveConcurrency)
+	for index := range images {
+		index := index
+		group.Go(func() error {
+			data, mimeType, err := s.readGeneratedImage(groupCtx, images[index], source)
+			if err != nil && isRetryableGeneratedMediaDownload(err) {
+				// 下载类瞬时故障自动重试一次，多数网络抖动在此消化
+				data, mimeType, err = s.readGeneratedImage(groupCtx, images[index], source)
+			}
+			results[index] = generatedImageReadResult{data: data, mimeType: mimeType, err: err}
+			return nil
+		})
+	}
+	_ = group.Wait()
+	return results
+}
+
+// saveGeneratedImageFiles 并发落盘已取回的图片；结果按原始序号对齐，调用方按序遍历处理错误与附件顺序。
+func (s *Service) saveGeneratedImageFiles(
+	ctx context.Context,
+	userID uint,
+	modelName string,
+	capturedAt time.Time,
+	total int,
+	indexes []int,
+	reads []generatedImageReadResult,
+) []generatedImageSaveResult {
+	results := make([]generatedImageSaveResult, len(reads))
+	if len(indexes) == 0 {
+		return results
+	}
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(generatedImageSaveConcurrency)
+	for _, index := range indexes {
+		index := index
+		group.Go(func() error {
+			read := reads[index]
+			fileName := generatedImageFileName(modelName, capturedAt, index, total, read.mimeType)
+			uploadResult, err := s.uploadSvc.UploadFile(groupCtx, appupload.UploadFileInput{
+				UserID:       userID,
+				Purpose:      "generated_image",
+				FileName:     fileName,
+				MimeType:     read.mimeType,
+				DeclaredSize: int64(len(read.data)),
+				Reader:       bytes.NewReader(read.data),
+				MaxBytes:     maxGeneratedImageBytes,
+			})
+			if err != nil {
+				results[index] = generatedImageSaveResult{err: err}
+				return nil
+			}
+			results[index] = generatedImageSaveResult{file: uploadResult.File}
+			return nil
+		})
+	}
+	_ = group.Wait()
+	return results
 }
 
 func mediaImageStreamEnabled(protocol string, upstreamModel string, capabilitiesJSON string) bool {

@@ -41,7 +41,6 @@ func TestClassifyRunErrorCode(t *testing.T) {
 		{name: "image edit input invalid", err: ErrMediaImageEditInputInvalid, want: "media.image_edit_input_invalid"},
 		{name: "video prompt required", err: ErrMediaVideoPromptRequired, want: "media.video_prompt_required"},
 		{name: "video input invalid", err: ErrMediaVideoInputInvalid, want: "media.video_input_invalid"},
-		{name: "video too many inputs", err: ErrMediaVideoTooManyInputs, want: "media.video_too_many_inputs"},
 		{name: "media route mismatch", err: ErrMediaRouteProtocolMismatch, want: "media.route_protocol_mismatch"},
 		{name: "upstream rate limited", err: wrapUpstreamRequestError(&llm.UpstreamError{StatusCode: http.StatusTooManyRequests}), want: MessageErrorCodeUpstreamRateLimited},
 		{name: "upstream unavailable", err: ErrUpstreamRequestFailed, want: MessageErrorCodeUpstreamUnavailable},

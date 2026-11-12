@@ -22,6 +22,9 @@ import type {
   PersistedGraphEdge,
   PersistedGraphNode,
   PromptGraphNode,
+  TimelineGraphNode,
+  TimelineSegment,
+  TimelineTrackDef,
 } from "./canvas-types.ts";
 import { CANVAS_LEGACY_STORAGE_KEY, CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, CANVAS_STORAGE_KEY } from "./canvas-types.ts";
 
@@ -40,9 +43,11 @@ export function toPersistedGraphNodes(nodes: ReadonlyArray<GraphNode>): Persiste
       case "generate":
         return {
           ...meta, kind: "generate", mediaType: node.mediaType ?? "image", model: node.model, options: node.options,
+          displayName: node.displayName,
           resultCount: node.resultCount, operation: node.operation, maskReference: node.maskReference ?? null,
           stream: node.stream,
           modelScope: node.modelScope === "user" ? "user" : "platform", userModelID: node.userModelID,
+          prompt: node.prompt, promptAssets: node.promptAssets,
           errorMessage: node.errorMessage, errorDetail: node.errorDetail,
           conversationID: node.conversationID, runID: node.runID,
         };
@@ -58,6 +63,8 @@ export function toPersistedGraphNodes(nodes: ReadonlyArray<GraphNode>): Persiste
         };
       case "media":
         return { ...meta, kind: "media", mediaKind: node.mediaKind, reference: node.reference };
+      case "timeline":
+        return { ...meta, kind: "timeline", segments: node.segments, tracks: node.tracks, mutedTracks: node.mutedTracks };
     }
   });
 }
@@ -113,6 +120,10 @@ export function graphNode(value: unknown): PersistedGraphNode | null {
       operation: operationOf(v.operation), maskReference: reference(v.maskReference),
       modelScope: v.modelScope === "user" ? "user" as const : "platform" as const,
       userModelID: finite(v.userModelID) || undefined,
+      prompt: text(v.prompt) || undefined,
+      promptAssets: Array.isArray(v.promptAssets)
+        ? v.promptAssets.flatMap((item) => { const parsed = reference(item); return parsed ? [parsed] : []; })
+        : undefined,
       errorMessage: text(v.errorMessage) || undefined, errorDetail: text(v.errorDetail) || undefined,
       conversationID: text(v.conversationID) || undefined, runID: text(v.runID) || undefined,
     };
@@ -142,6 +153,46 @@ export function graphNode(value: unknown): PersistedGraphNode | null {
       mediaKind: v.mediaKind === "audio" ? "audio" as const : "video" as const,
       reference: reference(v.reference),
     };
+  }
+  if (kind === "timeline") {
+    const segments = Array.isArray(v.segments)
+      ? v.segments.flatMap((item): TimelineSegment[] => {
+          const segment = obj(item);
+          const sourceNodeID = text(segment?.sourceNodeID);
+          if (!segment || !sourceNodeID) {
+            return [];
+          }
+          return [{
+            id: identifier(segment.id),
+            sourceNodeID,
+            track: typeof segment.track === "string" && segment.track.trim()
+              ? segment.track.trim()
+              : "video",
+            start: Math.max(0, finite(segment.start)),
+            end: Math.max(0, finite(segment.end)),
+            timelineStart: segment.timelineStart === undefined || segment.timelineStart === null
+              ? undefined
+              : Math.max(0, finite(segment.timelineStart)),
+          }];
+        })
+      : [];
+    const tracks = Array.isArray(v.tracks)
+      ? v.tracks.flatMap((item): TimelineTrackDef[] => {
+          const track = obj(item);
+          const id = text(track?.id);
+          if (!track || !id) {
+            return [];
+          }
+          return [{ id, kind: track.kind === "audio" ? "audio" : "video" }];
+        })
+      : undefined;
+    const muted = obj(v.mutedTracks);
+    const mutedTracks = muted
+      ? Object.fromEntries(
+          Object.entries(muted).map(([key, value]) => [key, value === true]),
+        )
+      : undefined;
+    return { ...meta, kind: "timeline", segments, tracks, mutedTracks };
   }
   return null;
 }
@@ -204,7 +255,8 @@ export function legacyGraphNodesOf(value: unknown): PersistedGraphNode[] {
     : [];
 }
 
-function decoration(value: unknown): CanvasDecoration | null { const v = obj(value); const kind = v?.kind; if (!v || (kind !== "frame" && kind !== "section" && kind !== "note")) return null; return { id: identifier(v.id), kind, x: finite(v.x), y: finite(v.y), width: Math.max(120, finite(v.width, 320)), height: Math.max(80, finite(v.height, 200)), title: text(v.title), text: text(v.text), color: text(v.color, "indigo"), createdAt: finite(v.createdAt, Date.now()), collapsed: v.collapsed === true, locked: v.locked === true, groupID: text(v.groupID) || null, frameID: text(v.frameID) || null, zIndex: finite(v.zIndex, kind === "note" ? 10 : -10) }; }
+// 旧版分区（section）装饰已移除：读取时直接丢弃，不再进入画布
+function decoration(value: unknown): CanvasDecoration | null { const v = obj(value); const kind = v?.kind; if (!v || (kind !== "frame" && kind !== "note")) return null; return { id: identifier(v.id), kind, x: finite(v.x), y: finite(v.y), width: Math.max(120, finite(v.width, 320)), height: Math.max(80, finite(v.height, 200)), title: text(v.title), text: text(v.text), color: text(v.color, "indigo"), createdAt: finite(v.createdAt, Date.now()), collapsed: v.collapsed === true, locked: v.locked === true, groupID: text(v.groupID) || null, frameID: text(v.frameID) || null, zIndex: finite(v.zIndex, kind === "note" ? 10 : -10) }; }
 function bookmark(value: unknown): CanvasBookmark | null { const v = obj(value); return v ? { id: identifier(v.id), name: text(v.name, "Bookmark"), viewport: viewport(v.viewport), createdAt: finite(v.createdAt, Date.now()) } : null; }
 
 function page(value: unknown, index: number): PersistedCanvasPage | null {
@@ -289,9 +341,12 @@ export function restoreGraphNodes(items: ReadonlyArray<PersistedGraphNode>): Gra
       case "generate":
         return {
           ...meta, kind: "generate", mediaType: item.mediaType ?? "image", model: item.model, options: item.options ?? {},
+          displayName: item.displayName,
           resultCount: item.resultCount, operation: item.operation, maskReference: item.maskReference ?? null,
           stream: item.stream,
           modelScope: item.modelScope === "user" ? "user" : "platform", userModelID: item.userModelID,
+          prompt: item.prompt ?? "",
+          promptAssets: item.promptAssets ?? [],
           // 运行中任务（持久化了会话与运行 ID 且无错误）恢复为待恢复态，由恢复引擎接管；
           // 错误节点保留运行 ID 供「重新查询」手动回查，其余节点回到空闲态
           runStatus: item.runID && item.conversationID && !item.errorMessage ? "pending" : "idle",
@@ -313,6 +368,8 @@ export function restoreGraphNodes(items: ReadonlyArray<PersistedGraphNode>): Gra
         } satisfies OutputGraphNode;
       case "media":
         return { ...meta, kind: "media", mediaKind: item.mediaKind ?? "video", reference: item.reference } satisfies MediaGraphNode;
+      case "timeline":
+        return { ...meta, kind: "timeline", segments: item.segments, tracks: item.tracks, mutedTracks: item.mutedTracks } satisfies TimelineGraphNode;
     }
   });
 }

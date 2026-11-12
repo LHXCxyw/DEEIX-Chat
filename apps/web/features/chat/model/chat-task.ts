@@ -9,16 +9,15 @@ export type ChatSubmitBlockReason =
   | "image_generation_rejects_attachments"
   | "image_task_rejects_non_image_attachments"
   | "video_generation_unsupported_audio"
-  | "video_generation_too_many_references"
   | "video_task_rejects_non_image_attachments"
   | "video_extension_requires_single_mp4"
   | "video_extension_unsupported"
   | "model_task_unsupported";
 
-// 视频生成参考素材上限，与后端 readMediaVideoReferenceParts 及上游引用规则保持一致。
-export const MAX_VIDEO_REFERENCE_IMAGES = 7;
-export const MAX_VIDEO_REFERENCE_VIDEOS = 3;
-export const MAX_VIDEO_REFERENCE_AUDIOS = 4;
+// 视频生成参考素材不设平台侧数量上限，交由上游校验；这里只判断协议是否接受参考音频。
+function videoProtocolSupportsAudio(model: ChatModelOption | null): boolean {
+  return (model?.protocols ?? []).some((item) => item.trim().toLowerCase() === "openai_video_generations");
+}
 
 export type ChatSubmitDecision = {
   task: ChatSubmitTask;
@@ -47,19 +46,6 @@ function isVideoAttachment(item: PendingAttachment): boolean {
 
 function isAudioAttachment(item: PendingAttachment): boolean {
   return item.mimeType.toLowerCase().startsWith("audio/") || item.detectedMime?.toLowerCase().startsWith("audio/") === true;
-}
-
-// 视频生成参考素材上限：OpenAI 兼容视频协议支持多模态参考，其余视频协议只接受单张参考图。
-function videoReferenceLimits(model: ChatModelOption | null): { images: number; videos: number; audios: number } {
-  const protocols = new Set((model?.protocols ?? []).map((item) => item.trim().toLowerCase()));
-  if (protocols.has("openai_video_generations")) {
-    return {
-      images: MAX_VIDEO_REFERENCE_IMAGES,
-      videos: MAX_VIDEO_REFERENCE_VIDEOS,
-      audios: MAX_VIDEO_REFERENCE_AUDIOS,
-    };
-  }
-  return { images: 1, videos: 0, audios: 0 };
 }
 
 function buildDecision(
@@ -145,17 +131,9 @@ export function resolveChatSubmitDecision(
     if (unsupportedAttachmentCount > 0) {
       return buildDecision("video_generation", "video_task_rejects_non_image_attachments", baseDecision);
     }
-    const limits = videoReferenceLimits(model);
-    // 参考音频并非所有视频协议都接受：上限为 0 时直接说明"不支持"，避免用数量超限的文案误导。
-    if (audioAttachmentCount > 0 && limits.audios === 0) {
+    // 参考音频并非所有视频协议都接受：不支持的协议直接说明，避免发送后才由上游报错。
+    if (audioAttachmentCount > 0 && !videoProtocolSupportsAudio(model)) {
       return buildDecision("video_generation", "video_generation_unsupported_audio", baseDecision);
-    }
-    if (
-      imageAttachmentCount > limits.images ||
-      videoAttachmentCount > limits.videos ||
-      audioAttachmentCount > limits.audios
-    ) {
-      return buildDecision("video_generation", "video_generation_too_many_references", baseDecision);
     }
     return buildDecision("video_generation", null, baseDecision);
   }

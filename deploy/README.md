@@ -2,10 +2,11 @@
 
 ## 唯一部署入口
 
-在仓库根目录执行以下两条命令（也可用 `&&` 连接，构建成功后才启动）：
+在仓库根目录执行（首次安装需要初始化一次，之后更新只需 build + up）：
 
 ```bash
-docker compose -f docker-compose.yml build
+docker compose -f docker-compose.yml --profile build-only build
+docker compose -f docker-compose.yml run --rm config-init   # 仅首次安装 / 重建配置
 docker compose -f docker-compose.yml up -d
 ```
 
@@ -22,19 +23,19 @@ docker compose -f docker-compose.yml up -d
 | `app` | 常驻 | 根 `Dockerfile` 的 `runtime-agent` 目标，执行应用与容器内入口 |
 | `postgres` | 常驻 | 官方 `pgvector/pgvector:pg16` |
 | `redis` | 常驻 | 官方 `redis:7-bookworm` |
-| `config-init` | 一次性 | 使用 `deeix-chat:local` 执行 `one-click.sh config`，生成/保留配置与密码 |
-| `agent-command` | build-only | 构建 `deeix-agent-command:local`，`/bin/true` 启动即退出 |
-| `agent-browser` | build-only | 构建 `deeix-agent-browser:local`（`project-browser` 目标），`/bin/true` 启动即退出 |
+| `config-init` | 一次性（`init` profile） | 仅在显式执行 `run --rm config-init` 时运行，生成/保留配置与密码，结束即删除 |
+| `agent-command` | build-only（不创建容器） | 只用于构建 `deeix-agent-command:local` |
+| `agent-browser` | build-only（不创建容器） | 只用于构建 `deeix-agent-browser:local`（`project-browser` 目标） |
 
-`config-init` 与两个 agent 服务退出 0 后，`app` 才会启动。不存在 runner、DinD、内部 registry、seed、`agent-init` 或 `runner-socket-init`。
+`up -d` 默认只创建 `app`、`postgres`、`redis`；上述三类一次性服务不会留下停止容器。不存在 runner、DinD、内部 registry、seed、`agent-init` 或 `runner-socket-init`。
 
 ### 构建与启动链路
 
-`build` 用根 `Dockerfile` 构建 `app`，并分别构建两个 agent 镜像。`agent-command` 的 `deploy/services/agent-command/Dockerfile` 默认使用公开 Python 基础镜像，管理员仍可通过 `--build-arg BASE_IMAGE=<审核过的镜像>` 覆盖；`agent-browser` 使用 `deploy/services/agent-browser/Dockerfile` 的 `project-browser` 目标。
+`--profile build-only build` 用根 `Dockerfile` 构建 `app`，并分别构建两个 agent 镜像。`agent-command` 的 `deploy/services/agent-command/Dockerfile` 默认使用公开 Python 基础镜像，管理员仍可通过 `--build-arg BASE_IMAGE=<审核过的镜像>` 覆盖；`agent-browser` 使用 `deploy/services/agent-browser/Dockerfile` 的 `project-browser` 目标。
 
 两个 agent 镜像满足后端 readiness 校验：`linux`、`User 65532:65532`、固定 Entrypoint、`io.deeix.agent.runner` / `io.deeix.agent.runner-version` / `io.deeix.agent.protocol` 标签、Healthcheck，且不声明 `Volumes`。
 
-`up -d` 依次完成：`config-init` 生成/检查根 `config.yaml` 与 `data/agent-deploy` 密码文件；PostgreSQL、Redis 启动并通过健康检查；两个 agent build-only 容器退出 0；最后 `app` 启动。
+首次安装顺序：`run --rm config-init` 生成/检查根 `config.yaml` 与 `data/agent-deploy` 密码文件（容器结束即删除）；随后 `up -d` 启动 PostgreSQL、Redis 并通过健康检查，最后启动 `app`。已有配置的升级不需要再执行初始化。
 
 `app` 入口在容器内校验 `/run/deeix-config/config.yaml`，对 `deeix-agent-command:local` 与 `deeix-agent-browser:local` 执行 `docker image inspect`，读取 `.Id`（必须为 `sha256:<64hex>`）并校验 `io.deeix.agent.runner` 标签分别为 `deeix-agent-command`、`deeix-agent-project-browser`。随后注入 `AGENT_COMMAND_ENABLED`、`AGENT_COMMAND_IMAGE`、`AGENT_COMMAND_ALLOWED_IMAGES` 及对应的 `AGENT_PROJECT_BROWSER_*` 变量，复制配置到 `/app/config.yaml` 并设置 `CONFIG_FILE`，最后 `exec /app/deeix-chat`。入口不读取 `runtime.env`，不使用 `eval`/`source`，也不接受用户传入的镜像名。
 
@@ -51,7 +52,8 @@ docker compose -f docker-compose.yml up -d
 `app` 默认把宿主 `/var/run/docker.sock` 挂载到容器内同名路径，后端使用容器内 Docker CLI 在同机 daemon 上启动受限任务容器。`AGENT_DOCKER_HOST` 留空即可。
 
 ```bash
-docker compose -f docker-compose.yml build
+docker compose -f docker-compose.yml --profile build-only build
+docker compose -f docker-compose.yml run --rm config-init   # 仅首次安装 / 重建配置
 docker compose -f docker-compose.yml up -d
 ```
 
@@ -67,7 +69,8 @@ export AGENT_DOCKER_TLS_VERIFY=true
 export AGENT_DOCKER_CERT_PATH=/run/deeix-config/tls
 export DEEIX_DOCKER_SOCKET=/dev/null
 
-docker compose -f docker-compose.yml build
+docker compose -f docker-compose.yml --profile build-only build
+docker compose -f docker-compose.yml run --rm config-init   # 仅首次安装 / 重建配置
 docker compose -f docker-compose.yml up -d
 ```
 
@@ -83,21 +86,21 @@ docker compose -f docker-compose.yml up -d
 
 已有根 `config.yaml` **不修改、不覆盖、不重置任何 secret**。仅支持模板结构的内置 postgres/redis，提取原密码供对应容器使用。旧数据存在却缺失配置、目录冒充配置、外部数据库或复杂不支持的 YAML 均报错；请从备份恢复，不自动迁移或猜测密码。Compose 自动创建的空目录不作为旧数据。密码文件与配置快照置于 `data/agent-deploy`，目录 0700、文件 0600；不要分享该目录。`config-init` 挂载仓库根目录到 `/repository`，仅用于读写根配置和该状态目录。
 
-原路径保持：`data/storage` → `/app/storage`、`data/app` → `/app/data`、`data/postgres` → PostgreSQL 原路径、`data/redis` → `/data`。`app` 把根配置快照复制到 `/app/config.yaml`，维持旧相对路径语义；改动根配置后重新执行两条入口命令。
+原路径保持：`data/storage` → `/app/storage`、`data/app` → `/app/data`、`data/postgres` → PostgreSQL 原路径、`data/redis` → `/data`。`app` 把根配置快照复制到 `/app/config.yaml`，维持旧相对路径语义；改动根配置后重新执行初始化与启动命令。
 
-升级前备份根 `config.yaml` 与整个 `data`，更新源码后仍执行同样的 `build`、`up -d`。`config-init` 与两个 build-only agent 服务在镜像或配置变化时由 Compose 重新创建；需要强制重跑时可执行 `docker compose -f docker-compose.yml up -d --force-recreate config-init agent-command agent-browser`。`app` 配置了依赖更新重启。迁移或升级**无需 `down -v`，禁止用删卷解决问题**。更新失败不执行 down/prune，不清空数据；已经运行的旧 app 可能仍在运行，不能把旧 app healthy 误当作本次升级成功，必须核对一次性服务本次退出状态和日志。
+升级前备份根 `config.yaml` 与整个 `data`，更新源码后执行 `--profile build-only build` 与 `up -d`；配置未变化时无需重跑 `config-init`，需要重跑时执行 `docker compose -f docker-compose.yml run --rm config-init`。迁移或升级**无需 `down -v`，禁止用删卷解决问题**。更新失败不执行 down/prune，不清空数据；已经运行的旧 app 可能仍在运行，不能把旧 app healthy 误当作本次升级成功，必须核对日志与 app 健康状态。
 
 ## 状态、健康和日志
 
 ```bash
 docker compose -f docker-compose.yml ps -a
-docker compose -f docker-compose.yml logs --tail=100 config-init agent-command agent-browser app
+docker compose -f docker-compose.yml logs --tail=100 app
 docker compose -f docker-compose.yml logs -f app
 curl --fail http://localhost:3700/healthz
 curl --fail http://localhost:3700/readyz
 ```
 
-成功必须同时满足 `config-init`、`agent-command`、`agent-browser` 本次退出 0，`postgres`/`redis`/`app` 健康，并且 app 内的镜像 ID 与标签校验通过。`up -d` 返回本身不等于最终 app healthy。app 健康检查使用 `/readyz`。首次管理员密码从 app 启动日志的 `bootstrap superadmin created` 读取，首次登录必须修改。Swagger 在默认本地 dev 模式开放，公网使用前必须切换 prod。
+成功必须满足 `postgres`/`redis`/`app` 健康，并且 app 内的镜像 ID 与标签校验通过。`up -d` 返回本身不等于最终 app healthy。app 健康检查使用 `/readyz`。首次管理员密码从 app 启动日志的 `bootstrap superadmin created` 读取，首次登录必须修改。Swagger 在默认本地 dev 模式开放，公网使用前必须切换 prod。
 
 ```bash
 # 停止保留数据；不要加 -v

@@ -305,8 +305,7 @@
     "videoPollTimeout": "Waiting for this video timed out while the upstream is still generating. Use \"Requery\" later to collect the result.",
     "invalidTask": "Invalid image task parameters.",
     "videoInputInvalid": "Video generation input is invalid.",
-    "videoPromptRequired": "Enter a video prompt.",
-    "videoTooManyInputs": "Too many input images for video generation."
+    "videoPromptRequired": "Enter a video prompt."
   },
   "message": {
     "feedbackTargetInvalid": "Invalid message feedback target.",

@@ -167,8 +167,6 @@ var (
 	ErrMediaVideoPromptRequired = apperr.New("media.video_prompt_required", "video prompt is required")
 	// ErrMediaVideoInputInvalid 视频生成输入不合法。
 	ErrMediaVideoInputInvalid = apperr.New("media.video_input_invalid", "video generation input is invalid")
-	// ErrMediaVideoTooManyInputs 视频生成输入图数量超限。
-	ErrMediaVideoTooManyInputs = apperr.New("media.video_too_many_inputs", "too many video generation input images")
 	// ErrMediaVideoReferenceURLUnavailable 参考素材无法签发上游可访问的限时 URL。
 	ErrMediaVideoReferenceURLUnavailable = apperr.New("media.video_reference_url_unavailable", "video reference material cannot be exposed as an accessible url")
 	// ErrMediaRouteProtocolMismatch 图片任务命中的路由协议与任务类型不匹配。

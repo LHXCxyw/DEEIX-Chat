@@ -13,9 +13,9 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { CanvasImageParams } from "@/features/canvas/components/canvas-image-params";
 import { CanvasModelSelect } from "@/features/canvas/components/canvas-model-select";
-import { CanvasPromptExpandDialog } from "@/features/canvas/components/canvas-prompt-expand";
 import {
   canvasModelKey,
   type CanvasModelOption,
@@ -216,11 +216,30 @@ export function CanvasChatComposer({
     [send],
   );
 
-  return (
+  const composer = (
     <div
       data-canvas-ui="chat-composer"
-      className="pointer-events-auto absolute bottom-3 left-3 right-3 z-20 mx-auto max-w-xl rounded-2xl border border-border/70 bg-background/90 p-2.5 shadow-lg backdrop-blur-xl"
+      className={cn(
+        "pointer-events-auto rounded-2xl border border-border/70 bg-background/90 backdrop-blur-xl",
+        expanded
+          ? "fixed left-1/2 top-1/2 z-[81] max-h-[88dvh] w-[min(48rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-3 shadow-2xl"
+          : "absolute bottom-3 left-3 right-3 z-20 mx-auto max-w-xl p-2.5 shadow-lg",
+      )}
     >
+      {expanded ? (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-[11px] font-medium text-muted-foreground">{t("promptExpandTitle")}</span>
+          <button
+            type="button"
+            aria-label={t("promptExpandOpen")}
+            title={t("promptExpandOpen")}
+            className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+            onClick={() => setExpanded(false)}
+          >
+            <X className="size-3.5" strokeWidth={1.8} />
+          </button>
+        </div>
+      ) : null}
       {/* 继承提示条：选中的生成节点把模型、参数与素材带入输入条，可一键解除继承 */}
       {inherited ? (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -287,8 +306,11 @@ export function CanvasChatComposer({
               ? t("inheritedPromptPlaceholder")
               : isVideoModel ? t("videoPromptPlaceholder") : t("promptPlaceholder")
           }
-          rows={1}
-          className="max-h-32 min-h-9 w-full resize-none rounded-xl border border-border/70 bg-background/80 px-3 py-2 pr-9 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/30"
+          rows={expanded ? 8 : 1}
+          className={cn(
+            "w-full resize-none rounded-xl border border-border/70 bg-background/80 pr-9 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/30",
+            expanded ? "min-h-40 max-h-[46dvh] px-3 py-2" : "min-h-6 max-h-32 px-3 py-1",
+          )}
         />
         <button
           type="button"
@@ -358,36 +380,24 @@ export function CanvasChatComposer({
           <ArrowUp className="size-4" strokeWidth={2} />
         </button>
       </div>
-      {/* 放大输入：渲染到 body，避免父级 backdrop-blur 把 fixed 全屏层压缩成卡片大小 */}
-      <CanvasPromptExpandDialog
-        open={expanded}
-        title={t("promptExpandTitle")}
-        value={prompt}
-        placeholder={
-          inherited
-            ? t("inheritedPromptPlaceholder")
-            : isVideoModel ? t("videoPromptPlaceholder") : t("promptPlaceholder")
-        }
-        onChange={setPrompt}
-        onClose={() => setExpanded(false)}
-        footer={
-          <button
-            type="button"
-            disabled={!canSend}
-            className={cn(
-              "inline-flex h-9 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-all active:scale-95",
-              canSend ? "bg-primary hover:bg-primary/90" : "bg-muted text-muted-foreground/60",
-            )}
-            onClick={() => {
-              send();
-              setExpanded(false);
-            }}
-          >
-            <ArrowUp className="size-4" strokeWidth={2} />
-            {t("generate")}
-          </button>
-        }
-      />
     </div>
+  );
+
+  // 放大输入：整个对话框居中放大显示，背景只做轻遮罩，点击遮罩退出
+  if (!expanded) {
+    return composer;
+  }
+  return createPortal(
+    <>
+      <button
+        type="button"
+        data-canvas-ui="chat-composer-backdrop"
+        aria-label={t("promptExpandClose")}
+        className="fixed inset-0 z-[79] cursor-default bg-background/70 backdrop-blur-sm"
+        onClick={() => setExpanded(false)}
+      />
+      {composer}
+    </>,
+    document.body,
   );
 }

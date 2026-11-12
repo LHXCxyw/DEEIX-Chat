@@ -13,7 +13,7 @@ export type CanvasElementMeta = { locked?: boolean; groupID?: string | null; fra
 // ---------------------------------------------------------------------------
 // 节点图模型：提示词 / 参考图 / 参考媒体 / 生成 / 输出五类连线节点
 // ---------------------------------------------------------------------------
-export type GraphNodeKind = "prompt" | "image" | "media" | "generate" | "output";
+export type GraphNodeKind = "prompt" | "image" | "media" | "generate" | "output" | "timeline";
 // 生成节点的运行状态：idle 未运行；pending/streaming 执行中
 export type GraphRunStatus = "idle" | "pending" | "streaming";
 // 参考媒体节点的素材类型：视频或音频
@@ -58,11 +58,14 @@ export type MediaGraphNode = GraphNodeBase & {
   previewFailed?: boolean;
 };
 
-// 生成节点：模型选择、模型参数、生成数量与运行状态都配置在节点内
+// 生成节点：模型、参数、提示词、引用素材与运行状态都配置在节点内。
+// 视觉上与输出合并为单一媒体节点：结果由节点的输出子节点承载并在卡片内呈现。
 export type GenerateGraphNode = GraphNodeBase & {
   kind: "generate";
   // 媒体类型决定路由（图像 media 路由 / 视频生成路由）、参数面板与输出形态
   mediaType: CanvasMediaType;
+  // 用户自定义的节点名称（双击节点下方名称条修改）
+  displayName?: string;
   model: string | null;
   // 模型作用域与用户模型 ID：同一模型名可能存在于多个接口（用户模型按上游重复），
   // 以此精确定位目录中的唯一模型条目
@@ -75,6 +78,10 @@ export type GenerateGraphNode = GraphNodeBase & {
   operation: CanvasOperation;
   // 局部重绘等场景由图像编辑器注入，不经端口连线
   maskReference?: CanvasNodeReference | null;
+  // 绑定在节点内的提示词：支持 @[名称](fileID) 引用素材
+  prompt?: string;
+  // 提示词内引用或对话框上传的素材（与连线素材合并后参与生成）
+  promptAssets?: CanvasNodeReference[];
   runStatus: GraphRunStatus;
   statusLabel?: string;
   previewURL?: string;
@@ -132,8 +139,55 @@ export type OutputGraphNode = GraphNodeBase & {
   previewURL?: string;
 };
 
+// 时间线轨道类型：视频轨与音频轨可以各自添加多条
+export type TimelineTrackKind = "video" | "audio";
+
+// 轨道定义：id 为轨道标识（内置轨固定为 video / audio，自定义轨为 video-2 等）
+export type TimelineTrackDef = {
+  id: string;
+  kind: TimelineTrackKind;
+};
+
+// 内置双轨：旧数据没有 tracks 字段时使用
+export const DEFAULT_TIMELINE_TRACKS: TimelineTrackDef[] = [
+  { id: "video", kind: "video" },
+  { id: "audio", kind: "audio" },
+];
+
+// 时间线轨道：兼容旧版固定双轨写法
+export type TimelineTrack = string;
+
+// 时间线节点：按顺序拼接多个片段（视频/音频双轨），支持片段分割与删除，导出后生成新的视频素材
+export type TimelineSegment = {
+  id: string;
+  sourceNodeID: string;
+  // 所属轨道 id；旧数据缺省按视频轨处理
+  track?: TimelineTrack;
+  // 片段在源视频中的起止秒数；end <= start 表示使用整段素材
+  start: number;
+  end: number;
+  // 片段在时间线上的起点（秒）；缺省时按轨道顺序紧凑排列
+  timelineStart?: number;
+};
+
+export type TimelineGraphNode = GraphNodeBase & {
+  kind: "timeline";
+  segments: TimelineSegment[];
+  // 轨道列表；缺省为内置视频轨 + 音频轨
+  tracks?: TimelineTrackDef[];
+  // 分轨静音状态
+  mutedTracks?: Partial<Record<TimelineTrack, boolean>>;
+  // 播放中（瞬态）：用于把时间线节点提到最上层，播放预览不被其他节点遮挡
+  playing?: boolean;
+  // 悬停预览中（瞬态）：视口据此提升层级，避免预览画面被其他节点遮挡
+  previewing?: boolean;
+  // 导出拼接中 / 导出失败信息（瞬态）
+  exporting?: boolean;
+  exportError?: string;
+};
+
 // HTML 预览节点已移除；保留占位注释以便阅读历史差异。
-export type GraphNode = PromptGraphNode | ImageGraphNode | MediaGraphNode | GenerateGraphNode | OutputGraphNode;
+export type GraphNode = PromptGraphNode | ImageGraphNode | MediaGraphNode | GenerateGraphNode | OutputGraphNode | TimelineGraphNode;
 
 // 图节点部分更新补丁：按节点类型取联合，避免 kind 字面量交叉被 TS 归约为 never
 export type GraphNodeUpdate =
@@ -141,7 +195,8 @@ export type GraphNodeUpdate =
   | Partial<ImageGraphNode>
   | Partial<MediaGraphNode>
   | Partial<GenerateGraphNode>
-  | Partial<OutputGraphNode>;
+  | Partial<OutputGraphNode>
+  | Partial<TimelineGraphNode>;
 
 // 连线：fromNodeID 的出端口 -> toNodeID 的入端口
 export type GraphInputPort = "prompt" | "image" | "video" | "audio" | "result";
@@ -159,35 +214,24 @@ export const GRAPH_NODE_SIZES: Record<GraphNodeKind, { width: number; height: nu
     Object.values(CANVAS_NODE_REGISTRY).map((entry) => [entry.kind, entry.size] as const),
   ) as Record<GraphNodeKind, { width: number; height: number }>;
 
-// 节点尺寸入参：媒体类型决定生成 / 输出节点的工作流尺寸，连接行数决定生成节点的动态高度
-export type GraphNodeSizeInput = { kind: GraphNodeKind; mediaType?: CanvasMediaType; connectionRows?: number };
+// 节点尺寸入参：媒体类型决定生成 / 输出节点的工作流尺寸，素材类型决定音频素材的横向尺寸
+export type GraphNodeSizeInput = { kind: GraphNodeKind; mediaType?: CanvasMediaType; mediaKind?: CanvasMediaKind };
 
-// 生成节点每个上游连接行占用的额外高度
-export const GENERATE_CONNECTION_ROW_HEIGHT = 18;
-// 生成节点固定部分高度（标题栏 + 模型/参数行 + 运行按钮 + 内边距）：
-// 其余高度全部留给上游清单区，清单有几行就占几行，避免出现大面积空白
-export const GENERATE_NODE_FIXED_HEIGHT = 170;
-// 上游清单区最小高度：端口全部未连接时也要留出足够的点击与阅读空间
-export const GENERATE_LIST_MIN_HEIGHT = 150;
-
-// 生成节点高度 = 固定部分 + 清单区（随上游行数增长，不足最小值时保持最小值）
-export function generateNodeHeight(connectionRows: number): number {
-  const rows = Math.max(0, connectionRows);
-  return GENERATE_NODE_FIXED_HEIGHT + Math.max(GENERATE_LIST_MIN_HEIGHT, rows * GENERATE_CONNECTION_ROW_HEIGHT);
-}
-
+// 生成节点与输出在视觉上合并为单一媒体节点，尺寸固定以保证端口几何稳定
 export function graphNodeSize(node: GraphNodeSizeInput): { width: number; height: number } {
   const entry = CANVAS_NODE_REGISTRY[node.kind];
-  const base = (node.mediaType ? entry.sizeByMediaType?.[node.mediaType] : undefined) ?? entry.size;
-  if (node.kind === "generate") {
-    return { width: base.width, height: generateNodeHeight(node.connectionRows ?? 0) };
+  const byMediaType = node.mediaType ? entry.sizeByMediaType?.[node.mediaType] : undefined;
+  if (byMediaType) {
+    return byMediaType;
   }
-  return base;
+  const byMediaKind = node.mediaKind ? entry.sizeByMediaKind?.[node.mediaKind] : undefined;
+  return byMediaKind ?? entry.size;
 }
 
 export type CanvasDecoration = CanvasElementMeta & {
   id: string;
-  kind: "frame" | "section" | "note";
+  // 组（frame）承载节点并随移动携带内容；note 为文本注释。
+  kind: "frame" | "note";
   x: number; y: number; width: number; height: number;
   title: string; text: string; color: string; createdAt: number; collapsed?: boolean;
 };
@@ -207,11 +251,15 @@ export type PersistedImageGraphNode = PersistedGraphNodeBase & {
 };
 export type PersistedGenerateGraphNode = PersistedGraphNodeBase & {
   kind: "generate"; mediaType?: CanvasMediaType; model: string | null; options?: ConversationOptions; resultCount: number;
+  // 用户自定义节点名称
+  displayName?: string;
   // 流式请求偏好：缺省视为开启
   stream?: boolean;
   operation: CanvasOperation; maskReference?: CanvasNodeReference | null; errorMessage?: string; errorDetail?: string;
   // 模型作用域与用户模型 ID（区分不同接口下的同名模型）
   modelScope?: "platform" | "user"; userModelID?: number;
+  // 绑定在节点内的提示词与素材引用
+  prompt?: string; promptAssets?: CanvasNodeReference[];
   // 运行中任务恢复所需的会话与运行 ID（仅运行期间存在）
   conversationID?: string; runID?: string;
 };
@@ -228,12 +276,20 @@ export type PersistedOutputGraphNode = PersistedGraphNodeBase & {
   // 运行中任务的恢复引用（仅运行期间存在）
   conversationID?: string; runID?: string;
 };
+// 时间线节点：持久化片段列表（源节点 + 轨道 + 起止秒数）
+export type PersistedTimelineGraphNode = PersistedGraphNodeBase & {
+  kind: "timeline";
+  segments: TimelineSegment[];
+  tracks?: TimelineTrackDef[];
+  mutedTracks?: Partial<Record<TimelineTrack, boolean>>;
+};
 export type PersistedGraphNode =
   | PersistedPromptGraphNode
   | PersistedImageGraphNode
   | PersistedMediaGraphNode
   | PersistedGenerateGraphNode
-  | PersistedOutputGraphNode;
+  | PersistedOutputGraphNode
+  | PersistedTimelineGraphNode;
 export type PersistedGraphEdge = { id: string; fromNodeID: string; toNodeID: string; toPort: GraphInputPort; createdAt: number };
 
 // 旧版图像卡片持久化结构（仅用于 v3 -> v4 迁移）

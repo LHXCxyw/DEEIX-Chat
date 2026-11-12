@@ -1288,6 +1288,11 @@ func marshalStreamPayload(payload map[string]any) (string, error) {
 }
 
 func generationStreamPayloadForStore(payload map[string]any) (map[string]any, bool) {
+	// 内联图片预览可达数 MB：只服务实时展示，若整条写入事件存储会阻塞实时推送并放大回放成本。
+	// 这里只落一个占位壳（实时流仍按原始载荷下发），回放时由终态事件补齐真实结果。
+	if isOversizedMediaImagePreviewPayload(payload) {
+		return stripMediaImagePreviewPayload(payload), true
+	}
 	if !isTraceUpdateStreamPayload(payload) {
 		return payload, false
 	}
@@ -1301,6 +1306,22 @@ func generationStreamPayloadForStore(payload map[string]any) (map[string]any, bo
 		return sanitized, true
 	}
 	return compactOversizedGenerationStreamPayload(sanitized), true
+}
+
+// isOversizedMediaImagePreviewPayload 判断图片增量事件是否携带大体积内联图片。
+func isOversizedMediaImagePreviewPayload(payload map[string]any) bool {
+	if strings.TrimSpace(streamString(payload["type"])) != "media_image_delta" {
+		return false
+	}
+	return len(streamString(payload["b64_json"])) > generationStreamMaxPayloadBytes
+}
+
+// stripMediaImagePreviewPayload 去掉内联图片载荷并标记已省略，避免回放把占位当成可展示数据。
+func stripMediaImagePreviewPayload(payload map[string]any) map[string]any {
+	stripped := cloneStreamPayload(payload)
+	delete(stripped, "b64_json")
+	stripped["previewOmitted"] = true
+	return stripped
 }
 
 func shouldReturnSanitizedGenerationStreamPayload(actual map[string]any, sanitized bool) bool {

@@ -78,12 +78,18 @@ export function CanvasMinimap({
     () => new Set(decorations.filter((item) => item.kind === "frame" && item.collapsed).map((item) => item.id)),
     [decorations],
   );
-  const visibleNodes = React.useMemo(
-    () => collapsedFrameIDs.size === 0
-      ? nodes
-      : nodes.filter((node) => !node.frameID || !collapsedFrameIDs.has(node.frameID)),
-    [nodes, collapsedFrameIDs],
-  );
+  const visibleNodes = React.useMemo(() => {
+    // 输出子节点已合并进生成节点：小地图不重复绘制
+    const mergedOutputs = new Set(
+      nodes
+        .filter((node) => node.kind === "output" && node.sourceGenerateID && nodes.some((item) => item.id === node.sourceGenerateID))
+        .map((node) => node.id),
+    );
+    const base = nodes.filter((node) => !mergedOutputs.has(node.id));
+    return collapsedFrameIDs.size === 0
+      ? base
+      : base.filter((node) => !node.frameID || !collapsedFrameIDs.has(node.frameID));
+  }, [nodes, collapsedFrameIDs]);
   const visibleDecorations = React.useMemo(
     () => collapsedFrameIDs.size === 0
       ? decorations
@@ -248,17 +254,16 @@ export function CanvasMinimap({
           dragTransformRef.current = null;
         }}
       >
-        {/* 装饰轮廓：Section 最底层，Frame / Note 其上（折叠的装饰按 48px 标题条绘制） */}
-        {[...decorations].sort((a, b) => (a.kind === "section" ? 0 : 1) - (b.kind === "section" ? 0 : 1)).map((item) => {
-          const rect = toMinimapRect(item.x, item.y, item.width, (item.kind === "frame" || item.kind === "section") && item.collapsed ? 48 : item.height);
+        {/* 装饰轮廓：组 / 注释（折叠的组按 48px 标题条绘制） */}
+        {[...decorations].sort((a, b) => (b.zIndex ?? 0) - (a.zIndex ?? 0)).map((item) => {
+          const rect = toMinimapRect(item.x, item.y, item.width, item.kind === "frame" && item.collapsed ? 48 : item.height);
           return (
             <div
               key={item.id}
               title={item.title}
               className={cn(
                 "pointer-events-none absolute rounded-[2px] border",
-                item.kind === "frame" && "border-indigo-400/70 bg-indigo-500/15",
-                item.kind === "section" && "border-dashed border-cyan-400/60 bg-cyan-400/10",
+                item.kind === "frame" && "border-dashed border-indigo-400/60 bg-indigo-500/10",
                 item.kind === "note" && "border-amber-400/70 bg-amber-300/20",
               )}
               style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
