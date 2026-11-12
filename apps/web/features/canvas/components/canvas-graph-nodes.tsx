@@ -539,6 +539,9 @@ function GenerateGraphNodeView({
     || node.runStatus === "streaming";
   const isDone = resultNode?.status === "done";
   const errorMessage = resultNode?.status === "error" ? resultNode.errorMessage : node.errorMessage;
+  // 失败详情与错误文案同源：运行失败落在任务绑定的输出节点上，这里必须读 resultNode，
+  // 否则只显示文案、看不到上游原始响应。
+  const errorDetail = resultNode?.status === "error" ? resultNode.errorDetail : node.errorDetail;
   const statusLabel = resultNode?.statusLabel ?? node.statusLabel;
   const progress = resultNode?.progress ?? node.progress;
   const streamingPreview = resultNode?.status === "running" ? resultNode.previewURL : node.previewURL;
@@ -781,7 +784,7 @@ function GenerateGraphNodeView({
                   </button>
                 </>
               )}
-              {node.errorDetail ? <ErrorDetailPanel detail={node.errorDetail} /> : null}
+              {errorDetail ? <ErrorDetailPanel detail={errorDetail} /> : null}
             </div>
           ) : (
             <div className="flex size-full flex-col items-center justify-center gap-1.5 p-3 text-center">
